@@ -1,0 +1,9 @@
+{
+  "imports": {
+    "@google/genai": "npm:@google/genai@2.15.0",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.76.1"
+  },
+  "compilerOptions": {
+    "strict": true
+  }
+}

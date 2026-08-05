@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.env.local
+.supabase/
+*.log
+data/documents/
+data/cache/
+data/knowledge/*
+!data/knowledge/.gitkeep
+data/models/
