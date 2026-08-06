@@ -17,6 +17,10 @@ import type { QuestionLogRepository } from './modules/question-log/question-log-
 import { QuestionLogService } from './modules/question-log/question-log-service.ts';
 import { SqliteQuestionLogRepository } from './modules/question-log/sqlite-question-log-repository.ts';
 import { UnavailableQuestionLogRepository } from './modules/question-log/unavailable-question-log-repository.ts';
+import type { BookRepository } from './modules/books/book-repository.ts';
+import { BookService } from './modules/books/book-service.ts';
+import { SqliteBookRepository } from './modules/books/sqlite-book-repository.ts';
+import { UnavailableBookRepository } from './modules/books/unavailable-book-repository.ts';
 
 export function createRuntime(config: LocalRuntimeConfig) {
   const embedder = new MultilingualEmbedder(
@@ -53,14 +57,28 @@ export function createRuntime(config: LocalRuntimeConfig) {
     )
     : undefined;
   const questionLogRepository = createQuestionLogRepository(config.questionLogDatabaseFile);
+  // Edition metadata intentionally remains separate from DocumentStore and KnowledgeSource.
+  // Publishing never imports, indexes, or exposes an edition document automatically.
+  const bookRepository = createBookRepository(config.booksDatabaseFile);
 
   return {
     answerService: new AnswerService(knowledge, config.matchCount, model, questionExpander),
     documentStore: new DocumentStore(config.documentDirectory, config.knowledgeDirectory),
+    bookRepository,
+    bookService: new BookService(bookRepository),
     knowledge,
     questionLogRepository,
     questionLogService: new QuestionLogService(questionLogRepository),
   };
+}
+
+function createBookRepository(path: string): BookRepository {
+  try {
+    return new SqliteBookRepository(path);
+  } catch (error) {
+    console.warn('Local book database could not be initialized; existing document upload remains available.');
+    return new UnavailableBookRepository(error);
+  }
 }
 
 function createQuestionLogRepository(path: string): QuestionLogRepository {

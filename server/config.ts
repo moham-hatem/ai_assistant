@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 
 export interface LocalRuntimeConfig {
   answerCacheFile: string;
+  booksDatabaseFile: string;
   documentDirectory: string;
   knowledgeDirectory: string;
   matchCount: number;
@@ -44,6 +45,7 @@ function boundedNumber(value: string | undefined, fallback: number, minimum: num
 export function createLocalConfig(env: Record<string, string>, cwd: string): LocalRuntimeConfig {
   return {
     answerCacheFile: resolve(cwd, env.ANSWER_CACHE_FILE?.trim() || 'data/cache/answers.json'),
+    booksDatabaseFile: resolve(cwd, env.BOOKS_DATABASE_FILE?.trim() || 'data/books.sqlite'),
     documentDirectory: resolve(cwd, env.DOCUMENT_DIRECTORY?.trim() || 'data/documents'),
     knowledgeDirectory: resolve(cwd, env.KNOWLEDGE_DIRECTORY?.trim() || 'data/knowledge'),
     matchCount: boundedInteger(env.KNOWLEDGE_MATCH_COUNT, 6, 12),

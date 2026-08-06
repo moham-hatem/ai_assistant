@@ -1,0 +1,132 @@
+import assert from 'node:assert/strict';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import test from 'node:test';
+import { BookService } from './book-service.ts';
+import { createBooksHandler } from './books-handler.ts';
+import { SqliteBookRepository } from './sqlite-book-repository.ts';
+import { UnavailableBookRepository } from './unavailable-book-repository.ts';
+
+test('internal book API validates input, paginates, and drives edition publication explicitly', async () => {
+  const repository = new SqliteBookRepository(':memory:');
+  const service = new BookService(repository);
+  const handler = createBooksHandler(service, () => undefined);
+
+  try {
+    await withServer((request, response) => {
+      const url = new URL(request.url ?? '/', 'http://localhost');
+      void handler(request, response, url);
+    }, async (baseUrl) => {
+      const invalid = await jsonRequest(`${baseUrl}/api/internal/books`, 'POST', { language: 'ar' });
+      assert.equal(invalid.response.status, 400);
+      assert.equal(invalid.body.code, 'INVALID_REQUEST');
+
+      const created = await jsonRequest(`${baseUrl}/api/internal/books`, 'POST', {
+        authorOrOrganization: 'Independent publisher',
+        language: 'zh-Hant',
+        title: 'Open-language book',
+      });
+      assert.equal(created.response.status, 201);
+      const book = created.body.book as { id: string; language: string };
+      assert.equal(book.language, 'zh-Hant');
+
+      const list = await jsonRequest(`${baseUrl}/api/internal/books?limit=1&offset=0`);
+      assert.equal(list.response.status, 200);
+      assert.equal(list.body.total, 1);
+      assert.equal((list.body.items as unknown[]).length, 1);
+      const invalidPage = await jsonRequest(`${baseUrl}/api/internal/books?limit=0`);
+      assert.equal(invalidPage.response.status, 400);
+
+      const editionInput = {
+        contentHash: 'A'.repeat(64),
+        originalDocumentReference: 'documents/source.pdf',
+        version: 1,
+      };
+      const added = await jsonRequest(
+        `${baseUrl}/api/internal/books/${book.id}/editions`,
+        'POST',
+        editionInput,
+      );
+      assert.equal(added.response.status, 201);
+      const edition = added.body.edition as { id: string; status: string; version: string };
+      assert.deepEqual({ status: edition.status, version: edition.version }, { status: 'draft', version: '1' });
+
+      const duplicate = await jsonRequest(
+        `${baseUrl}/api/internal/books/${book.id}/editions`,
+        'POST',
+        { ...editionInput, version: 'duplicate' },
+      );
+      assert.equal(duplicate.response.status, 409);
+      assert.equal(duplicate.body.code, 'DUPLICATE_EDITION');
+
+      const directPublish = await transition(baseUrl, book.id, edition.id, 'published');
+      assert.equal(directPublish.response.status, 409);
+      assert.equal(directPublish.body.code, 'INVALID_EDITION_TRANSITION');
+      assert.equal((await transition(baseUrl, book.id, edition.id, 'processing')).response.status, 200);
+      assert.equal((await transition(baseUrl, book.id, edition.id, 'ready')).response.status, 200);
+      const published = await transition(baseUrl, book.id, edition.id, 'published');
+      assert.equal(published.response.status, 200);
+      assert.equal((published.body.edition as { status: string }).status, 'published');
+
+      const editions = await jsonRequest(
+        `${baseUrl}/api/internal/books/${book.id}/editions?limit=25&offset=0`,
+      );
+      assert.equal(editions.body.total, 1);
+      assert.equal(((editions.body.items as Array<{ status: string }>)[0]).status, 'published');
+    });
+  } finally {
+    repository.close();
+  }
+});
+
+test('internal book API reports database initialization failure without exposing its cause', async () => {
+  const handler = createBooksHandler(
+    new BookService(new UnavailableBookRepository(new Error('secret filesystem detail'))),
+    () => undefined,
+  );
+  await withServer((request, response) => {
+    const url = new URL(request.url ?? '/', 'http://localhost');
+    void handler(request, response, url);
+  }, async (baseUrl) => {
+    const result = await jsonRequest(`${baseUrl}/api/internal/books`);
+    assert.equal(result.response.status, 503);
+    assert.equal(result.body.code, 'BOOKS_UNAVAILABLE');
+    assert.equal(JSON.stringify(result.body).includes('secret filesystem detail'), false);
+  });
+});
+
+function transition(baseUrl: string, bookId: string, editionId: string, status: string) {
+  return jsonRequest(
+    `${baseUrl}/api/internal/books/${bookId}/editions/${editionId}/transition`,
+    'POST',
+    { status },
+  );
+}
+
+async function jsonRequest(url: string, method = 'GET', body?: unknown) {
+  const response = await fetch(url, {
+    method,
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return { response, body: await response.json() as Record<string, unknown> };
+}
+
+async function withServer(
+  handler: (request: IncomingMessage, response: ServerResponse) => void,
+  run: (baseUrl: string) => Promise<void>,
+): Promise<void> {
+  const server = createServer(handler);
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Test server did not bind.');
+  try {
+    await run(`http://127.0.0.1:${address.port}`);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+}
