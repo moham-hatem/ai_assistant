@@ -5,6 +5,7 @@ import { createAnswerHandler } from '../http/answer-handler.ts';
 import { createDocumentsHandler } from '../http/documents-handler.ts';
 import { createQuestionLogHandler } from '../modules/question-log/question-log-handler.ts';
 import { createBooksHandler } from '../modules/books/books-handler.ts';
+import { createReviewsHandler } from '../modules/reviews/reviews-handler.ts';
 
 export function localAnswerApi(config: LocalRuntimeConfig): Plugin {
   return {
@@ -21,6 +22,7 @@ export function localAnswerApi(config: LocalRuntimeConfig): Plugin {
       const books = createBooksHandler(runtime.bookService, logError, runtime.bookDocuments);
       const documents = createDocumentsHandler(runtime.bookDocuments, logError);
       const questionLogs = createQuestionLogHandler(runtime.questionLogRepository, logError);
+      const reviews = createReviewsHandler(runtime.reviewService, logError);
 
       server.middlewares.use((request, response, next) => {
         const url = new URL(request.url ?? '/', 'http://localhost');
@@ -30,6 +32,9 @@ export function localAnswerApi(config: LocalRuntimeConfig): Plugin {
         }
         else if (url.pathname.startsWith('/api/internal/question-logs')) {
           void questionLogs(request, response, url);
+        }
+        else if (url.pathname.startsWith('/api/internal/reviews')) {
+          void reviews(request, response, url);
         }
         else if (url.pathname.startsWith('/api/knowledge/documents')) {
           void documents(request, response, url);

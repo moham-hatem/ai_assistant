@@ -23,6 +23,10 @@ import { SqliteBookRepository } from './modules/books/sqlite-book-repository.ts'
 import { UnavailableBookRepository } from './modules/books/unavailable-book-repository.ts';
 import { BookDocumentService } from './modules/books/book-document-service.ts';
 import { BookDocumentEvidenceSource } from './modules/books/book-document-evidence.ts';
+import type { ReviewRepository } from './modules/reviews/review-repository.ts';
+import { ReviewService } from './modules/reviews/review-service.ts';
+import { SqliteReviewRepository } from './modules/reviews/sqlite-review-repository.ts';
+import { UnavailableReviewRepository } from './modules/reviews/unavailable-review-repository.ts';
 
 export function createRuntime(config: LocalRuntimeConfig) {
   const documentStore = new DocumentStore(config.documentDirectory, config.knowledgeDirectory);
@@ -67,6 +71,7 @@ export function createRuntime(config: LocalRuntimeConfig) {
     )
     : undefined;
   const questionLogRepository = createQuestionLogRepository(config.questionLogDatabaseFile);
+  const reviewRepository = createReviewRepository(config.questionLogDatabaseFile);
   return {
     answerService: new AnswerService(knowledge, config.matchCount, model, questionExpander),
     bookDocuments,
@@ -76,7 +81,18 @@ export function createRuntime(config: LocalRuntimeConfig) {
     knowledge,
     questionLogRepository,
     questionLogService: new QuestionLogService(questionLogRepository),
+    reviewRepository,
+    reviewService: new ReviewService(reviewRepository, questionLogRepository),
   };
+}
+
+function createReviewRepository(path: string): ReviewRepository {
+  try {
+    return new SqliteReviewRepository(path);
+  } catch (error) {
+    console.warn('Local review database could not be initialized; teacher review is unavailable.');
+    return new UnavailableReviewRepository(error);
+  }
 }
 
 function createBookRepository(path: string): BookRepository {

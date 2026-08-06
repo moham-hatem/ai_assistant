@@ -1,4 +1,5 @@
-export type QuestionLogChannel = 'telegram' | 'web';
+// Channels are operational identifiers and remain open for future integrations.
+export type QuestionLogChannel = string;
 
 // Audit storage is intentionally independent from the languages enabled by any current channel.
 export type QuestionLogAnswerLanguage = string;
