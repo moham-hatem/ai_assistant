@@ -18,6 +18,7 @@ src/features/chat/containers  ربط الحالة بمكونات العرض
 src/features/chat/components  مكونات UI عرضية
 src/features/admin            هيكل لوحة الإدارة وصفحاتها ومكوناتها
 src/features/admin/question-logs  عميل سجل الأسئلة وحالته وقائمته وتفاصيله
+src/features/admin/books      عميل الكتب وحالة القائمة/التفاصيل ومكونات إدارة الإصدارات
 
 server/http                   التحقق من الطلب والاستجابة
 server/answer-service         حالة الاستخدام الأساسية
@@ -26,6 +27,7 @@ server/documents              استخراج المستندات وحفظ الأ�
 server/model                  OpenCode والـPrompt والتحقق
 server/modules/question-log   عقد السجل وخدمته وتخزين SQLite وواجهات القراءة
 server/modules/books          مجال الكتب والإصدارات وSQLite migrations وواجهات الإدارة
+server/modules/reviews        طابور مراجعة المعلمين وقراراته وسجل أحداث SQLite غير القابل للتعديل
 server/vite                   ربط الـAPI بخادم التطوير
 server/create-runtime         إنشاء وربط الاعتماديات
 ```
