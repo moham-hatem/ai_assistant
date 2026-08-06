@@ -1,13 +1,7 @@
-import type { EditionStatus } from '../../../shared/contracts/books.ts';
-
-const transitions: Readonly<Record<EditionStatus, readonly EditionStatus[]>> = {
-  archived: ['ready'],
-  draft: ['processing', 'rejected', 'archived'],
-  processing: ['ready', 'rejected', 'archived'],
-  published: ['archived'],
-  ready: ['published', 'rejected', 'archived'],
-  rejected: ['draft', 'archived'],
-};
+import {
+  allowedEditionTransitions,
+  type EditionStatus,
+} from '../../../shared/contracts/books.ts';
 
 export class InvalidEditionTransitionError extends Error {
   readonly from: EditionStatus;
@@ -22,9 +16,9 @@ export class InvalidEditionTransitionError extends Error {
 }
 
 export function assertEditionTransition(from: EditionStatus, to: EditionStatus): void {
-  if (!transitions[from].includes(to)) throw new InvalidEditionTransitionError(from, to);
+  if (!allowedEditionTransitions(from).includes(to)) {
+    throw new InvalidEditionTransitionError(from, to);
+  }
 }
 
-export function allowedEditionTransitions(status: EditionStatus): readonly EditionStatus[] {
-  return transitions[status];
-}
+export { allowedEditionTransitions } from '../../../shared/contracts/books.ts';

@@ -1,0 +1,74 @@
+import { useState } from 'react';
+import { CheckCircle2, TriangleAlert, X } from 'lucide-react';
+import type { AppLanguage } from '../../../../i18n/language';
+import { KnowledgeManager } from '../../../knowledge/containers/KnowledgeManager';
+import { BookDetails } from '../components/BookDetails';
+import { BooksList } from '../components/BooksList';
+import { TransitionDialog } from '../components/TransitionDialog';
+import { booksCopies } from '../copy';
+import { useBooks } from '../hooks/useBooks';
+import type { PendingTransition } from '../types';
+
+interface BooksWorkspaceProps { language: AppLanguage }
+
+export function BooksWorkspace({ language }: BooksWorkspaceProps) {
+  const books = useBooks();
+  const copy = booksCopies[language];
+  const [pending, setPending] = useState<PendingTransition | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  async function confirmTransition() {
+    if (!pending) return;
+    const updated = await books.runTransition(pending.edition.id, pending.targetStatus);
+    setPending(null);
+    if (updated) setSuccess(copy.transitionSuccess(updated.version, copy.statuses[updated.status]));
+  }
+
+  function requestTransition(transition: PendingTransition) {
+    setSuccess(null);
+    setPending(transition);
+  }
+
+  return (
+    <>
+      {(success || books.transitionError) && (
+        <div className={`books-notice ${books.transitionError ? 'is-error' : 'is-success'}`} role={books.transitionError ? 'alert' : 'status'}>
+          {books.transitionError ? <TriangleAlert size={19} /> : <CheckCircle2 size={19} />}
+          <span>{books.transitionError ? copy.transitionError : success}</span>
+          {success && <button aria-label={copy.cancel} onClick={() => setSuccess(null)} type="button"><X size={16} /></button>}
+        </div>
+      )}
+      <div className="books-workspace">
+        <BooksList
+          canGoNext={books.canGoNext}
+          canGoPrevious={books.canGoPrevious}
+          copy={copy}
+          language={language}
+          onNext={books.goToNextPage}
+          onPrevious={books.goToPreviousPage}
+          onRefresh={books.retryList}
+          onSelect={books.select}
+          page={books.page}
+          selectedId={books.selectedId}
+          status={books.listStatus}
+        />
+        <BookDetails
+          book={books.book}
+          copy={copy}
+          editions={books.editions}
+          language={language}
+          onRetry={books.retryDetail}
+          onTransition={requestTransition}
+          selectedId={books.selectedId}
+          status={books.detailStatus}
+          transitioningId={books.transitioningId}
+        />
+      </div>
+      <section className="legacy-files-panel">
+        <header><div><span>{copy.legacyBadge}</span><h2>{copy.legacyTitle}</h2></div><p>{copy.legacyBody}</p></header>
+        <KnowledgeManager language={language} />
+      </section>
+      {pending && <TransitionDialog busy={books.transitioningId === pending.edition.id} copy={copy} onCancel={() => setPending(null)} onConfirm={() => void confirmTransition()} pending={pending} />}
+    </>
+  );
+}

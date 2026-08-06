@@ -13,9 +13,12 @@ interface DocumentResponse {
 }
 
 export class KnowledgeApiError extends Error {
-  constructor(message: string) {
+  readonly code: 'DOCUMENT_TOO_LARGE' | 'REQUEST_FAILED';
+
+  constructor(message: string, code: 'DOCUMENT_TOO_LARGE' | 'REQUEST_FAILED' = 'REQUEST_FAILED') {
     super(message);
     this.name = 'KnowledgeApiError';
+    this.code = code;
   }
 }
 
@@ -26,7 +29,7 @@ export async function listDocuments(): Promise<KnowledgeDocument[]> {
 
 export async function uploadDocument(file: File): Promise<KnowledgeDocument> {
   if (file.size > MAX_DOCUMENT_SIZE_BYTES) {
-    throw new KnowledgeApiError(DOCUMENT_SIZE_ERROR_MESSAGE);
+    throw new KnowledgeApiError(DOCUMENT_SIZE_ERROR_MESSAGE, 'DOCUMENT_TOO_LARGE');
   }
 
   const url = `/api/knowledge/documents?name=${encodeURIComponent(file.name)}`;

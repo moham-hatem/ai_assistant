@@ -32,7 +32,7 @@ export function AdminApp({ language, languageDetails, onChooseLanguage, page }: 
 
 function renderPage(page: AdminPage, copy: (typeof adminCopies)[AppLanguage], language: LanguageOption) {
   switch (page) {
-    case 'books': return <AdminBooksPage copy={copy} />;
+    case 'books': return <AdminBooksPage copy={copy} language={language.code} />;
     case 'reviews': return <AdminReviewsPage copy={copy} />;
     case 'question-logs': return <AdminQuestionLogsPage copy={copy} language={language.code} />;
     case 'settings': return <AdminSettingsPage copy={copy} languageDetails={language} />;

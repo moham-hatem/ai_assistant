@@ -4,9 +4,11 @@ import {
   listDocuments,
   uploadDocument,
 } from '../api/documents';
+import { KnowledgeApiError } from '../api/documents';
+import type { KnowledgeCopy } from '../copy';
 import type { KnowledgeDocument, KnowledgeStatus } from '../types';
 
-export function useDocuments() {
+export function useDocuments(copy: KnowledgeCopy) {
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [status, setStatus] = useState<KnowledgeStatus>('loading');
@@ -15,7 +17,7 @@ export function useDocuments() {
     setStatus('loading');
     await run(() => listDocuments().then(setDocuments));
     setStatus('idle');
-  }, []);
+  }, [copy]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -44,10 +46,12 @@ export function useDocuments() {
       await action();
       return true;
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'حدث خطأ غير متوقع.');
+      setErrorMessage(error instanceof KnowledgeApiError && error.code === 'DOCUMENT_TOO_LARGE'
+        ? copy.sizeError
+        : copy.requestError);
       return false;
     }
   }
 
-  return { add, documents, errorMessage, remove, status };
+  return { add, documents, errorMessage, remove, retry: load, status };
 }

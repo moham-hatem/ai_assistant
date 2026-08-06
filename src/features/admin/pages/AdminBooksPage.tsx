@@ -1,10 +1,11 @@
-import { KnowledgeManager } from '../../knowledge/containers/KnowledgeManager';
+import type { AppLanguage } from '../../../i18n/language';
 import type { AdminCopy } from '../adminCopy';
+import { BooksWorkspace } from '../books/containers/BooksWorkspace';
 import { AdminPageHeader } from '../components/AdminPageHeader';
 
-interface AdminBooksPageProps { copy: AdminCopy }
+interface AdminBooksPageProps { copy: AdminCopy; language: AppLanguage }
 
-export function AdminBooksPage({ copy }: AdminBooksPageProps) {
+export function AdminBooksPage({ copy, language }: AdminBooksPageProps) {
   return (
     <>
       <AdminPageHeader
@@ -12,7 +13,7 @@ export function AdminBooksPage({ copy }: AdminBooksPageProps) {
         eyebrow={copy.navigation.books}
         title={copy.pageTitle.books}
       />
-      <KnowledgeManager />
+      <BooksWorkspace language={language} />
     </>
   );
 }

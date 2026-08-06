@@ -9,6 +9,19 @@ export const editionStatuses = [
 
 export type EditionStatus = typeof editionStatuses[number];
 
+const editionTransitions: Readonly<Record<EditionStatus, readonly EditionStatus[]>> = {
+  archived: ['ready'],
+  draft: ['processing', 'rejected', 'archived'],
+  processing: ['ready', 'rejected', 'archived'],
+  published: ['archived'],
+  ready: ['published', 'rejected', 'archived'],
+  rejected: ['draft', 'archived'],
+};
+
+export function allowedEditionTransitions(status: EditionStatus): readonly EditionStatus[] {
+  return editionTransitions[status];
+}
+
 // Languages are deliberately stored as open text, not as a closed product-language union.
 export type BookLanguage = string;
 
