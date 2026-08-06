@@ -72,4 +72,10 @@ npm run test:local
 npm audit
 ```
 
-راجع [البنية المحلية](docs/ARCHITECTURE.md) و[إعداد OpenCode](docs/OPENCODE_SETUP.md). مجلد `supabase` محفوظ كمرجع لمرحلة استضافة مستقبلية، لكنه غير مستخدم في التشغيل الحالي.
+## وثائق المنتج
+
+- [نطاق المنتج ومعايير القبول](docs/PRODUCT_SCOPE.md)
+- [خارطة الطريق](docs/ROADMAP.md)
+- [المعايير الهندسية](docs/ENGINEERING_STANDARDS.md)
+
+راجع أيضًا [البنية المحلية](docs/ARCHITECTURE.md) و[إعداد OpenCode](docs/OPENCODE_SETUP.md). مجلد `supabase` محفوظ كمرجع لمرحلة استضافة مستقبلية، لكنه غير مستخدم في التشغيل الحالي.
