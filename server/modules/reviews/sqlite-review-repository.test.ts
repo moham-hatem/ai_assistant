@@ -45,6 +45,7 @@ test('approval records an immutable decision and permits an unclaimed reviewer',
     assert.equal(detail.item.assignedReviewerId, 'teacher-1');
     assert.equal(detail.decision?.outcome, 'approved');
     assert.equal(detail.decision?.correctedAnswer, null);
+    assert.deepEqual(detail.events.map((event) => event.type), ['created', 'decision_saved']);
     await assert.rejects(
       service.saveDecision(item.id, { outcome: 'rejected', reviewerId: 'teacher-1' }),
       (error: unknown) => appError(error, 'INVALID_REVIEW_TRANSITION', 409),
@@ -52,22 +53,27 @@ test('approval records an immutable decision and permits an unclaimed reviewer',
   });
 });
 
-test('needs_changes stores the corrected answer and rejection stores internal notes', async () => {
+test('edited approval stores the approved wording', async () => {
   await withFixture(async ({ service, questionLogs }) => {
     const changeLog = record({ channel: 'mobile-app' });
-    const rejectLog = record();
     await questionLogs.save(changeLog);
-    await questionLogs.save(rejectLog);
     const change = await service.createReview(changeLog.id);
-    const reject = await service.createReview(rejectLog.id);
 
     const changed = await service.saveDecision(change.id, {
       correctedAnswer: 'A reviewed and corrected answer.',
-      outcome: 'needs_changes',
+      outcome: 'approved',
       reviewerId: 'teacher-2',
     });
-    assert.equal(changed.item.status, 'needs_changes');
+    assert.equal(changed.item.status, 'approved');
     assert.equal(changed.decision?.correctedAnswer, 'A reviewed and corrected answer.');
+  });
+});
+
+test('rejection records notes without a corrected answer', async () => {
+  await withFixture(async ({ service, questionLogs }) => {
+    const rejectLog = record();
+    await questionLogs.save(rejectLog);
+    const reject = await service.createReview(rejectLog.id);
 
     const rejected = await service.saveDecision(reject.id, {
       internalNotes: 'The cited source does not support the conclusion.',
@@ -76,6 +82,43 @@ test('needs_changes stores the corrected answer and rejection stores internal no
     });
     assert.equal(rejected.item.status, 'rejected');
     assert.equal(rejected.decision?.internalNotes, 'The cited source does not support the conclusion.');
+    assert.equal(rejected.decision?.correctedAnswer, null);
+  });
+});
+
+test('needs_changes records a content-change reason without approved wording', async () => {
+  await withFixture(async ({ service, questionLogs }) => {
+    const questionLog = record();
+    await questionLogs.save(questionLog);
+    const item = await service.createReview(questionLog.id);
+    const detail = await service.saveDecision(item.id, {
+      internalNotes: 'The source content must be corrected before a new answer is approved.',
+      outcome: 'needs_changes',
+      reviewerId: 'teacher-content',
+    });
+    assert.equal(detail.item.status, 'needs_changes');
+    assert.equal(detail.decision?.correctedAnswer, null);
+    assert.match(detail.decision?.internalNotes ?? '', /source content/u);
+  });
+});
+
+test('invalid decision field combinations are rejected before persistence', async () => {
+  await withFixture(async ({ service, questionLogs }) => {
+    const questionLog = record();
+    await questionLogs.save(questionLog);
+    const item = await service.createReview(questionLog.id);
+    const invalid = [
+      { correctedAnswer: 'Not allowed', outcome: 'rejected' as const, reviewerId: 'teacher' },
+      { correctedAnswer: 'Not allowed', outcome: 'needs_changes' as const, reviewerId: 'teacher' },
+      { outcome: 'needs_changes' as const, reviewerId: 'teacher' },
+    ];
+    for (const decision of invalid) {
+      await assert.rejects(
+        service.saveDecision(item.id, decision),
+        (error: unknown) => appError(error, 'INVALID_REQUEST', 400),
+      );
+    }
+    assert.equal((await service.getReview(item.id)).events.length, 1);
   });
 });
 
@@ -98,15 +141,51 @@ test('claims enforce reviewer ownership and reject invalid state transitions', a
   });
 });
 
-test('a failed status update rolls back the decision insert', async () => {
+test('detail returns ordered append-only claim, release, and decision events with ownership', async () => {
+  await withFixture(async ({ service, questionLogs }) => {
+    const questionLog = record();
+    await questionLogs.save(questionLog);
+    const item = await service.createReview(questionLog.id);
+    await service.transitionStatus(item.id, 'in_review', 'teacher-a');
+    await service.transitionStatus(item.id, 'pending', 'teacher-a');
+    await service.transitionStatus(item.id, 'in_review', 'teacher-b');
+    const detail = await service.saveDecision(item.id, {
+      outcome: 'approved',
+      reviewerId: 'teacher-b',
+    });
+
+    assert.deepEqual(
+      detail.events.map((event) => event.type),
+      ['created', 'claimed', 'released', 'claimed', 'decision_saved'],
+    );
+    assert.deepEqual(
+      detail.events.map((event) => event.reviewerId),
+      [null, 'teacher-a', 'teacher-a', 'teacher-b', 'teacher-b'],
+    );
+    assert.deepEqual(
+      detail.events.map((event) => [event.fromStatus, event.toStatus]),
+      [
+        [null, 'pending'],
+        ['pending', 'in_review'],
+        ['in_review', 'pending'],
+        ['pending', 'in_review'],
+        ['in_review', 'approved'],
+      ],
+    );
+    assert.equal(detail.events.at(-1)?.decisionId, detail.decision?.id);
+  });
+});
+
+test('a failed event append rolls back the decision and status update together', async () => {
   await withFixture(async ({ path, reviews, service, questionLogs }) => {
     const questionLog = record();
     await questionLogs.save(questionLog);
     const item = await service.createReview(questionLog.id);
     const control = new DatabaseSync(path);
     control.exec(`
-      CREATE TRIGGER force_review_update_failure
-      BEFORE UPDATE ON review_items BEGIN SELECT RAISE(ABORT, 'forced update failure'); END;
+      CREATE TRIGGER force_review_event_failure
+      BEFORE INSERT ON review_events WHEN NEW.event_type = 'decision_saved'
+      BEGIN SELECT RAISE(ABORT, 'forced event failure'); END;
     `);
     control.close();
 
@@ -116,6 +195,7 @@ test('a failed status update rolls back the decision insert', async () => {
     }));
     assert.equal(await reviews.findDecision(item.id), undefined);
     assert.equal((await reviews.findItem(item.id))?.status, 'pending');
+    assert.deepEqual((await reviews.findEvents(item.id)).map((event) => event.type), ['created']);
   });
 });
 

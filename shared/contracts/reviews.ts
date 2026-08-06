@@ -14,6 +14,16 @@ export const reviewDecisionOutcomes = ['approved', 'rejected', 'needs_changes'] 
 
 export type ReviewDecisionOutcome = typeof reviewDecisionOutcomes[number];
 
+export const reviewEventTypes = [
+  'created',
+  'status_changed',
+  'claimed',
+  'released',
+  'decision_saved',
+] as const;
+
+export type ReviewEventType = typeof reviewEventTypes[number];
+
 export interface ReviewItem {
   assignedReviewerId: string | null;
   claimedAt: string | null;
@@ -35,6 +45,17 @@ export interface ReviewDecision {
   reviewerId: string;
 }
 
+export interface ReviewEvent {
+  createdAt: string;
+  decisionId: string | null;
+  fromStatus: ReviewStatus | null;
+  id: string;
+  reviewItemId: string;
+  reviewerId: string | null;
+  toStatus: ReviewStatus;
+  type: ReviewEventType;
+}
+
 export interface ReviewQueueEntry {
   item: ReviewItem;
   questionLog: QuestionLogSummary;
@@ -42,6 +63,7 @@ export interface ReviewQueueEntry {
 
 export interface ReviewDetail {
   decision: ReviewDecision | null;
+  events: ReviewEvent[];
   item: ReviewItem;
   questionLog: QuestionLogRecord;
 }

@@ -1,5 +1,7 @@
 import type {
   ReviewDecision,
+  ReviewEvent,
+  ReviewEventType,
   ReviewItem,
   ReviewListQuery,
   ReviewPage,
@@ -10,19 +12,23 @@ export interface ReviewTransitionCommand {
   at: string;
   expectedStatus: ReviewStatus;
   reviewerId: string;
+  eventId: string;
+  eventType: ReviewEventType;
   reviewItemId: string;
   targetStatus: ReviewStatus;
 }
 
 export interface SaveReviewDecisionCommand {
   decision: ReviewDecision;
+  eventId: string;
   expectedStatus: ReviewStatus;
   targetStatus: ReviewStatus;
 }
 
 export interface ReviewRepository {
-  createFromQuestionLog(item: ReviewItem): Promise<void>;
+  createFromQuestionLog(item: ReviewItem, event: ReviewEvent): Promise<void>;
   findDecision(reviewItemId: string): Promise<ReviewDecision | undefined>;
+  findEvents(reviewItemId: string): Promise<ReviewEvent[]>;
   findItem(id: string): Promise<ReviewItem | undefined>;
   list(query: ReviewListQuery): Promise<ReviewPage>;
   saveDecision(command: SaveReviewDecisionCommand): Promise<ReviewItem>;

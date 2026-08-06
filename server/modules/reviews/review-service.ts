@@ -12,9 +12,12 @@ import { AppError } from '../../errors.ts';
 import type { QuestionLogRepository } from '../question-log/question-log-repository.ts';
 import {
   assertDecisionCanBeSaved,
+  assertDecisionFields,
   assertReviewStatusTransition,
   decisionStatus,
+  InvalidReviewDecisionError,
   InvalidReviewTransitionError,
+  transitionEventType,
 } from './review-domain.ts';
 import {
   ConcurrentReviewUpdateError,
@@ -61,16 +64,28 @@ export class ReviewService {
       status: 'pending',
       updatedAt: at,
     };
-    await this.call(() => this.reviews.createFromQuestionLog(item));
+    await this.call(() => this.reviews.createFromQuestionLog(item, {
+      createdAt: at,
+      decisionId: null,
+      fromStatus: null,
+      id: this.createId(),
+      reviewerId: null,
+      reviewItemId: item.id,
+      toStatus: 'pending',
+      type: 'created',
+    }));
     return item;
   }
 
   async getReview(id: string): Promise<ReviewDetail> {
     const item = await this.requireItem(id);
-    const questionLog = await this.questionLogs.findById(item.questionLogId);
+    const [questionLog, decision, events] = await Promise.all([
+      this.questionLogs.findById(item.questionLogId),
+      this.call(() => this.reviews.findDecision(id)),
+      this.call(() => this.reviews.findEvents(id)),
+    ]);
     if (!questionLog) throw new AppError('QUESTION_LOG_NOT_FOUND', 'Question log not found.', 404);
-    const decision = await this.call(() => this.reviews.findDecision(id));
-    return { decision: decision ?? null, item, questionLog };
+    return { decision: decision ?? null, events, item, questionLog };
   }
 
   async listReviews(query: ReviewListQuery): Promise<ReviewPage> {
@@ -86,6 +101,8 @@ export class ReviewService {
     this.validateTransition(item, targetStatus, reviewerId);
     return this.call(() => this.reviews.transition({
       at: this.now().toISOString(),
+      eventId: this.createId(),
+      eventType: transitionEventType(item.status, targetStatus),
       expectedStatus: item.status,
       reviewerId,
       reviewItemId: id,
@@ -103,7 +120,14 @@ export class ReviewService {
     if (item.assignedReviewerId && item.assignedReviewerId !== input.reviewerId) {
       throw new AppError('REVIEW_CONFLICT', 'Review is assigned to a different reviewer.', 409);
     }
-    validateCorrectedAnswer(input);
+    try {
+      assertDecisionFields(input);
+    } catch (error) {
+      if (error instanceof InvalidReviewDecisionError) {
+        throw new AppError('INVALID_REQUEST', error.message, 400, { cause: error });
+      }
+      throw error;
+    }
     const at = this.now().toISOString();
     const decision: ReviewDecision = {
       correctedAnswer: input.correctedAnswer?.trim() || null,
@@ -116,6 +140,7 @@ export class ReviewService {
     };
     await this.call(() => this.reviews.saveDecision({
       decision,
+      eventId: this.createId(),
       expectedStatus: item.status,
       targetStatus: decisionStatus(input.outcome),
     }));
@@ -164,14 +189,5 @@ export class ReviewService {
       }
       throw error;
     }
-  }
-}
-
-function validateCorrectedAnswer(input: SaveDecisionInput): void {
-  if (input.outcome === 'needs_changes' && !input.correctedAnswer?.trim()) {
-    throw new AppError('INVALID_REQUEST', 'needs_changes requires correctedAnswer.', 400);
-  }
-  if (input.outcome !== 'needs_changes' && input.correctedAnswer !== undefined) {
-    throw new AppError('INVALID_REQUEST', 'correctedAnswer is only valid for needs_changes.', 400);
   }
 }

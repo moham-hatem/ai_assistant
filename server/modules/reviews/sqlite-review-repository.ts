@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type {
+  ReviewEvent,
   ReviewItem,
   ReviewListQuery,
   ReviewPage,
@@ -15,11 +16,11 @@ import {
   type SaveReviewDecisionCommand,
 } from './review-repository.ts';
 import { migrateReviewDatabase } from './sqlite-review-migrations.ts';
+import { insertReviewEvent, readReviewEvents } from './sqlite-review-events.ts';
+import { listReviewQueue } from './sqlite-review-list.ts';
 import {
   type ReviewDecisionRow,
   type ReviewItemRow,
-  type ReviewQueueRow,
-  toQueueEntry,
   toReviewDecision,
   toReviewItem,
 } from './sqlite-review-rows.ts';
@@ -35,26 +36,29 @@ export class SqliteReviewRepository implements ReviewRepository {
     migrateReviewDatabase(this.database);
   }
 
-  async createFromQuestionLog(item: ReviewItem): Promise<void> {
+  async createFromQuestionLog(item: ReviewItem, event: ReviewEvent): Promise<void> {
     try {
-      const result = this.database.prepare(`
-        INSERT INTO review_items (
-          id, question_log_id, status, assigned_reviewer_id,
-          created_at, updated_at, claimed_at, decided_at
-        )
-        SELECT ?, ?, ?, ?, ?, ?, ?, ? FROM question_logs WHERE id = ?
-      `).run(
-        item.id,
-        item.questionLogId,
-        item.status,
-        item.assignedReviewerId,
-        item.createdAt,
-        item.updatedAt,
-        item.claimedAt,
-        item.decidedAt,
-        item.questionLogId,
-      );
-      if (result.changes !== 1) throw new QuestionLogMissingError();
+      transaction(this.database, () => {
+        const result = this.database.prepare(`
+          INSERT INTO review_items (
+            id, question_log_id, status, assigned_reviewer_id,
+            created_at, updated_at, claimed_at, decided_at
+          )
+          SELECT ?, ?, ?, ?, ?, ?, ?, ? FROM question_logs WHERE id = ?
+        `).run(
+          item.id,
+          item.questionLogId,
+          item.status,
+          item.assignedReviewerId,
+          item.createdAt,
+          item.updatedAt,
+          item.claimedAt,
+          item.decidedAt,
+          item.questionLogId,
+        );
+        if (result.changes !== 1) throw new QuestionLogMissingError();
+        insertReviewEvent(this.database, event);
+      });
     } catch (error) {
       if (isDuplicateReview(error)) throw new DuplicateReviewError();
       throw error;
@@ -74,28 +78,12 @@ export class SqliteReviewRepository implements ReviewRepository {
     return row ? toReviewDecision(row) : undefined;
   }
 
+  async findEvents(reviewItemId: string): Promise<ReviewEvent[]> {
+    return readReviewEvents(this.database, reviewItemId);
+  }
+
   async list(query: ReviewListQuery): Promise<ReviewPage> {
-    const { clause, parameters } = filters(query);
-    const rows = this.database.prepare(`
-      SELECT r.*,
-        q.id AS q_id, q.question AS q_question, q.answer_language AS q_answer_language,
-        q.channel AS q_channel, q.status AS q_status, q.started_at AS q_started_at,
-        q.completed_at AS q_completed_at, q.latency_ms AS q_latency_ms,
-        q.provider AS q_provider, q.model AS q_model, q.grounded AS q_grounded,
-        q.sufficiency AS q_sufficiency
-      FROM review_items r JOIN question_logs q ON q.id = r.question_log_id
-      ${clause} ORDER BY r.created_at DESC, r.id DESC LIMIT ? OFFSET ?
-    `).all(...parameters, query.limit, query.offset) as unknown as ReviewQueueRow[];
-    const count = this.database.prepare(`
-      SELECT COUNT(*) AS total
-      FROM review_items r JOIN question_logs q ON q.id = r.question_log_id ${clause}
-    `).get(...parameters) as unknown as { total: number };
-    return {
-      items: rows.map(toQueueEntry),
-      limit: query.limit,
-      offset: query.offset,
-      total: count.total,
-    };
+    return listReviewQueue(this.database, query);
   }
 
   async transition(command: ReviewTransitionCommand): Promise<ReviewItem> {
@@ -116,6 +104,16 @@ export class SqliteReviewRepository implements ReviewRepository {
         command.reviewerId,
       );
       if (result.changes !== 1) throw new ConcurrentReviewUpdateError();
+      insertReviewEvent(this.database, {
+        createdAt: command.at,
+        decisionId: null,
+        fromStatus: command.expectedStatus,
+        id: command.eventId,
+        reviewerId: command.reviewerId,
+        reviewItemId: command.reviewItemId,
+        toStatus: command.targetStatus,
+        type: command.eventType,
+      });
       return this.requireItem(command.reviewItemId);
     });
   }
@@ -154,6 +152,16 @@ export class SqliteReviewRepository implements ReviewRepository {
           decision.reviewerId,
         );
         if (result.changes !== 1) throw new ConcurrentReviewUpdateError();
+        insertReviewEvent(this.database, {
+          createdAt: decision.createdAt,
+          decisionId: decision.id,
+          fromStatus: command.expectedStatus,
+          id: command.eventId,
+          reviewerId: decision.reviewerId,
+          reviewItemId: decision.reviewItemId,
+          toStatus: command.targetStatus,
+          type: 'decision_saved',
+        });
         return this.requireItem(decision.reviewItemId);
       });
     } catch (error) {
@@ -172,23 +180,6 @@ export class SqliteReviewRepository implements ReviewRepository {
     if (!row) throw new ConcurrentReviewUpdateError();
     return toReviewItem(row);
   }
-}
-
-function filters(query: ReviewListQuery): { clause: string; parameters: string[] } {
-  const predicates: string[] = [];
-  const parameters: string[] = [];
-  for (const [column, value] of [
-    ['q.answer_language', query.answerLanguage],
-    ['q.channel', query.channel],
-    ['r.assigned_reviewer_id', query.reviewerId],
-    ['r.status', query.status],
-  ] as const) {
-    if (value !== undefined) {
-      predicates.push(`${column} = ?`);
-      parameters.push(value);
-    }
-  }
-  return { clause: predicates.length ? `WHERE ${predicates.join(' AND ')}` : '', parameters };
 }
 
 function transaction<T>(database: DatabaseSync, operation: () => T): T {

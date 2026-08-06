@@ -1,5 +1,6 @@
 import type {
   ReviewDecision,
+  ReviewEvent,
   ReviewItem,
   ReviewListQuery,
   ReviewPage,
@@ -18,8 +19,11 @@ export class UnavailableReviewRepository implements ReviewRepository {
     this.cause = cause;
   }
 
-  async createFromQuestionLog(_item: ReviewItem): Promise<void> { throw this.error(); }
+  async createFromQuestionLog(_item: ReviewItem, _event: ReviewEvent): Promise<void> {
+    throw this.error();
+  }
   async findDecision(_reviewItemId: string): Promise<ReviewDecision | undefined> { throw this.error(); }
+  async findEvents(_reviewItemId: string): Promise<ReviewEvent[]> { throw this.error(); }
   async findItem(_id: string): Promise<ReviewItem | undefined> { throw this.error(); }
   async list(_query: ReviewListQuery): Promise<ReviewPage> { throw this.error(); }
   async saveDecision(_command: SaveReviewDecisionCommand): Promise<ReviewItem> { throw this.error(); }

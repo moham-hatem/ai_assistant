@@ -66,8 +66,8 @@ test('internal review API validates, creates, claims, decides, lists, and return
         `${baseUrl}/api/internal/reviews/${review.id}/decision`,
         'POST',
         {
-          correctedAnswer: 'Correction is not valid for approval.',
-          outcome: 'approved',
+          correctedAnswer: 'Correction is not valid for a content change request.',
+          outcome: 'needs_changes',
           reviewerId: 'teacher-api',
         },
       );
@@ -80,22 +80,29 @@ test('internal review API validates, creates, claims, decides, lists, and return
         {
           correctedAnswer: 'Corrected answer from the teacher.',
           internalNotes: 'Clarify the source scope.',
-          outcome: 'needs_changes',
+          outcome: 'approved',
           reviewerId: 'teacher-api',
         },
       );
       assert.equal(decided.response.status, 200);
       const detail = decided.body.review as {
         decision: { correctedAnswer: string };
+        events: Array<{ decisionId: string | null; type: string }>;
         item: { status: string };
         questionLog: { answer: string };
       };
-      assert.equal(detail.item.status, 'needs_changes');
+      assert.equal(detail.item.status, 'approved');
       assert.equal(detail.decision.correctedAnswer, 'Corrected answer from the teacher.');
       assert.equal(detail.questionLog.answer, questionLog.answer);
+      assert.deepEqual(detail.events.map((event) => event.type), [
+        'created',
+        'claimed',
+        'decision_saved',
+      ]);
+      assert.ok(detail.events.at(-1)?.decisionId);
 
       const list = await requestJson(
-        `${baseUrl}/api/internal/reviews?status=needs_changes&channel=web&limit=1&offset=0`,
+        `${baseUrl}/api/internal/reviews?status=approved&channel=web&limit=1&offset=0`,
       );
       assert.equal(list.response.status, 200);
       assert.equal(list.body.total, 1);
@@ -106,7 +113,7 @@ test('internal review API validates, creates, claims, decides, lists, and return
       assert.equal(fetched.response.status, 200);
       assert.equal(
         ((fetched.body.review as { decision: { outcome: string } }).decision.outcome),
-        'needs_changes',
+        'approved',
       );
 
       const invalidFilter = await requestJson(`${baseUrl}/api/internal/reviews?unknown=value`);
