@@ -20,7 +20,7 @@ export class DocumentStore {
   async import(input: DocumentImportInput): Promise<DocumentMetadata> {
     const name = safeName(input.name);
     const extracted = await extractDocument(name, input.buffer);
-    const id = randomUUID();
+    const id = input.id ? validateId(input.id) : randomUUID();
     const metadata: StoredMetadata = {
       id,
       name,
@@ -69,8 +69,13 @@ export class DocumentStore {
     const stored = await this.files.read(validateId(id));
     return {
       metadata: toPublicMetadata(stored),
-      path: this.files.resourcePath(stored, kind),
+      path: await this.files.resourcePath(stored, kind),
     };
+  }
+
+  async readText(id: string): Promise<string> {
+    const stored = await this.files.read(validateId(id));
+    return this.files.readText(stored);
   }
 }
 

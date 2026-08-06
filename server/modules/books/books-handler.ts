@@ -5,13 +5,25 @@ import { sendError, type ErrorLogger } from '../../http/error-response.ts';
 import { readJson, sendJson } from '../../http/json.ts';
 import type { BookService } from './book-service.ts';
 
+interface EditionTransitioner {
+  transitionEdition(
+    bookId: string,
+    editionId: string,
+    targetStatus: EditionStatus,
+  ): Promise<unknown>;
+}
+
 const defaultLimit = 25;
 const maximumLimit = 100;
 const maximumOffset = 1_000_000;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const sha256Pattern = /^[0-9a-f]{64}$/iu;
 
-export function createBooksHandler(service: BookService, logError: ErrorLogger) {
+export function createBooksHandler(
+  service: BookService,
+  logError: ErrorLogger,
+  transitions: EditionTransitioner = service,
+) {
   return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
     const requestId = crypto.randomUUID();
     try {
@@ -63,7 +75,7 @@ export function createBooksHandler(service: BookService, logError: ErrorLogger) 
       if (transition) {
         if (request.method !== 'POST') return methodNotAllowed(response, requestId);
         const status = parseTransition(await readJson(request));
-        const edition = await service.transitionEdition(
+        const edition = await transitions.transitionEdition(
           validId(transition[0]),
           validId(transition[1]),
           status,

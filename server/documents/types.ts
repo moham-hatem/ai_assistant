@@ -15,6 +15,7 @@ export interface DocumentExtractor {
 
 export interface DocumentImportInput {
   buffer: Buffer;
+  id?: string;
   name: string;
 }
 

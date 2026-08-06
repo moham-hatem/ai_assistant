@@ -111,6 +111,13 @@ export class SqliteBookRepository implements BookRepository {
     return this.readEdition(bookId, editionId);
   }
 
+  async getEditionByDocumentReference(reference: string): Promise<BookEdition | undefined> {
+    const row = this.database.prepare(`
+      SELECT * FROM book_editions WHERE original_document_reference = ? LIMIT 1
+    `).get(reference) as unknown as EditionRow | undefined;
+    return row ? toEdition(row) : undefined;
+  }
+
   async listEditions(bookId: string, query: PageQuery): Promise<Page<BookEdition>> {
     const rows = this.database.prepare(`
       SELECT * FROM book_editions WHERE book_id = ?
@@ -125,6 +132,13 @@ export class SqliteBookRepository implements BookRepository {
       offset: query.offset,
       total: count.total,
     };
+  }
+
+  async listPublishedEditions(): Promise<BookEdition[]> {
+    const rows = this.database.prepare(`
+      SELECT * FROM book_editions WHERE status = 'published' ORDER BY book_id, id
+    `).all() as unknown as EditionRow[];
+    return rows.map(toEdition);
   }
 
   async transitionEdition(command: EditionTransitionCommand): Promise<BookEdition> {

@@ -18,8 +18,8 @@ export function localAnswerApi(config: LocalRuntimeConfig): Plugin {
         );
       };
       const answer = createAnswerHandler(runtime.answerService, runtime.questionLogService, logError);
-      const books = createBooksHandler(runtime.bookService, logError);
-      const documents = createDocumentsHandler(runtime.documentStore, logError);
+      const books = createBooksHandler(runtime.bookService, logError, runtime.bookDocuments);
+      const documents = createDocumentsHandler(runtime.bookDocuments, logError);
       const questionLogs = createQuestionLogHandler(runtime.questionLogRepository, logError);
 
       server.middlewares.use((request, response, next) => {

@@ -91,14 +91,19 @@ export class BookService {
     return this.call(() => this.repository.listEditions(bookId, query));
   }
 
+  async getEdition(bookId: string, editionId: string): Promise<BookEdition> {
+    await this.getBook(bookId);
+    const edition = await this.call(() => this.repository.getEdition(bookId, editionId));
+    if (!edition) throw new AppError('EDITION_NOT_FOUND', 'Edition not found.', 404);
+    return edition;
+  }
+
   async transitionEdition(
     bookId: string,
     editionId: string,
     targetStatus: EditionStatus,
   ): Promise<BookEdition> {
-    await this.getBook(bookId);
-    const edition = await this.call(() => this.repository.getEdition(bookId, editionId));
-    if (!edition) throw new AppError('EDITION_NOT_FOUND', 'Edition not found.', 404);
+    const edition = await this.getEdition(bookId, editionId);
 
     try {
       assertEditionTransition(edition.status, targetStatus);

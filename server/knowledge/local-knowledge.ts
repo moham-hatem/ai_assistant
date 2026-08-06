@@ -3,18 +3,25 @@ import { loadLocalEvidence } from './file-loader.ts';
 import { expandWithNeighborEvidence } from './neighbor-evidence.ts';
 import { rankEvidence } from './rank-evidence.ts';
 import type { SemanticSearch } from './semantic-search.ts';
+import type { PublishedEvidenceSource } from './published-evidence-source.ts';
 
 export class LocalKnowledgeSource implements KnowledgeSource {
   private readonly directory: string;
+  private readonly published?: PublishedEvidenceSource;
   private readonly semantic?: SemanticSearch;
 
-  constructor(directory: string, semantic?: SemanticSearch) {
+  constructor(
+    directory: string,
+    semantic?: SemanticSearch,
+    published?: PublishedEvidenceSource,
+  ) {
     this.directory = directory;
     this.semantic = semantic;
+    this.published = published;
   }
 
   async search(question: string, limit: number, alternatives: string[] = []): Promise<KnowledgeResult> {
-    const { chunks, fileCount } = await loadLocalEvidence(this.directory);
+    const { chunks, fileCount } = await this.loadEvidence();
     if (!this.semantic || chunks.length === 0) {
       const ranked = rankEvidence(chunks, combinedQuery(question, alternatives), limit);
       return { evidence: expandWithNeighborEvidence(chunks, ranked, limit), fileCount };
@@ -43,9 +50,21 @@ export class LocalKnowledgeSource implements KnowledgeSource {
   }
 
   async prepare(): Promise<{ chunkCount: number; fileCount: number }> {
-    const loaded = await loadLocalEvidence(this.directory);
+    const loaded = await this.loadEvidence();
     if (this.semantic) await this.semantic.prepare(loaded.chunks);
     return { chunkCount: loaded.chunks.length, fileCount: loaded.fileCount };
+  }
+
+  private async loadEvidence(): Promise<{ chunks: Evidence[]; fileCount: number }> {
+    const local = await loadLocalEvidence(this.directory, {
+      excludedRootDirectories: this.published ? ['imported'] : [],
+    });
+    if (!this.published) return local;
+    const published = await this.published.load();
+    return {
+      chunks: [...local.chunks, ...published.chunks],
+      fileCount: local.fileCount + published.fileCount,
+    };
   }
 }
 

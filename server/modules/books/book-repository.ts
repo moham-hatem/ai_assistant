@@ -19,8 +19,10 @@ export interface BookRepository {
   createBook(book: Book): Promise<void>;
   getBook(id: string): Promise<Book | undefined>;
   getEdition(bookId: string, editionId: string): Promise<BookEdition | undefined>;
+  getEditionByDocumentReference(reference: string): Promise<BookEdition | undefined>;
   listBooks(query: PageQuery): Promise<Page<Book>>;
   listEditions(bookId: string, query: PageQuery): Promise<Page<BookEdition>>;
+  listPublishedEditions(): Promise<BookEdition[]>;
   publishEdition(command: EditionTransitionCommand): Promise<BookEdition>;
   transitionEdition(command: EditionTransitionCommand): Promise<BookEdition>;
 }

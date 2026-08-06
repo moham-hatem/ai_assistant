@@ -17,11 +17,12 @@ test('document store imports, lists and removes local text documents', async () 
       buffer: Buffer.from('محتوى تعليمي موثوق وكاف لاختبار عملية الاستيراد المحلية.', 'utf8'),
     });
     const list = await store.list();
-    const extracted = await readFile(join(knowledge, 'imported', `${imported.id}.txt`), 'utf8');
+    const extracted = await readFile(join(documents, 'text', `${imported.id}.txt`), 'utf8');
 
     assert.equal(list.length, 1);
     assert.equal(list[0].name, 'lesson.txt');
     assert.match(extracted, /محتوى تعليمي/);
+    await assert.rejects(readFile(join(knowledge, 'imported', `${imported.id}.txt`), 'utf8'));
 
     const source = await store.resource(imported.id, 'source');
     const text = await store.resource(imported.id, 'text');

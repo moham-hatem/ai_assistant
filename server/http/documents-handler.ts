@@ -1,26 +1,46 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { DocumentStore } from '../documents/document-store.ts';
+import type { DocumentMetadata, DocumentResource, DocumentResourceKind } from '../documents/types.ts';
 import { AppError } from '../errors.ts';
+import type {
+  UploadBookDocumentInput,
+  UploadBookDocumentResult,
+} from '../modules/books/book-document-service.ts';
 import { readBinary } from './binary.ts';
 import { sendError, type ErrorLogger } from './error-response.ts';
 import { sendFile } from './send-file.ts';
 import { sendJson } from './json.ts';
 
-export function createDocumentsHandler(store: DocumentStore, logError: ErrorLogger) {
+interface DocumentApplication {
+  documentResource(id: string, kind: DocumentResourceKind): Promise<DocumentResource>;
+  listDocuments(): Promise<DocumentMetadata[]>;
+  removeDocument(id: string): Promise<void>;
+  upload(input: UploadBookDocumentInput): Promise<UploadBookDocumentResult>;
+}
+
+export function createDocumentsHandler(application: DocumentApplication, logError: ErrorLogger) {
   return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
     const requestId = crypto.randomUUID();
 
     try {
       if (request.method === 'GET' && url.pathname === '/api/knowledge/documents') {
-        sendJson(response, 200, { documents: await store.list(), requestId });
+        sendJson(response, 200, { documents: await application.listDocuments(), requestId });
         return;
       }
 
       if (request.method === 'POST' && url.pathname === '/api/knowledge/documents') {
         const name = url.searchParams.get('name')?.trim();
         if (!name) throw new AppError('INVALID_REQUEST', 'اسم الملف مطلوب.', 400);
-        const document = await store.import({ name, buffer: await readBinary(request) });
-        sendJson(response, 201, { document, requestId });
+        const bookId = optionalQuery(url, 'bookId', 100);
+        const version = optionalQuery(url, 'version', 100);
+        const result = await application.upload({
+          bookId,
+          buffer: await readBinary(request),
+          name,
+          version,
+        });
+        sendJson(response, 201, bookId
+          ? { ...result, requestId }
+          : { document: result.document, requestId });
         return;
       }
 
@@ -29,7 +49,7 @@ export function createDocumentsHandler(store: DocumentStore, logError: ErrorLogg
       );
       if (request.method === 'GET' && resource) {
         const kind = resource[2] as 'source' | 'text';
-        const stored = await store.resource(resource[1], kind);
+        const stored = await application.documentResource(resource[1], kind);
         await sendFile(request, response, {
           contentType: kind === 'source' ? contentType(stored.metadata.format) : 'text/plain; charset=utf-8',
           name: kind === 'source' ? stored.metadata.name : `${stored.metadata.name}.txt`,
@@ -40,7 +60,7 @@ export function createDocumentsHandler(store: DocumentStore, logError: ErrorLogg
 
       const id = url.pathname.match(/^\/api\/knowledge\/documents\/([^/]+)$/)?.[1];
       if (request.method === 'DELETE' && id) {
-        await store.remove(id);
+        await application.removeDocument(id);
         sendJson(response, 200, { deleted: true, requestId });
         return;
       }
@@ -50,6 +70,13 @@ export function createDocumentsHandler(store: DocumentStore, logError: ErrorLogg
       sendError(response, requestId, error, logError);
     }
   };
+}
+
+function optionalQuery(url: URL, name: string, maximum: number): string | undefined {
+  const value = url.searchParams.get(name)?.trim();
+  if (!value) return undefined;
+  if (value.length > maximum) throw new AppError('INVALID_REQUEST', `${name} is too long.`, 400);
+  return value;
 }
 
 function contentType(format: 'docx' | 'markdown' | 'pdf' | 'text') {

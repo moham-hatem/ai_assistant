@@ -21,8 +21,14 @@ import type { BookRepository } from './modules/books/book-repository.ts';
 import { BookService } from './modules/books/book-service.ts';
 import { SqliteBookRepository } from './modules/books/sqlite-book-repository.ts';
 import { UnavailableBookRepository } from './modules/books/unavailable-book-repository.ts';
+import { BookDocumentService } from './modules/books/book-document-service.ts';
+import { BookDocumentEvidenceSource } from './modules/books/book-document-evidence.ts';
 
 export function createRuntime(config: LocalRuntimeConfig) {
+  const documentStore = new DocumentStore(config.documentDirectory, config.knowledgeDirectory);
+  const bookRepository = createBookRepository(config.booksDatabaseFile);
+  const bookService = new BookService(bookRepository);
+  const bookDocuments = new BookDocumentService(bookService, bookRepository, documentStore);
   const embedder = new MultilingualEmbedder(
     config.semantic.model,
     config.semantic.cacheDirectory,
@@ -32,7 +38,11 @@ export function createRuntime(config: LocalRuntimeConfig) {
     config.knowledgeDirectory,
     config.semantic.minimumScore,
   );
-  const knowledge = new LocalKnowledgeSource(config.knowledgeDirectory, semantic);
+  const knowledge = new LocalKnowledgeSource(
+    config.knowledgeDirectory,
+    semantic,
+    new BookDocumentEvidenceSource(bookRepository, documentStore),
+  );
   const localModel = new LocalTranslationAnswerModel(
     new NllbTranslator(config.translation.model, config.translation.cacheDirectory),
     { provider: 'huggingface-transformers', model: config.translation.model },
@@ -57,15 +67,12 @@ export function createRuntime(config: LocalRuntimeConfig) {
     )
     : undefined;
   const questionLogRepository = createQuestionLogRepository(config.questionLogDatabaseFile);
-  // Edition metadata intentionally remains separate from DocumentStore and KnowledgeSource.
-  // Publishing never imports, indexes, or exposes an edition document automatically.
-  const bookRepository = createBookRepository(config.booksDatabaseFile);
-
   return {
     answerService: new AnswerService(knowledge, config.matchCount, model, questionExpander),
-    documentStore: new DocumentStore(config.documentDirectory, config.knowledgeDirectory),
+    bookDocuments,
+    documentStore,
     bookRepository,
-    bookService: new BookService(bookRepository),
+    bookService,
     knowledge,
     questionLogRepository,
     questionLogService: new QuestionLogService(questionLogRepository),
