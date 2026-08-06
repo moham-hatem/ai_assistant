@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
-
-export type AppRoute = 'chat' | 'knowledge';
+import { parseHashRoute, type AppRoute } from './routes';
 
 function readRoute(): AppRoute {
-  return window.location.hash === '#knowledge' ? 'knowledge' : 'chat';
+  return parseHashRoute(window.location.hash);
 }
 
 export function useHashRoute(): AppRoute {

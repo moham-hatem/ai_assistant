@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { BookOpen, Globe2, ShieldCheck } from 'lucide-react';
+import { AdminApp } from '../features/admin/AdminApp';
 import { LanguageGate } from '../features/language/LanguageGate';
 import { getLanguage, isAppLanguage, type AppLanguage } from '../i18n/language';
 import { translations } from '../i18n/translations';
 import { ChatPage } from '../pages/ChatPage';
-import { KnowledgePage } from '../pages/KnowledgePage';
 import { useHashRoute } from './useHashRoute';
 
 export function App() {
@@ -18,12 +18,11 @@ export function App() {
   useEffect(() => {
     document.documentElement.lang = activeLanguage;
     document.documentElement.dir = languageDetails.dir;
+    const section = route.area === 'admin' ? 'Admin' : copy.assistant;
     document.title = activeLanguage === 'ar'
-      ? 'دليل | المساعد التعليمي الإسلامي'
-      : activeLanguage === 'sw'
-        ? 'Daleel | Msaidizi wa elimu ya Kiislamu'
-        : 'Daleel | Islamic learning assistant';
-  }, [activeLanguage, languageDetails.dir]);
+      ? `دليل | ${route.area === 'admin' ? 'لوحة الإدارة' : 'المساعد التعليمي الإسلامي'}`
+      : `Daleel | ${section}`;
+  }, [activeLanguage, copy.assistant, languageDetails.dir, route.area]);
 
   function chooseLanguage(nextLanguage: AppLanguage) {
     localStorage.setItem('daleel-language', nextLanguage);
@@ -41,16 +40,28 @@ export function App() {
     );
   }
 
+  if (route.area === 'admin') {
+    return (
+      <AdminApp
+        language={activeLanguage}
+        languageDetails={languageDetails}
+        onChooseLanguage={() => setIsChoosingLanguage(true)}
+        page={route.page}
+      />
+    );
+  }
+
   return (
     <main className="page-shell" dir={languageDetails.dir}>
       <header className="site-header">
-        <a className="brand" href="#chat" aria-label={copy.brandAria}>
+        <a className="brand" href="#/chat" aria-label={copy.brandAria}>
           <span className="brand-mark"><BookOpen size={22} /></span>
           <span>{activeLanguage === 'ar' ? 'دليل' : 'Daleel'}</span>
         </a>
+        {/* Admin routes are intentionally absent from public navigation. This is
+            discoverability only; real access control must be enforced by the backend. */}
         <nav className="site-nav" aria-label={copy.assistant}>
-          <a aria-current={route === 'chat' ? 'page' : undefined} href="#chat">{copy.assistant}</a>
-          <a aria-current={route === 'knowledge' ? 'page' : undefined} href="#knowledge">{copy.books}</a>
+          <a aria-current="page" href="#/chat">{copy.assistant}</a>
         </nav>
         <div className="header-actions">
           <span className="header-note"><ShieldCheck size={16} /> {copy.localContent}</span>
@@ -66,7 +77,7 @@ export function App() {
         </div>
       </header>
 
-      {route === 'knowledge' ? <KnowledgePage /> : <ChatPage language={activeLanguage} copy={copy} />}
+      <ChatPage language={activeLanguage} copy={copy} />
     </main>
   );
 }
