@@ -15,9 +15,11 @@ const targets: Record<AnswerLanguage, TranslationLanguageCode> = {
 
 export class LocalTranslationAnswerModel implements AnswerModel {
   private readonly translator: TextTranslator;
+  private readonly generation?: AnswerResult['generation'];
 
-  constructor(translator: TextTranslator) {
+  constructor(translator: TextTranslator, generation?: AnswerResult['generation']) {
     this.translator = translator;
+    this.generation = generation;
   }
 
   async answer(input: AnswerInput, evidence: Evidence[]): Promise<AnswerResult> {
@@ -36,7 +38,11 @@ export class LocalTranslationAnswerModel implements AnswerModel {
       translated.push(translatedSegments.join(' '));
     }
     const answer = translated.join('\n\n');
-    return { answer: `${introductions[input.language]}\n\n${answer}`, grounded: true };
+    return {
+      answer: `${introductions[input.language]}\n\n${answer}`,
+      ...(this.generation ? { generation: this.generation } : {}),
+      grounded: true,
+    };
   }
 }
 

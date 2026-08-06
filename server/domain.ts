@@ -19,6 +19,10 @@ export interface AnswerInput {
 
 export interface AnswerResult {
   answer: string;
+  generation?: {
+    model?: string;
+    provider: string;
+  };
   grounded: boolean;
 }
 

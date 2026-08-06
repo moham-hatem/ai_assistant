@@ -5,6 +5,11 @@ import { normalizeArabic, tokenize } from './knowledge/arabic-text.ts';
 import { expandKnowledgeQuery } from './knowledge/query-expansion.ts';
 import { splitQuestionParts } from './question-parts.ts';
 
+export interface AnswerExecution {
+  evidenceReferences: string[];
+  result: AnswerResult;
+}
+
 export class AnswerService {
   private readonly knowledge: KnowledgeSource;
   private readonly matchCount: number;
@@ -24,6 +29,10 @@ export class AnswerService {
   }
 
   async answer(input: AnswerInput): Promise<AnswerResult> {
+    return (await this.answerWithContext(input)).result;
+  }
+
+  async answerWithContext(input: AnswerInput): Promise<AnswerExecution> {
     if (!this.model) {
       throw new AppError(
         'MODEL_NOT_CONFIGURED',
@@ -54,9 +63,13 @@ export class AnswerService {
     );
     const evidenceLimit = Math.min(8, this.matchCount * questionParts.length);
     const evidence = mergeEvidence(groupedEvidence, evidenceLimit);
-    return evidence.length > 0
+    const result = evidence.length > 0
       ? this.model.answer(input, evidence)
       : { answer: insufficientEvidenceAnswer(input.language), grounded: false };
+    return {
+      evidenceReferences: evidence.map((item) => item.id),
+      result: await result,
+    };
   }
 
   private async expandQuestion(question: string): Promise<string[]> {

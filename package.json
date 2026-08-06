@@ -9,7 +9,7 @@
     "prepare:semantic": "node server/scripts/prepare-semantic.ts",
     "prepare:translation": "node --env-file=.env.local server/scripts/prepare-translation.ts",
     "rebuild:documents": "node server/scripts/rebuild-documents.ts",
-    "test:local": "node --test server/local.test.ts server/answer-service.test.ts server/documents/document-store.test.ts server/documents/extractors/pdf-layout.test.ts server/knowledge/opencode-question-expander.test.ts server/model/cached-answer-model.test.ts server/model/local-translation-answer-model.test.ts server/model/opencode-model.test.ts server/model/resilient-answer-model.test.ts",
+    "test:local": "node --test server/local.test.ts server/answer-service.test.ts server/documents/document-store.test.ts server/documents/extractors/pdf-layout.test.ts server/knowledge/opencode-question-expander.test.ts server/model/cached-answer-model.test.ts server/model/local-translation-answer-model.test.ts server/model/opencode-model.test.ts server/model/resilient-answer-model.test.ts server/modules/question-log/question-log.test.ts",
     "typecheck": "tsc -b"
   },
   "dependencies": {

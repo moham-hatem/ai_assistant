@@ -3,6 +3,7 @@ import type { LocalRuntimeConfig } from '../config.ts';
 import { createRuntime } from '../create-runtime.ts';
 import { createAnswerHandler } from '../http/answer-handler.ts';
 import { createDocumentsHandler } from '../http/documents-handler.ts';
+import { createQuestionLogHandler } from '../modules/question-log/question-log-handler.ts';
 
 export function localAnswerApi(config: LocalRuntimeConfig): Plugin {
   return {
@@ -15,12 +16,16 @@ export function localAnswerApi(config: LocalRuntimeConfig): Plugin {
           `Local answer API failed (${requestId}): ${loggedError.stack ?? loggedError.message}`,
         );
       };
-      const answer = createAnswerHandler(runtime.answerService, logError);
+      const answer = createAnswerHandler(runtime.answerService, runtime.questionLogService, logError);
       const documents = createDocumentsHandler(runtime.documentStore, logError);
+      const questionLogs = createQuestionLogHandler(runtime.questionLogRepository, logError);
 
       server.middlewares.use((request, response, next) => {
         const url = new URL(request.url ?? '/', 'http://localhost');
         if (url.pathname === '/api/answer-question') void answer(request, response);
+        else if (url.pathname.startsWith('/api/internal/question-logs')) {
+          void questionLogs(request, response, url);
+        }
         else if (url.pathname.startsWith('/api/knowledge/documents')) {
           void documents(request, response, url);
         } else next();

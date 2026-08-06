@@ -9,3 +9,4 @@ data/cache/
 data/knowledge/*
 !data/knowledge/.gitkeep
 data/models/
+data/question-log.sqlite*

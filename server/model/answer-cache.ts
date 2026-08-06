@@ -20,7 +20,11 @@ export class AnswerCache {
 
   async get(input: AnswerInput, evidence: Evidence[]): Promise<AnswerResult | undefined> {
     const entry = (await this.load())[cacheKey(input, evidence)];
-    return entry ? { answer: entry.answer, grounded: entry.grounded } : undefined;
+    return entry ? {
+      answer: entry.answer,
+      ...(entry.generation ? { generation: entry.generation } : {}),
+      grounded: entry.grounded,
+    } : undefined;
   }
 
   async set(input: AnswerInput, evidence: Evidence[], result: AnswerResult): Promise<void> {

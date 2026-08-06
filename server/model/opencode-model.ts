@@ -116,7 +116,10 @@ export class OpenCodeModel implements AnswerModel {
 
     const content = payload.choices?.[0]?.message?.content;
     if (!content?.trim()) throw new Error(`OpenCode model ${model} returned an empty response.`);
-    const result = parseGroundedAnswer(content, evidence.length, input.language);
+    const result: AnswerResult = {
+      ...parseGroundedAnswer(content, evidence.length, input.language),
+      generation: { provider: 'opencode', model },
+    };
     if (!result.grounded) throw new ModelInsufficientEvidenceError(result);
     assertAnswerQuality(result, evidence, input.language, input.question);
     return result;

@@ -13,6 +13,10 @@ import { ResilientAnswerModel } from './model/resilient-answer-model.ts';
 import { CachedQuestionExpander } from './knowledge/cached-question-expander.ts';
 import { OpenCodeQuestionExpander } from './knowledge/opencode-question-expander.ts';
 import { QuestionExpansionCache } from './knowledge/question-expansion-cache.ts';
+import type { QuestionLogRepository } from './modules/question-log/question-log-repository.ts';
+import { QuestionLogService } from './modules/question-log/question-log-service.ts';
+import { SqliteQuestionLogRepository } from './modules/question-log/sqlite-question-log-repository.ts';
+import { UnavailableQuestionLogRepository } from './modules/question-log/unavailable-question-log-repository.ts';
 
 export function createRuntime(config: LocalRuntimeConfig) {
   const embedder = new MultilingualEmbedder(
@@ -27,6 +31,7 @@ export function createRuntime(config: LocalRuntimeConfig) {
   const knowledge = new LocalKnowledgeSource(config.knowledgeDirectory, semantic);
   const localModel = new LocalTranslationAnswerModel(
     new NllbTranslator(config.translation.model, config.translation.cacheDirectory),
+    { provider: 'huggingface-transformers', model: config.translation.model },
   );
   const answerModel = config.openCode.apiKey
     ? new ResilientAnswerModel(
@@ -47,10 +52,22 @@ export function createRuntime(config: LocalRuntimeConfig) {
       new QuestionExpansionCache(config.questionExpansionCacheFile),
     )
     : undefined;
+  const questionLogRepository = createQuestionLogRepository(config.questionLogDatabaseFile);
 
   return {
     answerService: new AnswerService(knowledge, config.matchCount, model, questionExpander),
     documentStore: new DocumentStore(config.documentDirectory, config.knowledgeDirectory),
     knowledge,
+    questionLogRepository,
+    questionLogService: new QuestionLogService(questionLogRepository),
   };
+}
+
+function createQuestionLogRepository(path: string): QuestionLogRepository {
+  try {
+    return new SqliteQuestionLogRepository(path);
+  } catch (error) {
+    console.warn('Local question log could not be initialized; answers will continue without audit persistence.');
+    return new UnavailableQuestionLogRepository(error);
+  }
 }

@@ -5,6 +5,7 @@ export interface LocalRuntimeConfig {
   documentDirectory: string;
   knowledgeDirectory: string;
   matchCount: number;
+  questionLogDatabaseFile: string;
   questionExpansionCacheFile: string;
   questionExpansionTimeoutMs: number;
   semantic: {
@@ -46,6 +47,10 @@ export function createLocalConfig(env: Record<string, string>, cwd: string): Loc
     documentDirectory: resolve(cwd, env.DOCUMENT_DIRECTORY?.trim() || 'data/documents'),
     knowledgeDirectory: resolve(cwd, env.KNOWLEDGE_DIRECTORY?.trim() || 'data/knowledge'),
     matchCount: boundedInteger(env.KNOWLEDGE_MATCH_COUNT, 6, 12),
+    questionLogDatabaseFile: resolve(
+      cwd,
+      env.QUESTION_LOG_DATABASE_FILE?.trim() || 'data/question-log.sqlite',
+    ),
     questionExpansionCacheFile: resolve(
       cwd,
       env.QUESTION_EXPANSION_CACHE_FILE?.trim() || 'data/cache/question-expansions.json',
