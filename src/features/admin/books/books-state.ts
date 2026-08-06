@@ -1,15 +1,36 @@
 import { allowedEditionTransitions } from '../../../../shared/contracts/books.ts';
-import type { BookEdition, EditionStatus } from './types';
+import type { Book, EditionStatus } from './types';
+
+export type OperatorEditionTarget = 'archived' | 'published' | 'ready' | 'rejected';
+
+const operatorTransitions: Readonly<Record<EditionStatus, readonly OperatorEditionTarget[]>> = {
+  archived: ['ready'],
+  draft: ['rejected', 'archived'],
+  processing: ['rejected', 'archived'],
+  published: ['archived'],
+  ready: ['published', 'rejected', 'archived'],
+  rejected: ['archived'],
+};
 
 export function canTransitionEdition(from: EditionStatus, to: EditionStatus): boolean {
   return allowedEditionTransitions(from).includes(to);
 }
 
-export function replaceEdition(
-  editions: readonly BookEdition[],
-  updated: BookEdition,
-): BookEdition[] {
-  return editions.map((edition) => edition.id === updated.id ? updated : edition);
+export function operatorEditionTransitions(status: EditionStatus): readonly OperatorEditionTarget[] {
+  return operatorTransitions[status].filter((target) => canTransitionEdition(status, target));
+}
+
+export function replaceBook(books: readonly Book[], updated: Book): Book[] {
+  return books.map((book) => book.id === updated.id ? updated : book);
+}
+
+export function isCurrentBookRequest(
+  activeBookId: string | null,
+  requestedBookId: string,
+  activeEditionOffset: number,
+  requestedEditionOffset: number,
+): boolean {
+  return activeBookId === requestedBookId && activeEditionOffset === requestedEditionOffset;
 }
 
 export function nextOffset(offset: number, limit: number, total: number): number {

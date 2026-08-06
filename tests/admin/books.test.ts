@@ -14,11 +14,14 @@ import {
   fetchEditions,
   transitionEdition,
 } from '../../src/features/admin/books/api/books.ts';
+import { fetchBookDetailPage } from '../../src/features/admin/books/api/book-detail.ts';
 import {
   canTransitionEdition,
+  isCurrentBookRequest,
   nextOffset,
+  operatorEditionTransitions,
   previousOffset,
-  replaceEdition,
+  replaceBook,
   visibleRange,
 } from '../../src/features/admin/books/books-state.ts';
 
@@ -85,12 +88,36 @@ test('UI lifecycle actions use the exact shared server transition policy', () =>
   }
 });
 
-test('edition and pagination state helpers update deterministically', () => {
-  const updated = { ...edition, status: 'published' as const, publishedAt: '2026-08-06T10:00:00.000Z' };
-  assert.deepEqual(replaceEdition([parseEditionDetail({ edition })], updated), [updated]);
+test('operator actions exclude processing and system-owned readiness transitions', () => {
+  assert.deepEqual(operatorEditionTransitions('draft'), ['rejected', 'archived']);
+  assert.deepEqual(operatorEditionTransitions('processing'), ['rejected', 'archived']);
+  assert.deepEqual(operatorEditionTransitions('ready'), ['published', 'rejected', 'archived']);
+  assert.deepEqual(operatorEditionTransitions('published'), ['archived']);
+  assert.deepEqual(operatorEditionTransitions('archived'), ['ready']);
+  assert.deepEqual(operatorEditionTransitions('rejected'), ['archived']);
+  for (const status of ['draft', 'processing', 'ready', 'published', 'rejected', 'archived'] as const) {
+    assert.equal(operatorEditionTransitions(status).includes('processing' as never), false);
+  }
+  assert.equal(operatorEditionTransitions('processing').includes('ready'), false);
+});
+
+test('book identity guards prevent stale book or edition page responses', () => {
+  assert.equal(isCurrentBookRequest(book.id, book.id, 8, 8), true);
+  assert.equal(isCurrentBookRequest('another-book', book.id, 8, 8), false);
+  assert.equal(isCurrentBookRequest(book.id, book.id, 16, 8), false);
+  assert.equal(isCurrentBookRequest(null, book.id, 8, 8), false);
+});
+
+test('book and edition pagination helpers update within independent bounds', () => {
+  const updatedBook = { ...book, updatedAt: '2026-08-06T10:00:00.000Z' };
+  assert.deepEqual(replaceBook([book], updatedBook), [updatedBook]);
   assert.equal(nextOffset(0, 12, 25), 12);
   assert.equal(nextOffset(24, 12, 25), 24);
   assert.equal(previousOffset(12, 12), 0);
+  assert.equal(nextOffset(0, 8, 19), 8);
+  assert.equal(nextOffset(16, 8, 19), 16);
+  assert.equal(previousOffset(16, 8), 8);
+  assert.equal(previousOffset(0, 8), 0);
   assert.deepEqual(visibleRange(12, 4), { start: 13, end: 16 });
   assert.deepEqual(visibleRange(0, 0), { start: 0, end: 0 });
 });
@@ -104,7 +131,7 @@ test('typed client calls canonical encoded book and edition routes', async () =>
     const payload = url.includes('/transition')
       ? { edition }
       : url.includes('/editions')
-        ? { items: [edition], limit: 100, offset: 0, total: 1 }
+        ? { items: [edition], limit: 8, offset: 8, total: 17 }
         : url.includes('?')
           ? { items: [book], limit: 12, offset: 0, total: 1 }
           : { book };
@@ -114,7 +141,7 @@ test('typed client calls canonical encoded book and edition routes', async () =>
   try {
     await fetchBooks(12, 0);
     await fetchBook('book/id');
-    await fetchEditions('book/id', 100, 0);
+    await fetchEditions('book/id', 8, 8);
     await transitionEdition('book/id', 'edition/id', 'published');
   } finally {
     globalThis.fetch = originalFetch;
@@ -123,9 +150,54 @@ test('typed client calls canonical encoded book and edition routes', async () =>
   assert.deepEqual(calls, [
     { body: null, method: 'GET', url: '/api/internal/books?limit=12&offset=0' },
     { body: null, method: 'GET', url: '/api/internal/books/book%2Fid' },
-    { body: null, method: 'GET', url: '/api/internal/books/book%2Fid/editions?limit=100&offset=0' },
+    { body: null, method: 'GET', url: '/api/internal/books/book%2Fid/editions?limit=8&offset=8' },
     { body: JSON.stringify({ status: 'published' }), method: 'POST', url: '/api/internal/books/book%2Fid/editions/edition%2Fid/transition' },
   ]);
+});
+
+test('reloading after publish shows the target published, previous archived, and touched book', async () => {
+  const previous = {
+    ...edition,
+    id: 'c3333333-3333-4333-8333-333333333333',
+    publishedAt: '2026-08-05T10:00:00.000Z',
+    status: 'published',
+    version: '1.0',
+  };
+  const publishedAt = '2026-08-06T10:00:00.000Z';
+  const originalFetch = globalThis.fetch;
+  let hasPublished = false;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (init?.method === 'POST') {
+      hasPublished = true;
+      return Response.json({ edition: { ...edition, publishedAt, status: 'published' } });
+    }
+    if (url.includes('/editions')) {
+      const items = hasPublished
+        ? [
+          { ...edition, publishedAt, status: 'published' },
+          { ...previous, archivedAt: publishedAt, status: 'archived' },
+        ]
+        : [edition, previous];
+      return Response.json({ items, limit: 8, offset: 0, total: 2 });
+    }
+    return Response.json({ book: { ...book, updatedAt: hasPublished ? publishedAt : book.updatedAt } });
+  };
+
+  try {
+    await transitionEdition(book.id, edition.id, 'published');
+    const detail = await fetchBookDetailPage(book.id, 8, 0);
+    assert.equal(detail.book.updatedAt, publishedAt);
+    assert.deepEqual(
+      detail.editions.items.map(({ id, status }) => ({ id, status })),
+      [
+        { id: edition.id, status: 'published' },
+        { id: previous.id, status: 'archived' },
+      ],
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('typed client preserves stable backend error codes', async () => {

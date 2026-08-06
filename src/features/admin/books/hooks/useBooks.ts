@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useState } from 'react';
-import { fetchBook, fetchBooks, fetchEditions, transitionEdition } from '../api/books';
-import { nextOffset, previousOffset, replaceEdition } from '../books-state';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { fetchBookDetailPage } from '../api/book-detail';
+import { fetchBooks, transitionEdition } from '../api/books';
+import { isCurrentBookRequest, nextOffset, previousOffset, replaceBook } from '../books-state';
 import type { Book, BookPage, EditionPage, EditionStatus, LoadStatus } from '../types';
 
 const bookPageSize = 12;
-const editionPageSize = 100;
+const editionPageSize = 8;
 
 export function useBooks() {
   const [book, setBook] = useState<Book | null>(null);
   const [detailReload, setDetailReload] = useState(0);
   const [detailStatus, setDetailStatus] = useState<LoadStatus>('idle');
+  const [editionOffset, setEditionOffset] = useState(0);
   const [editions, setEditions] = useState<EditionPage | null>(null);
   const [listReload, setListReload] = useState(0);
   const [listStatus, setListStatus] = useState<LoadStatus>('loading');
@@ -18,6 +20,21 @@ export function useBooks() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [transitionError, setTransitionError] = useState(false);
   const [transitioningId, setTransitioningId] = useState<string | null>(null);
+  const editionOffsetRef = useRef(0);
+  const selectedIdRef = useRef<string | null>(null);
+  const transitioningIdRef = useRef<string | null>(null);
+
+  const select = useCallback((id: string | null) => {
+    if (selectedIdRef.current === id) return;
+    selectedIdRef.current = id;
+    editionOffsetRef.current = 0;
+    setSelectedId(id);
+    setEditionOffset(0);
+    setBook(null);
+    setEditions(null);
+    setDetailStatus(id ? 'loading' : 'idle');
+    setTransitionError(false);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -29,65 +46,112 @@ export function useBooks() {
         return;
       }
       setPage(nextPage);
-      setSelectedId((current) => current && nextPage.items.some(({ id }) => id === current)
-        ? current
-        : nextPage.items[0]?.id ?? null);
+      const current = selectedIdRef.current;
+      if (!current || !nextPage.items.some(({ id }) => id === current)) {
+        select(nextPage.items[0]?.id ?? null);
+      }
       setListStatus('ready');
     }).catch(() => {
       if (!controller.signal.aborted) setListStatus('error');
     });
     return () => controller.abort();
-  }, [listReload, offset]);
+  }, [listReload, offset, select]);
 
   useEffect(() => {
-    if (!selectedId) {
-      setBook(null);
-      setEditions(null);
-      setDetailStatus('idle');
-      return;
-    }
+    if (!selectedId) return;
     const controller = new AbortController();
+    const requestedBookId = selectedId;
+    const requestedOffset = editionOffset;
+    setBook(null);
+    setEditions(null);
     setDetailStatus('loading');
     setTransitionError(false);
-    void Promise.all([
-      fetchBook(selectedId, controller.signal),
-      fetchEditions(selectedId, editionPageSize, 0, controller.signal),
-    ]).then(([nextBook, nextEditions]) => {
-      if (controller.signal.aborted) return;
-      setBook(nextBook);
-      setEditions(nextEditions);
-      setDetailStatus('ready');
+    void fetchBookDetailPage(
+      requestedBookId,
+      editionPageSize,
+      requestedOffset,
+      controller.signal,
+    ).then((detail) => {
+      if (controller.signal.aborted || !isCurrentRequest(requestedBookId, requestedOffset)) return;
+      if (detail.editions.items.length === 0 && requestedOffset > 0 && detail.editions.total > 0) {
+        changeEditionOffset(previousOffset(requestedOffset, detail.editions.limit));
+        return;
+      }
+      applyDetail(detail.book, detail.editions);
     }).catch(() => {
-      if (!controller.signal.aborted) setDetailStatus('error');
+      if (!controller.signal.aborted && isCurrentRequest(requestedBookId, requestedOffset)) {
+        setDetailStatus('error');
+      }
     });
     return () => controller.abort();
-  }, [detailReload, selectedId]);
+  }, [detailReload, editionOffset, selectedId]);
+
+  function isCurrentRequest(bookId: string, requestedOffset: number): boolean {
+    return isCurrentBookRequest(
+      selectedIdRef.current,
+      bookId,
+      editionOffsetRef.current,
+      requestedOffset,
+    );
+  }
+
+  function changeEditionOffset(next: number) {
+    editionOffsetRef.current = next;
+    setEditionOffset(next);
+  }
+
+  function applyDetail(nextBook: Book, nextEditions: EditionPage) {
+    setBook(nextBook);
+    setEditions(nextEditions);
+    setPage((current) => current
+      ? { ...current, items: replaceBook(current.items, nextBook) }
+      : current);
+    setDetailStatus('ready');
+  }
 
   const runTransition = useCallback(async (editionId: string, target: EditionStatus) => {
-    if (!selectedId || transitioningId) return null;
+    const bookId = selectedIdRef.current;
+    const requestedOffset = editionOffsetRef.current;
+    if (!bookId || transitioningIdRef.current) return null;
+    transitioningIdRef.current = editionId;
     setTransitionError(false);
     setTransitioningId(editionId);
     try {
-      const updated = await transitionEdition(selectedId, editionId, target);
-      setEditions((current) => current
-        ? { ...current, items: replaceEdition(current.items, updated) }
-        : current);
+      const updated = await transitionEdition(bookId, editionId, target);
+      if (!isCurrentRequest(bookId, requestedOffset)) return null;
+      setBook(null);
+      setEditions(null);
+      setDetailStatus('loading');
+      const detail = await fetchBookDetailPage(bookId, editionPageSize, requestedOffset);
+      if (!isCurrentRequest(bookId, requestedOffset)) return null;
+      applyDetail(detail.book, detail.editions);
       return updated;
     } catch {
-      setTransitionError(true);
+      if (isCurrentRequest(bookId, requestedOffset)) setTransitionError(true);
       return null;
     } finally {
+      transitioningIdRef.current = null;
       setTransitioningId(null);
     }
-  }, [selectedId, transitioningId]);
+  }, []);
+
+  function goToBookPage(next: number) {
+    if (next === offset) return;
+    select(null);
+    setOffset(next);
+  }
 
   return {
-    book, canGoNext: Boolean(page && page.offset + page.items.length < page.total),
+    book, canEditionsGoNext: Boolean(editions && editions.offset + editions.items.length < editions.total),
+    canEditionsGoPrevious: editionOffset > 0,
+    canGoNext: Boolean(page && page.offset + page.items.length < page.total),
     canGoPrevious: offset > 0, detailStatus, editions,
-    goToNextPage: () => page && setOffset(nextOffset(offset, page.limit, page.total)),
-    goToPreviousPage: () => setOffset(previousOffset(offset, page?.limit ?? bookPageSize)),
+    goToEditionsNextPage: () => editions && changeEditionOffset(nextOffset(editionOffset, editions.limit, editions.total)),
+    goToEditionsPreviousPage: () => changeEditionOffset(previousOffset(editionOffset, editions?.limit ?? editionPageSize)),
+    goToNextPage: () => page && goToBookPage(nextOffset(offset, page.limit, page.total)),
+    goToPreviousPage: () => goToBookPage(previousOffset(offset, page?.limit ?? bookPageSize)),
     listStatus, page, retryDetail: () => setDetailReload((value) => value + 1),
     retryList: () => setListReload((value) => value + 1), runTransition,
-    select: setSelectedId, selectedId, transitionError, transitioningId,
+    select: (id: string) => select(id), selectedId, transitionError, transitioningId,
   };
 }

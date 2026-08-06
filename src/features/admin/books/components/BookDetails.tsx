@@ -1,4 +1,6 @@
 import type { AppLanguage } from '../../../../i18n/language';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { visibleRange } from '../books-state';
 import type { BooksCopy } from '../copy';
 import type { Book, EditionPage, EditionStatus, LoadStatus, PendingTransition } from '../types';
 import { BookMetadata } from './BookMetadata';
@@ -7,9 +9,13 @@ import { EditionCard } from './EditionCard';
 
 interface BookDetailsProps {
   book: Book | null;
+  canGoNext: boolean;
+  canGoPrevious: boolean;
   copy: BooksCopy;
   editions: EditionPage | null;
   language: AppLanguage;
+  onNext: () => void;
+  onPrevious: () => void;
   onRetry: () => void;
   onTransition: (transition: PendingTransition) => void;
   selectedId: string | null;
@@ -27,6 +33,7 @@ export function BookDetails(props: BookDetailsProps) {
   if (props.status === 'error' || !props.book || !props.editions) {
     return <section className="book-details-panel"><BooksPanelState actionLabel={props.copy.retry} body={props.copy.detailError} onAction={props.onRetry} title={props.copy.detailError} tone="error" /></section>;
   }
+  const range = visibleRange(props.editions.offset, props.editions.items.length);
   return (
     <section className="book-details-panel">
       <BookMetadata book={props.book} copy={props.copy} language={props.language} />
@@ -44,6 +51,15 @@ export function BookDetails(props: BookDetailsProps) {
               transitioning={props.transitioningId === edition.id}
             />
           ))}
+        {props.editions.total > 0 && (
+          <footer className="edition-pagination">
+            <span>{props.copy.range(range.start, range.end, props.editions.total)}</span>
+            <div>
+              <button aria-label={props.copy.previousPage} disabled={!props.canGoPrevious} onClick={props.onPrevious} type="button"><ChevronLeft size={17} /></button>
+              <button aria-label={props.copy.nextPage} disabled={!props.canGoNext} onClick={props.onNext} type="button"><ChevronRight size={17} /></button>
+            </div>
+          </footer>
+        )}
       </div>
     </section>
   );

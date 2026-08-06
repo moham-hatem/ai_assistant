@@ -29,6 +29,12 @@ export function BooksWorkspace({ language }: BooksWorkspaceProps) {
     setPending(transition);
   }
 
+  function selectBook(id: string) {
+    setPending(null);
+    setSuccess(null);
+    books.select(id);
+  }
+
   return (
     <>
       {(success || books.transitionError) && (
@@ -47,16 +53,20 @@ export function BooksWorkspace({ language }: BooksWorkspaceProps) {
           onNext={books.goToNextPage}
           onPrevious={books.goToPreviousPage}
           onRefresh={books.retryList}
-          onSelect={books.select}
+          onSelect={selectBook}
           page={books.page}
           selectedId={books.selectedId}
           status={books.listStatus}
         />
         <BookDetails
           book={books.book}
+          canGoNext={books.canEditionsGoNext}
+          canGoPrevious={books.canEditionsGoPrevious}
           copy={copy}
           editions={books.editions}
           language={language}
+          onNext={books.goToEditionsNextPage}
+          onPrevious={books.goToEditionsPreviousPage}
           onRetry={books.retryDetail}
           onTransition={requestTransition}
           selectedId={books.selectedId}

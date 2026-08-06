@@ -1,14 +1,12 @@
-import { Archive, CheckCircle2, Clock3, FileCheck2, RotateCcw, Send, XCircle } from 'lucide-react';
-import { allowedEditionTransitions } from '../../../../../shared/contracts/books';
+import { Archive, CheckCircle2, FileCheck2, Send, XCircle } from 'lucide-react';
 import type { AppLanguage } from '../../../../i18n/language';
+import { operatorEditionTransitions, type OperatorEditionTarget } from '../books-state';
 import type { BooksCopy } from '../copy';
 import { formatBookDate } from '../format';
 import type { BookEdition, EditionStatus } from '../types';
 
-const actionIcons = {
+const actionIcons: Record<OperatorEditionTarget, typeof Archive> = {
   archived: Archive,
-  draft: RotateCcw,
-  processing: Clock3,
   published: Send,
   ready: CheckCircle2,
   rejected: XCircle,
@@ -23,7 +21,7 @@ interface EditionCardProps {
 }
 
 export function EditionCard({ copy, edition, language, onTransition, transitioning }: EditionCardProps) {
-  const transitions = allowedEditionTransitions(edition.status);
+  const transitions = operatorEditionTransitions(edition.status);
   return (
     <article className="edition-card">
       <header>
