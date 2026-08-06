@@ -1,0 +1,221 @@
+.question-logs-workspace {
+  display: grid;
+  grid-template-columns: minmax(320px, .9fr) minmax(380px, 1.1fr);
+  align-items: start;
+  gap: 18px;
+}
+
+.question-log-list-panel,
+.question-log-detail-panel {
+  min-width: 0;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #dfe8e1;
+  border-radius: 18px;
+  box-shadow: 0 12px 30px #193b290d;
+}
+
+.question-log-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 57px;
+  gap: 12px;
+  padding: 11px 15px;
+  border-bottom: 1px solid #e5ece6;
+}
+
+.question-log-panel-header > strong { font-size: .9rem; }
+
+.question-log-icon-button,
+.question-log-action {
+  display: inline-grid;
+  place-items: center;
+  color: #285944;
+  background: #f1f6f2;
+  border: 1px solid #dce8df;
+  cursor: pointer;
+}
+
+.question-log-icon-button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 10px;
+}
+
+.question-log-icon-button:hover:not(:disabled),
+.question-log-action:hover { color: #fff; background: #176345; border-color: #176345; }
+.question-log-icon-button:disabled { opacity: .42; cursor: default; }
+
+.question-log-action {
+  margin-top: 4px;
+  padding: 8px 13px;
+  font-weight: 700;
+  border-radius: 10px;
+}
+
+.question-log-state {
+  display: flex;
+  min-height: 290px;
+  padding: 34px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 9px;
+  color: #61746a;
+  text-align: center;
+}
+
+.question-log-state-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 3px;
+  color: #267152;
+  background: #eaf3ec;
+  border-radius: 15px;
+}
+
+.question-log-state strong { color: #294638; }
+.question-log-state p { max-width: 390px; margin: 0; font-size: .84rem; line-height: 1.7; }
+
+.question-log-records { display: grid; }
+
+.question-log-record {
+  display: grid;
+  width: 100%;
+  gap: 10px;
+  padding: 16px;
+  color: inherit;
+  text-align: start;
+  background: #fff;
+  border: 0;
+  border-bottom: 1px solid #e8eee9;
+  cursor: pointer;
+}
+
+.question-log-record:hover { background: #f8fbf8; }
+.question-log-record[aria-pressed='true'] { background: #eff7f1; box-shadow: inset 3px 0 #1b704e; }
+[dir='rtl'] .question-log-record[aria-pressed='true'] { box-shadow: inset -3px 0 #1b704e; }
+
+.question-log-record-topline,
+.question-log-badges,
+.question-log-pagination,
+.question-log-pagination-actions {
+  display: flex;
+  align-items: center;
+}
+
+.question-log-record-topline { justify-content: space-between; gap: 12px; }
+.question-log-record-topline time { color: #75867d; font-size: .7rem; white-space: nowrap; }
+.question-log-badges { flex-wrap: wrap; gap: 6px; }
+
+.question-log-badge {
+  display: inline-flex;
+  padding: 4px 8px;
+  font-size: .68rem;
+  font-weight: 800;
+  border-radius: 999px;
+}
+
+.question-log-status-answered { color: #17623f; background: #e2f3e7; }
+.question-log-status-declined { color: #765a1e; background: #f8edcd; }
+.question-log-status-failed { color: #8b3434; background: #f9e1df; }
+.question-log-channel { color: #4c5f56; background: #edf1ee; }
+
+.question-log-question {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: .93rem;
+  line-height: 1.6;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.question-log-record-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  color: #465d51;
+  font-size: .76rem;
+}
+
+.question-log-record-meta > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.question-log-record-meta small { margin-inline-end: 5px; color: #829087; }
+
+.question-log-pagination {
+  min-height: 57px;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 15px;
+  color: #687b70;
+  font-size: .78rem;
+}
+
+.question-log-pagination-actions { gap: 6px; }
+[dir='rtl'] .question-log-pagination-button svg { transform: scaleX(-1); }
+
+.question-log-detail-content { display: grid; }
+.question-log-detail-question { display: grid; gap: 10px; padding: 19px 20px 21px; background: #f4f8f4; }
+.question-log-detail-question small,
+.question-log-detail-section > small { color: #72837a; font-size: .72rem; font-weight: 700; }
+.question-log-detail-question h2 { margin: 0; font-size: 1.08rem; line-height: 1.65; }
+
+.question-log-detail-section { min-width: 0; padding: 19px 20px; border-top: 1px solid #e5ece6; }
+.question-log-detail-section h3 { margin: 0 0 13px; color: #244838; font-size: .82rem; text-transform: uppercase; letter-spacing: .035em; }
+.question-log-long-text { margin: 6px 0 0; color: #3d5549; font-size: .88rem; line-height: 1.85; white-space: pre-wrap; }
+.question-log-muted { margin: 0; color: #718279; font-size: .82rem; line-height: 1.65; }
+
+.question-log-evidence-list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.question-log-evidence-list li {
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+  color: #3c594b;
+  font-family: Consolas, monospace;
+  font-size: .75rem;
+  text-align: start;
+  background: #f3f7f4;
+  border-radius: 8px;
+}
+
+.question-log-metadata {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 18px;
+  margin: 0;
+}
+
+.question-log-metadata div { min-width: 0; }
+.question-log-metadata dt { margin-bottom: 4px; color: #7a8981; font-size: .7rem; }
+.question-log-metadata dd { overflow-wrap: anywhere; margin: 0; color: #334f41; font-size: .8rem; font-weight: 700; }
+
+.is-spinning { animation: question-log-spin .8s linear infinite; }
+@keyframes question-log-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 980px) {
+  .question-logs-workspace { grid-template-columns: 1fr; }
+  .question-log-state { min-height: 220px; }
+}
+
+@media (max-width: 520px) {
+  .question-log-record { padding: 14px; }
+  .question-log-record-topline { align-items: flex-start; flex-direction: column; gap: 7px; }
+  .question-log-record-meta,
+  .question-log-metadata { grid-template-columns: 1fr; }
+  .question-log-detail-question,
+  .question-log-detail-section { padding-inline: 16px; }
+  .question-log-state { min-height: 200px; padding: 28px 20px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .is-spinning { animation-duration: 1.8s; }
+}

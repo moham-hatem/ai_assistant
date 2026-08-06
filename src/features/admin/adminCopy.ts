@@ -29,7 +29,6 @@ export interface AdminCopy {
   };
   placeholder: {
     reviews: { current: string; next: string; points: string[] };
-    questionLogs: { current: string; next: string; points: string[] };
   };
 }
 
@@ -47,7 +46,7 @@ export const adminCopies: Record<AppLanguage, AdminCopy> = {
     pageIntro: {
       books: 'رفع الكتب المعتمدة ومعاينتها وحذفها من قاعدة المعرفة الحالية.',
       reviews: 'مساحة مخططة لمراجعة الإجابات التي تحتاج إلى تدخل معلم.',
-      questionLogs: 'مساحة مخططة لمتابعة الأسئلة والنتائج مع مراعاة الخصوصية.',
+      questionLogs: 'متابعة الأسئلة المسجلة ونتائجها وأدلتها وبيانات تنفيذها من سجل الخادم الحقيقي.',
       settings: 'حالة الإعدادات الإدارية وحدود ما يمكن تغييره حاليًا.',
     },
     pageTitle: { books: 'إدارة الكتب', reviews: 'مراجعة الإجابات', questionLogs: 'سجل الأسئلة', settings: 'الإعدادات' },
@@ -61,7 +60,7 @@ export const adminCopies: Record<AppLanguage, AdminCopy> = {
     featureCards: {
       books: { body: 'الرفع والقائمة والمعاينة والحذف تعمل عبر خدمات المستندات الحالية.', next: 'تحقق من صلاحيات إدارة المستندات عند إضافة مصادقة الخادم.' },
       reviews: { body: 'لا توجد قائمة مراجعة أو قرارات اعتماد محفوظة بعد.', next: 'تعريف نموذج المراجعة ونقاط API وأدوار المعلمين.' },
-      questionLogs: { body: 'لا يتم جلب أو عرض سجل أسئلة في هذه الصفحة بعد.', next: 'تعريف سياسة الاحتفاظ والخصوصية ثم إنشاء API مخصص.' },
+      questionLogs: { body: 'تعرض الصفحة سجل الأسئلة الحقيقي مع التصفح وتفاصيل النتيجة والأدلة.', next: 'إضافة مصادقة وصلاحيات إدارية في الخادم قبل النشر.' },
       settings: { body: 'تعرض الصفحة الحدود الحالية فقط دون حفظ إعدادات جديدة.', next: 'تحديد الإعدادات المسموح بها وعقد الحفظ في الخادم.' },
     },
     placeholder: {
@@ -69,11 +68,6 @@ export const adminCopies: Record<AppLanguage, AdminCopy> = {
         current: 'الواجهة جاهزة لاستقبال قائمة مراجعة، لكن لا يوجد مصدر بيانات أو إجراء اعتماد حاليًا.',
         next: 'ربط قائمة انتظار من الخادم بعد تعريف حالات المراجعة والصلاحيات.',
         points: ['تصفية الإجابات التي تحتاج مراجعة', 'إظهار السؤال والأدلة والإجابة معًا', 'تسجيل قرار المعلم وملاحظاته'],
-      },
-      questionLogs: {
-        current: 'لا تسجل هذه الواجهة أسئلة المستخدمين ولا تعرض بيانات تجريبية توحي بوجود سجل حقيقي.',
-        next: 'إقرار سياسة الخصوصية والاحتفاظ قبل بناء القراءة والتصفية والتصدير.',
-        points: ['بحث وتصفية بالتاريخ والحالة', 'إخفاء أو حذف البيانات الحساسة', 'تتبّع النتيجة دون تغيير محرك الإجابة'],
       },
     },
   },
@@ -90,7 +84,7 @@ export const adminCopies: Record<AppLanguage, AdminCopy> = {
     pageIntro: {
       books: 'Upload, preview, and remove approved books from the current knowledge base.',
       reviews: 'A planned workspace for answers that need a teacher review.',
-      questionLogs: 'A planned view of questions and outcomes with privacy in mind.',
+      questionLogs: 'Inspect recorded questions, outcomes, evidence, and execution metadata from the real server log.',
       settings: 'The current state and boundaries of administrative settings.',
     },
     pageTitle: { books: 'Book management', reviews: 'Answer reviews', questionLogs: 'Question logs', settings: 'Settings' },
@@ -104,7 +98,7 @@ export const adminCopies: Record<AppLanguage, AdminCopy> = {
     featureCards: {
       books: { body: 'Upload, list, preview, and delete use the existing document services.', next: 'Enforce document-management roles when server authentication is added.' },
       reviews: { body: 'There is no review queue or persisted approval decision yet.', next: 'Define the review model, API endpoints, and teacher roles.' },
-      questionLogs: { body: 'This page does not fetch or display question history yet.', next: 'Set retention and privacy rules, then add a dedicated API.' },
+      questionLogs: { body: 'The page reads the real question log with pagination, outcome details, and evidence.', next: 'Add server-side admin authentication and authorization before release.' },
       settings: { body: 'This page documents current boundaries without persisting new settings.', next: 'Choose editable settings and define a server persistence contract.' },
     },
     placeholder: {
@@ -112,11 +106,6 @@ export const adminCopies: Record<AppLanguage, AdminCopy> = {
         current: 'The UI is ready to host a review queue, but there is no data source or approval action yet.',
         next: 'Connect a server queue after review states and permissions are defined.',
         points: ['Filter answers that need review', 'Show question, evidence, and answer together', 'Record the teacher decision and notes'],
-      },
-      questionLogs: {
-        current: 'The UI does not record user questions or show sample data that could be mistaken for real history.',
-        next: 'Approve privacy and retention rules before adding read, filter, and export capabilities.',
-        points: ['Search and filter by date and status', 'Redact or delete sensitive data', 'Track outcomes without changing the answer engine'],
       },
     },
   },
@@ -133,7 +122,7 @@ export const adminCopies: Record<AppLanguage, AdminCopy> = {
     pageIntro: {
       books: 'Pakia, hakiki, na uondoe vitabu vilivyoidhinishwa kwenye hazina ya maarifa.',
       reviews: 'Sehemu iliyopangwa kwa majibu yanayohitaji mapitio ya mwalimu.',
-      questionLogs: 'Mwonekano uliopangwa wa maswali na matokeo unaozingatia faragha.',
+      questionLogs: 'Kagua maswali, matokeo, ushahidi, na data ya utekelezaji kutoka kwenye kumbukumbu halisi ya seva.',
       settings: 'Hali na mipaka ya sasa ya mipangilio ya usimamizi.',
     },
     pageTitle: { books: 'Usimamizi wa vitabu', reviews: 'Mapitio ya majibu', questionLogs: 'Kumbukumbu za maswali', settings: 'Mipangilio' },
@@ -147,7 +136,7 @@ export const adminCopies: Record<AppLanguage, AdminCopy> = {
     featureCards: {
       books: { body: 'Kupakia, orodha, hakiki, na kufuta hutumia huduma zilizopo za nyaraka.', next: 'Tekeleza ruhusa za nyaraka wakati uthibitishaji wa seva utaongezwa.' },
       reviews: { body: 'Bado hakuna foleni ya mapitio wala maamuzi yaliyohifadhiwa.', next: 'Fafanua muundo wa mapitio, API, na majukumu ya walimu.' },
-      questionLogs: { body: 'Ukurasa huu bado hauleti wala kuonyesha historia ya maswali.', next: 'Weka sera za faragha na uhifadhi, kisha ongeza API.' },
+      questionLogs: { body: 'Ukurasa unasoma kumbukumbu halisi kwa kurasa pamoja na matokeo na ushahidi.', next: 'Ongeza uthibitishaji na ruhusa za msimamizi kwenye seva kabla ya kutolewa.' },
       settings: { body: 'Ukurasa unaonyesha mipaka ya sasa bila kuhifadhi mipangilio mipya.', next: 'Chagua mipangilio inayoweza kubadilishwa na mkataba wa seva.' },
     },
     placeholder: {
@@ -155,11 +144,6 @@ export const adminCopies: Record<AppLanguage, AdminCopy> = {
         current: 'Kiolesura kiko tayari kwa foleni, lakini bado hakuna chanzo cha data au kitendo cha kuidhinisha.',
         next: 'Unganisha foleni ya seva baada ya kufafanua hali na ruhusa.',
         points: ['Chuja majibu yanayohitaji mapitio', 'Onyesha swali, ushahidi, na jibu pamoja', 'Hifadhi uamuzi na maelezo ya mwalimu'],
-      },
-      questionLogs: {
-        current: 'Kiolesura hakirekodi maswali wala kuonyesha data ya mfano kama historia halisi.',
-        next: 'Idhinisha sera za faragha na uhifadhi kabla ya kuongeza usomaji na usafirishaji.',
-        points: ['Tafuta kwa tarehe na hali', 'Ficha au futa data nyeti', 'Fuatilia matokeo bila kubadilisha injini ya majibu'],
       },
     },
   },

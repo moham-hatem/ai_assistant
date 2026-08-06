@@ -37,8 +37,8 @@ export function AdminDashboardPage({ copy }: AdminDashboardPageProps) {
           icon={<ListTree size={22} />}
           nextLabel={copy.nextStep}
           nextStep={copy.featureCards.questionLogs.next}
-          status={copy.planned}
-          statusKind="planned"
+          status={copy.ready}
+          statusKind="ready"
           title={copy.navigation.questionLogs}
         />
         <FeatureStatusCard

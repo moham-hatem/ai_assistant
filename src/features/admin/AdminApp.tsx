@@ -34,7 +34,7 @@ function renderPage(page: AdminPage, copy: (typeof adminCopies)[AppLanguage], la
   switch (page) {
     case 'books': return <AdminBooksPage copy={copy} />;
     case 'reviews': return <AdminReviewsPage copy={copy} />;
-    case 'question-logs': return <AdminQuestionLogsPage copy={copy} />;
+    case 'question-logs': return <AdminQuestionLogsPage copy={copy} language={language.code} />;
     case 'settings': return <AdminSettingsPage copy={copy} languageDetails={language} />;
     default: return <AdminDashboardPage copy={copy} />;
   }
