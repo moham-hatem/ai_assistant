@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchBookDetailPage } from '../api/book-detail';
 import { fetchBooks, transitionEdition } from '../api/books';
-import { isCurrentBookRequest, nextOffset, previousOffset, replaceBook } from '../books-state';
+import {
+  isCurrentBookRequest,
+  nextOffset,
+  previousOffset,
+  replaceBook,
+  transitionFailureState,
+  type TransitionFailure,
+} from '../books-state';
 import type { Book, BookPage, EditionPage, EditionStatus, LoadStatus } from '../types';
 
 const bookPageSize = 12;
@@ -18,7 +25,7 @@ export function useBooks() {
   const [offset, setOffset] = useState(0);
   const [page, setPage] = useState<BookPage | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [transitionError, setTransitionError] = useState(false);
+  const [transitionError, setTransitionError] = useState<TransitionFailure | null>(null);
   const [transitioningId, setTransitioningId] = useState<string | null>(null);
   const editionOffsetRef = useRef(0);
   const selectedIdRef = useRef<string | null>(null);
@@ -33,7 +40,7 @@ export function useBooks() {
     setBook(null);
     setEditions(null);
     setDetailStatus(id ? 'loading' : 'idle');
-    setTransitionError(false);
+    setTransitionError(null);
   }, []);
 
   useEffect(() => {
@@ -65,7 +72,7 @@ export function useBooks() {
     setBook(null);
     setEditions(null);
     setDetailStatus('loading');
-    setTransitionError(false);
+    setTransitionError(null);
     void fetchBookDetailPage(
       requestedBookId,
       editionPageSize,
@@ -109,25 +116,38 @@ export function useBooks() {
     setDetailStatus('ready');
   }
 
+  function applyTransitionFailure(
+    failure: TransitionFailure,
+    bookId: string,
+    requestedOffset: number,
+  ) {
+    const state = transitionFailureState(failure, isCurrentRequest(bookId, requestedOffset));
+    if (!state) return;
+    setTransitionError(state.transitionError);
+    if (state.detailStatus) setDetailStatus(state.detailStatus);
+  }
+
   const runTransition = useCallback(async (editionId: string, target: EditionStatus) => {
     const bookId = selectedIdRef.current;
     const requestedOffset = editionOffsetRef.current;
     if (!bookId || transitioningIdRef.current) return null;
     transitioningIdRef.current = editionId;
-    setTransitionError(false);
+    setTransitionError(null);
     setTransitioningId(editionId);
+    let stage: TransitionFailure = 'transition';
     try {
       const updated = await transitionEdition(bookId, editionId, target);
       if (!isCurrentRequest(bookId, requestedOffset)) return null;
       setBook(null);
       setEditions(null);
       setDetailStatus('loading');
+      stage = 'refresh';
       const detail = await fetchBookDetailPage(bookId, editionPageSize, requestedOffset);
       if (!isCurrentRequest(bookId, requestedOffset)) return null;
       applyDetail(detail.book, detail.editions);
       return updated;
     } catch {
-      if (isCurrentRequest(bookId, requestedOffset)) setTransitionError(true);
+      applyTransitionFailure(stage, bookId, requestedOffset);
       return null;
     } finally {
       transitioningIdRef.current = null;

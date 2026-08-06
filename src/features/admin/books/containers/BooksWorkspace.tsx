@@ -16,6 +16,9 @@ export function BooksWorkspace({ language }: BooksWorkspaceProps) {
   const copy = booksCopies[language];
   const [pending, setPending] = useState<PendingTransition | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const errorMessage = books.transitionError === 'refresh'
+    ? copy.transitionRefreshError
+    : copy.transitionError;
 
   async function confirmTransition() {
     if (!pending) return;
@@ -40,7 +43,7 @@ export function BooksWorkspace({ language }: BooksWorkspaceProps) {
       {(success || books.transitionError) && (
         <div className={`books-notice ${books.transitionError ? 'is-error' : 'is-success'}`} role={books.transitionError ? 'alert' : 'status'}>
           {books.transitionError ? <TriangleAlert size={19} /> : <CheckCircle2 size={19} />}
-          <span>{books.transitionError ? copy.transitionError : success}</span>
+          <span>{books.transitionError ? errorMessage : success}</span>
           {success && <button aria-label={copy.cancel} onClick={() => setSuccess(null)} type="button"><X size={16} /></button>}
         </div>
       )}

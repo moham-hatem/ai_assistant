@@ -44,6 +44,7 @@ export interface BooksCopy {
   statuses: Record<EditionStatus, string>;
   subject: string;
   transitionError: string;
+  transitionRefreshError: string;
   transitionSuccess: (version: string, status: string) => string;
   updatedAt: string;
   version: string;
@@ -67,6 +68,7 @@ export const booksCopies: Record<AppLanguage, BooksCopy> = {
     selectBookTitle: 'اختر كتابًا', status: 'الحالة',
     statuses: { archived: 'مؤرشف', draft: 'مسودة', processing: 'قيد المعالجة', published: 'منشور', ready: 'جاهز', rejected: 'مرفوض' },
     subject: 'الموضوع', transitionError: 'تعذر تغيير حالة الإصدار. ربما تغيرت حالته؛ حدّث التفاصيل وحاول مجددًا.',
+    transitionRefreshError: 'تم تنفيذ الإجراء، لكن تعذر تحديث التفاصيل من الخادم. أعد تحميل التفاصيل للمزامنة.',
     transitionSuccess: (version, status) => `انتقل الإصدار ${version} بنجاح إلى «${status}».`, updatedAt: 'آخر تحديث', version: 'الإصدار',
     range: (start, end, total) => `${start.toLocaleString('ar-EG')}–${end.toLocaleString('ar-EG')} من ${total.toLocaleString('ar-EG')}`,
   },
@@ -87,6 +89,7 @@ export const booksCopies: Record<AppLanguage, BooksCopy> = {
     selectBookTitle: 'Select a book', status: 'Status',
     statuses: { archived: 'Archived', draft: 'Draft', processing: 'Processing', published: 'Published', ready: 'Ready', rejected: 'Rejected' },
     subject: 'Subject', transitionError: 'The edition status could not be changed. It may have changed already; refresh the details and try again.',
+    transitionRefreshError: 'The action completed, but fresh details could not be loaded. Retry the details to synchronize this view.',
     transitionSuccess: (version, status) => `Edition ${version} moved to “${status}”.`, updatedAt: 'Last updated', version: 'Version',
     range: (start, end, total) => `${start}–${end} of ${total}`,
   },
@@ -106,6 +109,7 @@ export const booksCopies: Record<AppLanguage, BooksCopy> = {
     selectBookTitle: 'Chagua kitabu', status: 'Hali',
     statuses: { archived: 'Kimehifadhiwa', draft: 'Rasimu', processing: 'Kinachakatwa', published: 'Kimechapishwa', ready: 'Tayari', rejected: 'Kimekataliwa' },
     subject: 'Mada', transitionError: 'Hali ya toleo haikuweza kubadilishwa. Huenda tayari imebadilika; pakia upya maelezo kisha ujaribu tena.',
+    transitionRefreshError: 'Kitendo kimekamilika, lakini maelezo mapya hayakuweza kupakiwa. Jaribu kupakia maelezo tena ili kulandanisha ukurasa.',
     transitionSuccess: (version, status) => `Toleo ${version} limehamishwa hadi “${status}”.`, updatedAt: 'Ilisasishwa', version: 'Toleo',
     range: (start, end, total) => `${start}–${end} kati ya ${total}`,
   },

@@ -22,6 +22,7 @@ import {
   operatorEditionTransitions,
   previousOffset,
   replaceBook,
+  transitionFailureState,
   visibleRange,
 } from '../../src/features/admin/books/books-state.ts';
 
@@ -106,6 +107,18 @@ test('book identity guards prevent stale book or edition page responses', () => 
   assert.equal(isCurrentBookRequest('another-book', book.id, 8, 8), false);
   assert.equal(isCurrentBookRequest(book.id, book.id, 16, 8), false);
   assert.equal(isCurrentBookRequest(null, book.id, 8, 8), false);
+});
+
+test('current refresh failure exits loading while stale transition failures are ignored', () => {
+  assert.deepEqual(transitionFailureState('refresh', true), {
+    detailStatus: 'error',
+    transitionError: 'refresh',
+  });
+  assert.deepEqual(transitionFailureState('transition', true), {
+    transitionError: 'transition',
+  });
+  assert.equal(transitionFailureState('refresh', false), null);
+  assert.equal(transitionFailureState('transition', false), null);
 });
 
 test('book and edition pagination helpers update within independent bounds', () => {

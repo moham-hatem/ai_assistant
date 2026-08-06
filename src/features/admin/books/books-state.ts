@@ -2,6 +2,12 @@ import { allowedEditionTransitions } from '../../../../shared/contracts/books.ts
 import type { Book, EditionStatus } from './types';
 
 export type OperatorEditionTarget = 'archived' | 'published' | 'ready' | 'rejected';
+export type TransitionFailure = 'refresh' | 'transition';
+
+export interface TransitionFailureState {
+  detailStatus?: 'error';
+  transitionError: TransitionFailure;
+}
 
 const operatorTransitions: Readonly<Record<EditionStatus, readonly OperatorEditionTarget[]>> = {
   archived: ['ready'],
@@ -31,6 +37,16 @@ export function isCurrentBookRequest(
   requestedEditionOffset: number,
 ): boolean {
   return activeBookId === requestedBookId && activeEditionOffset === requestedEditionOffset;
+}
+
+export function transitionFailureState(
+  failure: TransitionFailure,
+  isCurrentRequest: boolean,
+): TransitionFailureState | null {
+  if (!isCurrentRequest) return null;
+  return failure === 'refresh'
+    ? { detailStatus: 'error', transitionError: failure }
+    : { transitionError: failure };
 }
 
 export function nextOffset(offset: number, limit: number, total: number): number {
