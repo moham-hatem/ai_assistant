@@ -17,6 +17,7 @@ src/features/chat/hooks       حالة المحادثة ومنطق الجلسة
 src/features/chat/containers  ربط الحالة بمكونات العرض
 src/features/chat/components  مكونات UI عرضية
 src/features/admin            هيكل لوحة الإدارة وصفحاتها ومكوناتها
+src/features/admin/question-logs  عميل سجل الأسئلة وحالته وقائمته وتفاصيله
 
 server/http                   التحقق من الطلب والاستجابة
 server/answer-service         حالة الاستخدام الأساسية
@@ -24,6 +25,7 @@ server/knowledge              تحميل الملفات وترتيب الأدل�
 server/documents              استخراج المستندات وحفظها محليًا
 server/model                  OpenCode والـPrompt والتحقق
 server/modules/question-log   عقد السجل وخدمته وتخزين SQLite وواجهات القراءة
+server/modules/books          مجال الكتب والإصدارات وSQLite migrations وواجهات الإدارة
 server/vite                   ربط الـAPI بخادم التطوير
 server/create-runtime         إنشاء وربط الاعتماديات
 ```
@@ -62,6 +64,8 @@ server/create-runtime         إنشاء وربط الاعتماديات
 ```
 
 يدعم الاستيراد TXT وMarkdown وPDF ذي الطبقة النصية وDOCX. مستخرج PDF يرتب الأسطر مكانيًا ويستعيد التسلسلات الرقمية من الإنفوجرافيك قبل الفهرسة، ويمكن إعادة معالجة المصادر المحلية بأمر `npm run rebuild:documents`. لا ينفّذ OCR للصفحات المصورة بالكامل حتى الآن. الحذف يزيل الأصل والنص والبيانات الوصفية باستخدام معرّف UUID مولّد داخليًا، ولا تُستخدم أسماء الملفات القادمة من المستخدم كمسارات تخزين.
+
+يوجد سجل مستقل للكتب والإصدارات في `data/books.sqlite` مع migrations وحالات نشر واستعادة. هذا السجل غير موصول بعد بـ`DocumentStore` أو `KnowledgeSource`: تغيير حالة إصدار لا يرفع ملفًا ولا يعيد بناء الفهرس ولا يغير المحتوى الذي يجيب منه المساعد. هذا الفصل متعمد حتى تُنفذ مرحلة تكامل واختبارات نشر تمنع دخول المسودات إلى البحث.
 
 ## حدود الثقة
 

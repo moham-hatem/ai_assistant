@@ -77,5 +77,7 @@ npm audit
 - [نطاق المنتج ومعايير القبول](docs/PRODUCT_SCOPE.md)
 - [خارطة الطريق](docs/ROADMAP.md)
 - [المعايير الهندسية](docs/ENGINEERING_STANDARDS.md)
+- [اختبارات القبول المحلية](docs/ACCEPTANCE_TESTING.md)
+- [Backend الكتب والإصدارات](docs/BOOKS_BACKEND.md)
 
 راجع أيضًا [البنية المحلية](docs/ARCHITECTURE.md) و[إعداد OpenCode](docs/OPENCODE_SETUP.md). مجلد `supabase` محفوظ كمرجع لمرحلة استضافة مستقبلية، لكنه غير مستخدم في التشغيل الحالي.
