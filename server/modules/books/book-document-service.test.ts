@@ -24,7 +24,7 @@ test('upload stages a ready edition, rejects duplicate fingerprints, and exclude
 
     assert.equal(uploaded.edition.status, 'ready');
     assert.equal((await application.listDocuments()).length, 1);
-    assert.equal((await repository.listPublishedEditions()).length, 0);
+    assert.equal(publishedEditions(await repository.listDocumentEditions()).length, 0);
     assert.equal((await knowledge.search('staged-only-marker', 3)).evidence.length, 0);
 
     await assert.rejects(
@@ -69,7 +69,7 @@ test('publishing atomically selects the edition for knowledge search', async () 
     const published = await application.transitionEdition(book.id, uploaded.edition.id, 'published');
     const result = await knowledge.search('published-lifecycle-marker', 3);
     assert.equal(published.status, 'published');
-    assert.equal((await repository.listPublishedEditions()).length, 1);
+    assert.equal(publishedEditions(await repository.listDocumentEditions()).length, 1);
     assert.equal(result.fileCount, 1);
     assert.match(result.evidence[0]?.content ?? '', /published-lifecycle-marker/u);
   });
@@ -93,7 +93,7 @@ test('publication preflight leaves metadata ready when the processed document is
         && error.code === 'EDITION_DOCUMENT_UNAVAILABLE',
     );
     assert.equal((await books.getEdition(book.id, edition.id)).status, 'ready');
-    assert.deepEqual(await repository.listPublishedEditions(), []);
+    assert.deepEqual(publishedEditions(await repository.listDocumentEditions()), []);
   });
 });
 
@@ -111,6 +111,22 @@ test('legacy one-step upload remains compatible and publishes an implicit book e
       (await knowledge.search('legacy-upload-marker', 3)).evidence[0]?.content ?? '',
       /legacy-upload-marker/u,
     );
+  });
+});
+
+test('failed implicit upload leaves only a rejected attempt and no partial document', async () => {
+  await withApplication(async ({ application, books, repository }) => {
+    await assert.rejects(
+      application.upload({ buffer: Buffer.from('too short'), name: 'broken.txt' }),
+      (error: unknown) => error instanceof AppError && error.code === 'INVALID_REQUEST',
+    );
+
+    const bookPage = await books.listBooks({ limit: 10, offset: 0 });
+    assert.equal(bookPage.total, 1);
+    const editions = await books.listEditions(bookPage.items[0]!.id, { limit: 10, offset: 0 });
+    assert.equal(editions.items[0]?.status, 'rejected');
+    assert.deepEqual(await application.listDocuments(), []);
+    assert.deepEqual(publishedEditions(await repository.listDocumentEditions()), []);
   });
 });
 
@@ -146,4 +162,8 @@ function lesson(marker: string): Buffer {
     `Trusted educational material contains ${marker} and enough supporting text for extraction.`,
     'utf8',
   );
+}
+
+function publishedEditions(editions: Array<{ status: string }>) {
+  return editions.filter((edition) => edition.status === 'published');
 }

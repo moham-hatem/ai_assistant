@@ -21,8 +21,8 @@ export interface BookRepository {
   getEdition(bookId: string, editionId: string): Promise<BookEdition | undefined>;
   getEditionByDocumentReference(reference: string): Promise<BookEdition | undefined>;
   listBooks(query: PageQuery): Promise<Page<Book>>;
+  listDocumentEditions(): Promise<BookEdition[]>;
   listEditions(bookId: string, query: PageQuery): Promise<Page<BookEdition>>;
-  listPublishedEditions(): Promise<BookEdition[]>;
   publishEdition(command: EditionTransitionCommand): Promise<BookEdition>;
   transitionEdition(command: EditionTransitionCommand): Promise<BookEdition>;
 }

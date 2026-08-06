@@ -134,9 +134,9 @@ export class SqliteBookRepository implements BookRepository {
     };
   }
 
-  async listPublishedEditions(): Promise<BookEdition[]> {
+  async listDocumentEditions(): Promise<BookEdition[]> {
     const rows = this.database.prepare(`
-      SELECT * FROM book_editions WHERE status = 'published' ORDER BY book_id, id
+      SELECT * FROM book_editions ORDER BY created_at, id
     `).all() as unknown as EditionRow[];
     return rows.map(toEdition);
   }

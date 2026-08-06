@@ -22,10 +22,10 @@ export class UnavailableBookRepository implements BookRepository {
     return this.fail();
   }
   async listBooks(_query: PageQuery): Promise<Page<Book>> { return this.fail(); }
+  async listDocumentEditions(): Promise<BookEdition[]> { return this.fail(); }
   async listEditions(_bookId: string, _query: PageQuery): Promise<Page<BookEdition>> {
     return this.fail();
   }
-  async listPublishedEditions(): Promise<BookEdition[]> { return this.fail(); }
   async publishEdition(_command: EditionTransitionCommand): Promise<BookEdition> {
     return this.fail();
   }
