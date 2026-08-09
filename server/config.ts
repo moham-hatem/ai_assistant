@@ -6,6 +6,14 @@ export interface LocalRuntimeConfig {
   documentDirectory: string;
   knowledgeDirectory: string;
   matchCount: number;
+  ocr: {
+    confidenceThreshold: number;
+    languages: string[];
+    pdftoppmPath: string;
+    pdftoppmTimeoutMs: number;
+    tesseractPath: string;
+    tesseractTimeoutMs: number;
+  };
   questionLogDatabaseFile: string;
   questionExpansionCacheFile: string;
   questionExpansionTimeoutMs: number;
@@ -49,6 +57,14 @@ export function createLocalConfig(env: Record<string, string>, cwd: string): Loc
     documentDirectory: resolve(cwd, env.DOCUMENT_DIRECTORY?.trim() || 'data/documents'),
     knowledgeDirectory: resolve(cwd, env.KNOWLEDGE_DIRECTORY?.trim() || 'data/knowledge'),
     matchCount: boundedInteger(env.KNOWLEDGE_MATCH_COUNT, 6, 12),
+    ocr: {
+      confidenceThreshold: boundedNumber(env.OCR_CONFIDENCE_THRESHOLD, 0.75, 0, 1),
+      languages: parseLanguages(env.OCR_LANGUAGES),
+      pdftoppmPath: env.PDFTOPPM_PATH?.trim() || 'pdftoppm',
+      pdftoppmTimeoutMs: boundedInteger(env.PDFTOPPM_TIMEOUT_MS, 90_000, 300_000, 1_000),
+      tesseractPath: env.TESSERACT_PATH?.trim() || 'tesseract',
+      tesseractTimeoutMs: boundedInteger(env.TESSERACT_TIMEOUT_MS, 60_000, 300_000, 1_000),
+    },
     questionLogDatabaseFile: resolve(
       cwd,
       env.QUESTION_LOG_DATABASE_FILE?.trim() || 'data/question-log.sqlite',
@@ -84,6 +100,14 @@ export function createLocalConfig(env: Record<string, string>, cwd: string): Loc
       timeoutMs: boundedInteger(env.OPENCODE_TIMEOUT_MS, 60_000, 120_000, 5_000),
     },
   };
+}
+
+function parseLanguages(value: string | undefined): string[] {
+  const languages = (value ?? '')
+    .split(/[,+]/u)
+    .map((language) => language.trim())
+    .filter((language) => /^[a-z0-9_-]+$/iu.test(language));
+  return languages.length > 0 ? [...new Set(languages)] : ['ara', 'eng', 'swa'];
 }
 
 function parseModels(value: string | undefined, fallback: string[]): string[] {

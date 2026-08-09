@@ -19,7 +19,7 @@ test('processing transitions are deny-by-default', () => {
     allowedDocumentProcessingTransitions('processing'),
     ['ready', 'ocr_required', 'review_required', 'failed'],
   );
-  assert.equal(allowedDocumentProcessingTransitions('review_required').includes('ready'), false);
+  assert.equal(allowedDocumentProcessingTransitions('review_required').includes('ready'), true);
   assert.equal(allowedDocumentProcessingTransitions('failed').includes('ready'), false);
 });
 

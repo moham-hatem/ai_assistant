@@ -30,11 +30,17 @@ export interface UploadBookDocumentResult {
   edition: BookEdition;
 }
 
+export interface ApproveEditionProcessingResult {
+  edition: BookEdition;
+  processing: DocumentProcessingState;
+}
+
 export class BookDocumentService {
   private readonly books: BookService;
   private readonly repository: BookRepository;
   private readonly documents: DocumentStore;
   private readonly createId: () => string;
+  private readonly processor?: DocumentProcessorPort;
   private readonly processing: DocumentProcessingService;
 
   constructor(
@@ -42,13 +48,17 @@ export class BookDocumentService {
     repository: BookRepository,
     documents: DocumentStore,
     createId: () => string = randomUUID,
-    processor: DocumentProcessorPort = new UnavailableDocumentProcessor(),
+    processor?: DocumentProcessorPort,
   ) {
     this.books = books;
     this.repository = repository;
     this.documents = documents;
     this.createId = createId;
-    this.processing = new DocumentProcessingService(documents, processor);
+    this.processor = processor;
+    this.processing = new DocumentProcessingService(
+      documents,
+      processor ?? new UnavailableDocumentProcessor(),
+    );
   }
 
   async listDocuments(): Promise<DocumentMetadata[]> {
@@ -65,7 +75,7 @@ export class BookDocumentService {
   }
 
   async reprocessEdition(bookId: string, editionId: string): Promise<DocumentProcessingState> {
-    const edition = await this.books.getEdition(bookId, editionId);
+    let edition = await this.books.getEdition(bookId, editionId);
     if (edition.status === 'published') {
       throw new AppError(
         'PUBLISHED_EDITION_REPROCESS_FORBIDDEN',
@@ -73,9 +83,53 @@ export class BookDocumentService {
         409,
       );
     }
+    if (edition.status === 'ready') {
+      edition = await this.books.reopenEditionProcessing(bookId, editionId);
+    }
+    if (edition.status !== 'processing') {
+      throw new AppError(
+        'EDITION_REPROCESS_FORBIDDEN',
+        'Only ready or processing editions can be reprocessed.',
+        409,
+      );
+    }
     const documentId = parseDocumentReference(edition.originalDocumentReference);
     if (!documentId) throw unavailableDocument();
-    return this.processing.reprocess(documentId);
+    const state = await this.processing.reprocess(documentId);
+    if (state.summary.status === 'ready') {
+      await this.books.transitionEdition(bookId, editionId, 'ready');
+    }
+    return state;
+  }
+
+  async approveEditionProcessing(
+    bookId: string,
+    editionId: string,
+    actorId: string,
+  ): Promise<ApproveEditionProcessingResult> {
+    void actorId; // Local attribution only; this endpoint does not claim authentication.
+    const edition = await this.books.getEdition(bookId, editionId);
+    if (edition.status === 'published') {
+      throw new AppError(
+        'PUBLISHED_EDITION_REVIEW_FORBIDDEN',
+        'Published editions cannot be reviewed in place.',
+        409,
+      );
+    }
+    if (edition.status !== 'processing') {
+      throw new AppError(
+        'EDITION_REVIEW_FORBIDDEN',
+        'Only processing editions can approve OCR review.',
+        409,
+      );
+    }
+    const documentId = parseDocumentReference(edition.originalDocumentReference);
+    if (!documentId) throw unavailableDocument();
+    const processing = await this.processing.approveReview(documentId);
+    return {
+      edition: await this.books.transitionEdition(bookId, editionId, 'ready'),
+      processing,
+    };
   }
 
   async upload(input: UploadBookDocumentInput): Promise<UploadBookDocumentResult> {
@@ -85,10 +139,9 @@ export class BookDocumentService {
     const uploaded = await this.uploadEdition(book, input);
 
     if (input.bookId) return uploaded;
-    return {
-      ...uploaded,
-      edition: await this.transitionEdition(book.id, uploaded.edition.id, 'published'),
-    };
+    return uploaded.edition.status === 'ready'
+      ? { ...uploaded, edition: await this.transitionEdition(book.id, uploaded.edition.id, 'published') }
+      : uploaded;
   }
 
   async transitionEdition(
@@ -146,12 +199,15 @@ export class BookDocumentService {
     let document: DocumentMetadata | undefined;
 
     try {
-      await this.books.transitionEdition(book.id, edition.id, 'processing');
+      const processingEdition = await this.books.transitionEdition(book.id, edition.id, 'processing');
       document = await this.documents.import({
         buffer: input.buffer,
         id: documentId,
         name: input.name,
-      });
+      }, this.processor);
+      if (document.processing.status !== 'ready') {
+        return { book, document, edition: processingEdition };
+      }
       const ready = await this.books.transitionEdition(book.id, edition.id, 'ready');
       return { book, document, edition: ready };
     } catch (error) {

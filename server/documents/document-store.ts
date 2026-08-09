@@ -1,12 +1,21 @@
 import { randomUUID } from 'node:crypto';
-import { basename } from 'node:path';
-import type { DocumentProcessingState } from '../../shared/contracts/document-processing.ts';
-import { legacyDocumentProcessingSummary } from '../../shared/contracts/document-processing.ts';
+import { basename, extname } from 'node:path';
+import type {
+  DocumentProcessingState,
+  DocumentProcessingSummary,
+} from '../../shared/contracts/document-processing.ts';
+import {
+  legacyDocumentProcessingSummary,
+  parseDocumentProcessingSummary,
+} from '../../shared/contracts/document-processing.ts';
 import { AppError } from '../errors.ts';
 import { DocumentFiles, validateId, type StoredMetadata } from './document-files.ts';
 import { extractDocument } from './extract-document.ts';
+import type { DocumentProcessorPort } from './document-processor-port.ts';
+import { hasSufficientDocumentText } from './document-text-policy.ts';
 import type {
   DocumentImportInput,
+  DocumentFormat,
   DocumentMetadata,
   DocumentResource,
   DocumentResourceKind,
@@ -20,10 +29,20 @@ export class DocumentStore {
     this.files = new DocumentFiles(documentDirectory, knowledgeDirectory);
   }
 
-  async import(input: DocumentImportInput): Promise<DocumentMetadata> {
+  async import(
+    input: DocumentImportInput,
+    processor?: DocumentProcessorPort,
+  ): Promise<DocumentMetadata> {
     const name = safeName(input.name);
-    const extracted = await extractDocument(name, input.buffer);
     const id = input.id ? validateId(input.id) : randomUUID();
+    const extracted: {
+      extension: string;
+      format: DocumentFormat;
+      processing?: DocumentProcessingSummary;
+      text: string;
+    } = extname(name).toLowerCase() === '.pdf' && processor
+      ? await processPdf(processor, id, name, input.buffer)
+      : await extractDocument(name, input.buffer);
     const metadata: StoredMetadata = {
       id,
       name,
@@ -33,7 +52,7 @@ export class DocumentStore {
       size: input.buffer.length,
       characterCount: extracted.text.length,
       importedAt: new Date().toISOString(),
-      processing: { ...legacyDocumentProcessingSummary },
+      processing: extracted.processing ?? { ...legacyDocumentProcessingSummary },
       processingGeneration: 0,
     };
 
@@ -127,6 +146,31 @@ export class DocumentStore {
       if (this.updates.get(id) === tail) this.updates.delete(id);
     }
   }
+}
+
+async function processPdf(
+  processor: DocumentProcessorPort,
+  documentId: string,
+  name: string,
+  source: Buffer,
+) {
+  const output = await processor.process({ documentId, generation: 0, name, source });
+  const summary = parseDocumentProcessingSummary(output.summary);
+  if (summary.status === 'processing' || summary.status === 'failed') {
+    throw extractionFailed();
+  }
+  if (summary.status === 'ready' && !hasSufficientDocumentText(output.text)) {
+    throw extractionFailed();
+  }
+  return { extension: '.pdf', format: 'pdf' as const, processing: summary, text: output.text.trim() };
+}
+
+function extractionFailed(): AppError {
+  return new AppError(
+    'DOCUMENT_EXTRACTION_FAILED',
+    'The PDF processor did not return a usable document result.',
+    422,
+  );
 }
 
 function safeName(value: string): string {

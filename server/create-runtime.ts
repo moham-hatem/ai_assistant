@@ -40,12 +40,33 @@ import { QualityMetricsService } from './modules/quality-metrics/quality-metrics
 import { SqliteQualityMetricsRepository } from './modules/quality-metrics/sqlite-quality-metrics-repository.ts';
 import { UnavailableQualityMetricsRepository } from './modules/quality-metrics/unavailable-quality-metrics-repository.ts';
 import type { DocumentProcessorPort } from './documents/document-processor-port.ts';
+import { PdfDocumentProcessor } from './documents/pdf-document-processor.ts';
+import { PdfExtractor } from './documents/extractors/pdf.ts';
+import { LocalPdfOcr } from './documents/ocr/local-pdf-ocr.ts';
+import { PdftoppmRasterizer } from './documents/ocr/pdftoppm-rasterizer.ts';
+import { TesseractOcrEngine } from './documents/ocr/tesseract-engine.ts';
 
 export interface RuntimeDependencies {
   documentProcessor?: DocumentProcessorPort;
 }
 
 export function createRuntime(config: LocalRuntimeConfig, dependencies: RuntimeDependencies = {}) {
+  const documentProcessor = dependencies.documentProcessor ?? new PdfDocumentProcessor(
+    new PdfExtractor({
+      ocr: new LocalPdfOcr(
+        new PdftoppmRasterizer({
+          executable: config.ocr.pdftoppmPath,
+          timeoutMs: config.ocr.pdftoppmTimeoutMs,
+        }),
+        new TesseractOcrEngine({
+          executable: config.ocr.tesseractPath,
+          timeoutMs: config.ocr.tesseractTimeoutMs,
+        }),
+        { languages: config.ocr.languages },
+      ),
+    }),
+    { confidenceThreshold: config.ocr.confidenceThreshold },
+  );
   const documentStore = new DocumentStore(config.documentDirectory, config.knowledgeDirectory);
   const bookRepository = createBookRepository(config.booksDatabaseFile);
   const bookService = new BookService(bookRepository);
@@ -54,7 +75,7 @@ export function createRuntime(config: LocalRuntimeConfig, dependencies: RuntimeD
     bookRepository,
     documentStore,
     undefined,
-    dependencies.documentProcessor,
+    documentProcessor,
   );
   const embedder = new MultilingualEmbedder(
     config.semantic.model,
