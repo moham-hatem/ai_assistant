@@ -22,6 +22,7 @@ const origin = 'https://daleel.test';
 test('API, non-GET, cross-origin, and user-data requests stay network-only', () => {
   const unsafeRequests: PolicyRequest[] = [
     request('/api/answer'),
+    request('/api/meta/version'),
     request('/api/internal/books/1'),
     request('/assets/app-12345678.js', 'POST'),
     { method: 'GET', mode: 'cors', url: 'https://cdn.example/app-12345678.js' },

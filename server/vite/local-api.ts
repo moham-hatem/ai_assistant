@@ -8,6 +8,7 @@ import { createBooksHandler } from '../modules/books/books-handler.ts';
 import { createReviewsHandler } from '../modules/reviews/reviews-handler.ts';
 import { createFeedbackHandler } from '../modules/feedback/feedback-handler.ts';
 import { createQualityMetricsHandler } from '../modules/quality-metrics/quality-metrics-handler.ts';
+import { handleApiVersionRequest } from '../http/api-version-handler.ts';
 
 export function localAnswerApi(config: LocalRuntimeConfig): Plugin {
   return {
@@ -30,7 +31,8 @@ export function localAnswerApi(config: LocalRuntimeConfig): Plugin {
 
       server.middlewares.use((request, response, next) => {
         const url = new URL(request.url ?? '/', 'http://localhost');
-        if (url.pathname === '/api/answer-question') void answer(request, response);
+        if (url.pathname === '/api/meta/version') handleApiVersionRequest(request, response);
+        else if (url.pathname === '/api/answer-question') void answer(request, response);
         else if (url.pathname === '/api/feedback' || url.pathname.startsWith('/api/internal/feedback')) {
           void feedback(request, response, url);
         }
