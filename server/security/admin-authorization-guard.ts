@@ -27,11 +27,12 @@ export async function guardAdminRequest(
   url: URL,
   security: AdminApiSecurity,
   logError: ErrorLogger,
+  boundaryRequestId: string = crypto.randomUUID(),
 ): Promise<AdminGuardResult> {
   const policy = adminRoutePolicy(request.method, url.pathname);
   if (policy.kind === 'public') return { allowed: true, principal: null };
 
-  const requestId = crypto.randomUUID();
+  const requestId = boundaryRequestId;
   if (policy.kind === 'denied') {
     await security.audit?.bestEffort({
       action: 'authorization.denied', actorUserId: null, category: 'authorization',

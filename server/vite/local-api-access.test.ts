@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import test from 'node:test';
@@ -14,6 +15,8 @@ import { createAuthService } from '../auth/service.ts';
 import { SqliteAuthRepository } from '../auth/sqlite-repository.ts';
 import { createRuntimeAdminSecurity } from '../security/runtime-admin-security.ts';
 import { createLocalApiRequestHandler, type LocalApiHandlers } from './local-api.ts';
+import { SecurityAuditService } from '../modules/security-audit/service.ts';
+import { SqliteSecurityAuditRepository } from '../modules/security-audit/sqlite-repository.ts';
 
 const publicOrigin = 'http://app.local.test';
 
@@ -22,6 +25,10 @@ test('local access API enforces settings permission and origin without leaking s
   const passwords = new ScryptPasswordHasher({
     cost: 1_024, keyLength: 32, maxMemory: 4 * 1024 * 1024,
   });
+  const auditRepository = new SqliteSecurityAuditRepository(
+    ':memory:', new Map([['v1', randomBytes(32)]]), 'v1',
+  );
+  const audit = new SecurityAuditService(auditRepository);
   await createUser(repository, passwords, 'admin-1', 'admin@example.org', ['admin']);
   await createUser(repository, passwords, 'reviewer-1', 'reviewer@example.org', ['reviewer']);
   let sessionNumber = 0;
@@ -42,10 +49,11 @@ test('local access API enforces settings permission and origin without leaking s
     undefined,
     () => 'i'.repeat(43),
     () => 'invitation-1',
+    audit,
   );
   const handler = createLocalApiRequestHandler(
     createHandlers(createAccessHandler(access, origin)),
-    createRuntimeAdminSecurity(auth, cookie, origin),
+    createRuntimeAdminSecurity(auth, cookie, origin, audit),
     () => undefined,
     createAuthHandler(auth, cookie, origin, 60_000),
   );
@@ -86,8 +94,19 @@ test('local access API enforces settings permission and origin without leaking s
         `${baseUrl}/api/internal/access/invitations`, body, adminCookie, publicOrigin,
       );
       assert.equal(created.status, 201);
+      const createdRequestId = created.headers.get('x-request-id');
       const createdText = await created.text();
-      const invitation = JSON.parse(createdText) as { link: string; warning: string };
+      const invitation = JSON.parse(createdText) as {
+        link: string;
+        requestId: string;
+        warning: string;
+      };
+      assert.equal(invitation.requestId, createdRequestId);
+      const createdEvents = await audit.list({
+        action: 'access.invitation_created', limit: 10, offset: 0,
+      });
+      assert.equal(createdEvents.items[0]?.requestId, createdRequestId);
+      assert.equal(createdEvents.items[0]?.actorUserId, 'admin-1');
       assert.equal(invitation.link.includes('i'.repeat(43)), true);
       assertSecretOnlyInFragment(invitation.link, 'invitation', 'i'.repeat(43));
       assert.equal(createdText.includes('tokenHash'), false);
@@ -136,6 +155,13 @@ test('local access API enforces settings permission and origin without leaking s
         publicOrigin,
       );
       assert.equal(redeemed.status, 204);
+      const redeemedRequestId = redeemed.headers.get('x-request-id');
+      const redeemedEvents = await audit.list({
+        action: 'access.invitation_redeemed', limit: 10, offset: 0,
+      });
+      assert.equal(redeemedEvents.items[0]?.requestId, redeemedRequestId);
+      assert.equal(redeemedEvents.items[0]?.actorUserId, null);
+      assert.equal(redeemedEvents.items[0]?.subjectType, 'user');
       const invitedCookie = await login(baseUrl, 'invitee@example.org', 'invited secure password');
       assert.ok(invitedCookie);
 
@@ -171,6 +197,7 @@ test('local access API enforces settings permission and origin without leaking s
     });
   } finally {
     repository.close();
+    auditRepository.close();
   }
 });
 

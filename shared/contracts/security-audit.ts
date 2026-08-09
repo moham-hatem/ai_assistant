@@ -1,10 +1,23 @@
-export const SECURITY_AUDIT_CATEGORIES = ['authentication', 'authorization', 'books', 'documents', 'reviews'] as const;
+export const SECURITY_AUDIT_CATEGORIES = [
+  'access', 'authentication', 'authorization', 'books', 'documents', 'reviews',
+] as const;
 export type SecurityAuditCategory = (typeof SECURITY_AUDIT_CATEGORIES)[number];
 
 export const SECURITY_AUDIT_ACTIONS = [
   'auth.login',
   'auth.logout',
   'auth.session_revoked',
+  'access.user_profile_changed',
+  'access.user_roles_changed',
+  'access.user_enabled',
+  'access.user_disabled',
+  'access.user_sessions_revoked',
+  'access.invitation_created',
+  'access.invitation_revoked',
+  'access.invitation_redeemed',
+  'access.recovery_created',
+  'access.recovery_revoked',
+  'access.recovery_redeemed',
   'authorization.denied',
   'book.edition_status_changed',
   'book.edition_published',
@@ -19,7 +32,7 @@ export const SECURITY_AUDIT_OUTCOMES = ['success', 'denied', 'failure'] as const
 export type SecurityAuditOutcome = (typeof SECURITY_AUDIT_OUTCOMES)[number];
 
 export const SECURITY_AUDIT_SUBJECT_TYPES = [
-  'user', 'session', 'book_edition', 'document', 'review_item',
+  'user', 'session', 'invitation', 'recovery', 'book_edition', 'document', 'review_item',
 ] as const;
 export type SecurityAuditSubjectType = (typeof SECURITY_AUDIT_SUBJECT_TYPES)[number];
 

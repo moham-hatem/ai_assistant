@@ -1,5 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { AuthSession } from './domain.ts';
+import type { SecurityAuditCommand } from '../modules/security-audit/domain.ts';
+import { enqueueSecurityAudit } from '../modules/security-audit/sqlite-outbox.ts';
+import { withImmediateTransaction } from './sqlite-transaction.ts';
 
 interface SessionRow {
   absolute_expires_at: string;
@@ -18,7 +21,31 @@ export class SqliteSessionRepository {
     this.database = database;
   }
 
-  async save(session: AuthSession): Promise<void> {
+  async save(session: AuthSession, audit?: SecurityAuditCommand): Promise<void> {
+    withImmediateTransaction(this.database, () => {
+      this.insert(session);
+      if (audit) enqueueSecurityAudit(this.database, audit);
+    });
+  }
+
+  async rotate(
+    previousTokenHash: string | undefined,
+    session: AuthSession,
+    audit: readonly SecurityAuditCommand[] = [],
+  ): Promise<void> {
+    withImmediateTransaction(this.database, () => {
+      if (previousTokenHash) {
+        this.database.prepare(`
+          UPDATE auth_sessions SET revoked_at = ?
+          WHERE token_hash = ? AND revoked_at IS NULL
+        `).run(session.createdAt, previousTokenHash);
+      }
+      this.insert(session);
+      for (const event of audit) enqueueSecurityAudit(this.database, event);
+    });
+  }
+
+  private insert(session: AuthSession): void {
     this.database.prepare(`
       INSERT INTO auth_sessions (
         token_hash, user_id, created_at, last_seen_at, idle_expires_at,
@@ -59,15 +86,31 @@ export class SqliteSessionRepository {
     return result.changes === 1;
   }
 
-  async revoke(tokenHash: string, revokedAt: string): Promise<void> {
-    this.database.prepare(`
-      UPDATE auth_sessions SET revoked_at = COALESCE(revoked_at, ?) WHERE token_hash = ?
-    `).run(revokedAt, tokenHash);
+  async revoke(
+    tokenHash: string,
+    revokedAt: string,
+    audit?: SecurityAuditCommand,
+  ): Promise<boolean> {
+    return withImmediateTransaction(this.database, () => {
+      const result = this.database.prepare(`
+        UPDATE auth_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL
+      `).run(revokedAt, tokenHash);
+      if (audit && result.changes === 1) enqueueSecurityAudit(this.database, audit);
+      return result.changes === 1;
+    });
   }
 
-  async revokeAll(userId: string, revokedAt: string): Promise<void> {
-    this.database.prepare(`
-      UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL
-    `).run(revokedAt, userId);
+  async revokeAll(
+    userId: string,
+    revokedAt: string,
+    audit?: SecurityAuditCommand,
+  ): Promise<number> {
+    return withImmediateTransaction(this.database, () => {
+      const result = this.database.prepare(`
+        UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL
+      `).run(revokedAt, userId);
+      if (audit && result.changes > 0) enqueueSecurityAudit(this.database, audit);
+      return Number(result.changes);
+    });
   }
 }

@@ -55,7 +55,7 @@ export class SqliteSecurityAuditRepository implements SecurityAuditRepository {
       migrateSecurityAuditDatabase(this.database, {
         keyVersion: currentKeyVersion,
         seal: (count, sequence, hash) => headSeal(keys.get(currentKeyVersion)!, count, sequence, hash, currentKeyVersion),
-        validateHistory: (database) => validateHistoricalChain(database, keys),
+        validateHistory: (database) => validateMigrationHistory(database, keys),
       });
     } catch (error) {
       this.database.close();
@@ -237,6 +237,17 @@ function validateHistoricalChain(
     }
     previousHash = row.event_hash;
   }
+}
+
+function validateMigrationHistory(
+  database: DatabaseSync,
+  keys: ReadonlyMap<string, Buffer>,
+): void {
+  validateHistoricalChain(database, keys);
+  const headExists = database.prepare(`
+    SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'security_audit_head'
+  `).get();
+  if (headExists) requireValidHead(database, keys);
 }
 
 function headSeal(

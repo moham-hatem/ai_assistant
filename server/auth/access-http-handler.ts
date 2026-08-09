@@ -21,6 +21,7 @@ import {
   InvalidAccessInputError,
 } from './access-service.ts';
 import type { AuthErrorLogger } from './http-handler.ts';
+import { AppError } from '../errors.ts';
 
 export const ACCESS_API_PATHS = {
   invitations: '/api/internal/access/invitations',
@@ -39,8 +40,9 @@ export function createAccessHandler(
     response: ServerResponse,
     url: URL,
     principal: AuthPrincipal | null,
+    boundaryRequestId?: string,
   ): Promise<void> => {
-    const requestId = randomUUID();
+    const requestId = boundaryRequestId ?? randomUUID();
     secureHeaders(response, requestId);
     try {
       if (url.pathname === ACCESS_API_PATHS.redeemInvitation ||
@@ -51,7 +53,12 @@ export function createAccessHandler(
         const redeem = url.pathname === ACCESS_API_PATHS.redeemInvitation
           ? service.redeemInvitation.bind(service)
           : service.redeemRecovery.bind(service);
-        await redeem(body.token, body.password, request.socket.remoteAddress ?? 'unknown');
+        await redeem(
+          body.token,
+          body.password,
+          request.socket.remoteAddress ?? 'unknown',
+          requestId,
+        );
         response.statusCode = 204;
         response.end();
         return;
@@ -79,7 +86,7 @@ export function createAccessHandler(
           displayName: body.displayName,
           email: body.email,
           roles: body.roles,
-        });
+        }, requestId);
         sendJson(response, 201, { ...secret, requestId });
         return;
       }
@@ -90,7 +97,7 @@ export function createAccessHandler(
       if (invitationRevoke) {
         if (!requireMethod(request, response, 'POST', requestId)) return;
         await requireEmptyAccessJson(request);
-        await service.revokeInvitation(invitationRevoke);
+        await service.revokeInvitation(principal.id, invitationRevoke, requestId);
         response.statusCode = 204;
         response.end();
         return;
@@ -102,7 +109,7 @@ export function createAccessHandler(
       if (recoveryRevoke) {
         if (!requireMethod(request, response, 'POST', requestId)) return;
         await requireEmptyAccessJson(request);
-        await service.revokeRecovery(recoveryRevoke);
+        await service.revokeRecovery(principal.id, recoveryRevoke, requestId);
         response.statusCode = 204;
         response.end();
         return;
@@ -115,14 +122,16 @@ export function createAccessHandler(
         await requireEmptyAccessJson(request);
         const userId = decodeAccessPathSegment(action[1]);
         if (action[2] === 'revoke-sessions') {
-          await service.revokeAllSessions(userId);
+          await service.revokeAllSessions(principal.id, userId, requestId);
           response.statusCode = 204;
           response.end();
         } else if (action[2] === 'recovery') {
-          const secret = await service.createRecovery(principal.id, userId);
+          const secret = await service.createRecovery(principal.id, userId, requestId);
           sendJson(response, 201, { ...secret, requestId });
         } else {
-          const user = await service.setEnabled(principal.id, userId, action[2] === 'enable');
+          const user = await service.setEnabled(
+            principal.id, userId, action[2] === 'enable', requestId,
+          );
           sendJson(response, 200, { user, requestId });
         }
         return;
@@ -139,7 +148,7 @@ export function createAccessHandler(
           const user = await service.updateUser(principal.id, userId, {
             displayName: body.displayName,
             roles: body.roles,
-          });
+          }, requestId);
           sendJson(response, 200, { user, requestId });
           return;
         }
@@ -163,6 +172,8 @@ export function createAccessHandler(
         sendJson(response, 409, { code: 'ACCESS_OPERATION_REJECTED', requestId });
       } else if (error instanceof AccessLockoutError) {
         sendJson(response, 409, { code: 'LOCKOUT_PREVENTED', requestId });
+      } else if (error instanceof AppError && error.code === 'SECURITY_AUDIT_UNAVAILABLE') {
+        sendJson(response, 503, { code: error.code, requestId });
       } else {
         logError(requestId, error);
         if (!response.headersSent) sendJson(response, 500, { code: 'INTERNAL_ERROR', requestId });

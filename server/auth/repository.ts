@@ -17,6 +17,11 @@ export interface AuthRepository {
   findUserByEmail(normalizedEmail: string): Promise<AuthUser | undefined>;
   findUserById(id: string): Promise<AuthUser | undefined>;
   saveSession(session: AuthSession, audit?: SecurityAuditCommand): Promise<void>;
+  rotateSession(
+    previousTokenHash: string | undefined,
+    session: AuthSession,
+    audit?: readonly SecurityAuditCommand[],
+  ): Promise<void>;
   findSession(tokenHash: string): Promise<AuthSession | undefined>;
   touchSession(tokenHash: string, lastSeenAt: string, idleExpiresAt: string): Promise<boolean>;
   revokeSession(tokenHash: string, revokedAt: string, audit?: SecurityAuditCommand): Promise<boolean>;

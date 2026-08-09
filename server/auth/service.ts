@@ -93,7 +93,17 @@ export class AuthService {
     const valid = await this.passwords.verify(password, user?.passwordHash ?? this.dummyPasswordHash);
     if (!user || !valid || !user.enabled) {
       if (user && !user.enabled) {
-        await this.repository.revokeAllUserSessions(user.id, now.toISOString());
+        await this.repository.revokeAllUserSessions(
+          user.id,
+          now.toISOString(),
+          this.audit ? withIdentity(
+            authEvent(
+              'auth.session_revoked', 'success', requestId, null, user.id,
+              { reason: 'disabled_user' },
+            ),
+            now.toISOString(),
+          ) : undefined,
+        );
       }
       const failure = await this.rateLimiter.recordFailure(rateKey, now.getTime());
       if (!failure.allowed) {
@@ -104,26 +114,24 @@ export class AuthService {
       throw new InvalidCredentialsError('Invalid email or password.');
     }
 
-    if (command.previousSessionToken) {
-      const previousHash = hashSessionToken(command.previousSessionToken);
-      const previous = await this.repository.findSession(previousHash);
-      await this.repository.revokeSession(
-        previousHash,
-        now.toISOString(),
-        this.audit && previous && !previous.revokedAt ? withIdentity(
-          authEvent('auth.session_revoked', 'success', requestId, user.id, previous.userId, {
-            reason: 'rotated',
-          }),
-          now.toISOString(),
-        ) : undefined,
-      );
-    }
+    const previousHash = command.previousSessionToken
+      ? hashSessionToken(command.previousSessionToken)
+      : undefined;
+    const previous = previousHash ? await this.repository.findSession(previousHash) : undefined;
     const sessionToken = this.tokenFactory();
     const absoluteExpiresAt = now.getTime() + this.options.absoluteTtlMs;
-    const audit = this.audit ? withIdentity(
+    const loginAudit = this.audit ? withIdentity(
       authEvent('auth.login', 'success', requestId, user.id, user.id, {}), now.toISOString(),
     ) : undefined;
-    await this.repository.saveSession({
+    const audit: SecurityAuditCommand[] = [];
+    if (this.audit && previous && !previous.revokedAt) audit.push(withIdentity(
+      authEvent('auth.session_revoked', 'success', requestId, user.id, previous.userId, {
+        reason: 'rotated',
+      }),
+      now.toISOString(),
+    ));
+    if (loginAudit) audit.push(loginAudit);
+    await this.repository.rotateSession(previousHash, {
       absoluteExpiresAt: new Date(absoluteExpiresAt).toISOString(),
       createdAt: now.toISOString(),
       idleExpiresAt: new Date(Math.min(

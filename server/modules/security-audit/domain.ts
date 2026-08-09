@@ -32,6 +32,17 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const identifier = /^[\p{L}\p{N}._:@/-]{1,128}$/u;
 const requestIdentifier = /^[A-Za-z0-9._:-]{1,128}$/u;
 const actionCategories: Record<SecurityAuditAction, SecurityAuditCategory> = {
+  'access.invitation_created': 'access',
+  'access.invitation_redeemed': 'access',
+  'access.invitation_revoked': 'access',
+  'access.recovery_created': 'access',
+  'access.recovery_redeemed': 'access',
+  'access.recovery_revoked': 'access',
+  'access.user_disabled': 'access',
+  'access.user_enabled': 'access',
+  'access.user_profile_changed': 'access',
+  'access.user_roles_changed': 'access',
+  'access.user_sessions_revoked': 'access',
   'auth.login': 'authentication',
   'auth.logout': 'authentication',
   'auth.session_revoked': 'authentication',
@@ -44,6 +55,17 @@ const actionCategories: Record<SecurityAuditAction, SecurityAuditCategory> = {
   'review.decision_recorded': 'reviews',
 };
 const metadataKeys: Record<SecurityAuditAction, readonly string[]> = {
+  'access.invitation_created': ['reason', 'roleCount'],
+  'access.invitation_redeemed': ['reason', 'roleCount'],
+  'access.invitation_revoked': ['reason'],
+  'access.recovery_created': ['reason'],
+  'access.recovery_redeemed': ['reason'],
+  'access.recovery_revoked': ['reason'],
+  'access.user_disabled': ['reason'],
+  'access.user_enabled': ['reason'],
+  'access.user_profile_changed': ['displayNameChanged', 'reason'],
+  'access.user_roles_changed': ['nextRoleCount', 'previousRoleCount', 'reason'],
+  'access.user_sessions_revoked': ['reason'],
   'auth.login': ['reason'],
   'auth.logout': [],
   'auth.session_revoked': ['reason'],
@@ -55,7 +77,34 @@ const metadataKeys: Record<SecurityAuditAction, readonly string[]> = {
   'review.status_changed': ['fromStatus', 'toStatus'],
   'review.decision_recorded': ['decisionOutcome', 'hasCorrection'],
 };
-const forbiddenMetadataName = /(password|passphrase|secret|token|cookie|question|answer|content|bookText|text)/iu;
+const accessSubjectTypes: Partial<Record<SecurityAuditAction, SecurityAuditSubjectType>> = {
+  'access.invitation_created': 'invitation',
+  'access.invitation_redeemed': 'user',
+  'access.invitation_revoked': 'invitation',
+  'access.recovery_created': 'recovery',
+  'access.recovery_redeemed': 'user',
+  'access.recovery_revoked': 'recovery',
+  'access.user_disabled': 'user',
+  'access.user_enabled': 'user',
+  'access.user_profile_changed': 'user',
+  'access.user_roles_changed': 'user',
+  'access.user_sessions_revoked': 'user',
+};
+const publicRedemptionActions = new Set<SecurityAuditAction>([
+  'access.invitation_redeemed', 'access.recovery_redeemed',
+]);
+const administrativeAccessActions = new Set<SecurityAuditAction>([
+  'access.invitation_created', 'access.invitation_revoked',
+  'access.recovery_created', 'access.recovery_revoked',
+  'access.user_disabled', 'access.user_enabled',
+  'access.user_profile_changed', 'access.user_roles_changed',
+]);
+const accessReasons = new Set([
+  'administrative', 'conflict', 'invalid_or_expired', 'invalid_request', 'last_admin',
+  'not_found', 'rate_limited', 'recovery_redeemed', 'self_lockout', 'storage_failure',
+  'user_access_changed', 'user_disabled',
+]);
+const forbiddenMetadataName = /(email|password|passphrase|secret|token|cookie|link|hash|question|answer|content|bookText|text)/iu;
 
 export function validateSecurityAuditCommand(command: SecurityAuditCommand): SecurityAuditCommand {
   if (!uuid.test(command.id)) invalid('Audit event id must be a UUID.');
@@ -73,6 +122,17 @@ export function validateSecurityAuditCommand(command: SecurityAuditCommand): Sec
     invalid('Unknown audit subject type.');
   }
   if (command.subjectId !== null && !identifier.test(command.subjectId)) invalid('Invalid subject id.');
+  const expectedAccessSubject = accessSubjectTypes[command.action];
+  if (expectedAccessSubject && command.subjectType !== null
+      && command.subjectType !== expectedAccessSubject) invalid('Audit subject type does not match action.');
+  if (expectedAccessSubject && command.outcome === 'success'
+      && command.subjectType !== expectedAccessSubject) invalid('Successful access events require a subject.');
+  if (publicRedemptionActions.has(command.action) && command.actorUserId !== null) {
+    invalid('Public redemption events cannot have an actor.');
+  }
+  if (administrativeAccessActions.has(command.action) && command.actorUserId === null) {
+    invalid('Administrative access events require an actor.');
+  }
   const metadata = command.metadata ?? {};
   const allowed = metadataKeys[command.action];
   for (const [key, value] of Object.entries(metadata)) {
@@ -82,6 +142,18 @@ export function validateSecurityAuditCommand(command: SecurityAuditCommand): Sec
       invalid('Audit metadata string is invalid.');
     }
     if (typeof value === 'number' && !Number.isFinite(value)) invalid('Audit metadata number is invalid.');
+    if (command.category === 'access' && (key.endsWith('RoleCount') || key === 'roleCount')) {
+      if (!Number.isSafeInteger(value) || Number(value) < 0 || Number(value) > 4) {
+        invalid('Access audit role count is invalid.');
+      }
+    }
+    if (command.category === 'access' && key === 'displayNameChanged' && value !== true) {
+      invalid('Access audit change flag is invalid.');
+    }
+    if (command.category === 'access' && key === 'reason'
+        && (typeof value !== 'string' || !accessReasons.has(value))) {
+      invalid('Access audit reason is invalid.');
+    }
   }
   return { ...command, metadata: sortMetadata(metadata) };
 }

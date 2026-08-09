@@ -127,6 +127,65 @@ test('v1 migration requires every historical key and accepts valid key rotation'
   }
 });
 
+test('v2 migration preserves the authenticated history and admits access lifecycle events', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'security-audit-v2-access-'));
+  const path = join(directory, 'audit.sqlite');
+  const repository = new SqliteSecurityAuditRepository(path, new Map([['v1', key]]), 'v1');
+  await repository.append(event({ requestId: 'before-v3' }));
+  repository.close();
+  downgradeToV2(path);
+
+  const migrated = new SqliteSecurityAuditRepository(path, new Map([['v1', key]]), 'v1');
+  try {
+    assert.equal((await migrated.verifyIntegrity(new Date().toISOString())).status, 'valid');
+    await migrated.append(event({
+      action: 'access.user_disabled',
+      category: 'access',
+      metadata: {},
+      requestId: 'after-v3',
+      subjectId: 'user-1',
+      subjectType: 'user',
+    }));
+    const page = await migrated.list({ limit: 10, offset: 0 });
+    assert.equal(page.total, 2);
+    assert.equal((await migrated.verifyIntegrity(new Date().toISOString())).status, 'valid');
+  } finally {
+    migrated.close();
+    assertSchemaVersion(path, 3);
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('v3 migration validates the authenticated head and rolls back before schema replacement', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'security-audit-v3-head-'));
+  const path = join(directory, 'audit.sqlite');
+  const repository = new SqliteSecurityAuditRepository(path, new Map([['v1', key]]), 'v1');
+  await repository.append(event());
+  repository.close();
+  downgradeToV2(path);
+  const control = new DatabaseSync(path);
+  control.prepare('UPDATE security_audit_head SET event_count = 2 WHERE singleton = 1').run();
+  control.close();
+  try {
+    assert.throws(
+      () => new SqliteSecurityAuditRepository(path, new Map([['v1', key]]), 'v1'),
+      /authenticated head is invalid/u,
+    );
+    assertSchemaVersion(path, 2);
+    const database = new DatabaseSync(path);
+    try {
+      const schema = database.prepare(`
+        SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'security_audit_events'
+      `).get() as unknown as { sql: string };
+      assert.equal(schema.sql.includes('access.user_disabled'), false);
+    } finally {
+      database.close();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 for (const deletion of ['tail', 'all'] as const) {
   test(`authenticated local head detects ${deletion} event deletion`, async () => {
     const directory = await mkdtemp(join(tmpdir(), `security-audit-${deletion}-`));
@@ -212,9 +271,74 @@ function downgradeToV1(path: string): void {
     database.exec(`
       BEGIN IMMEDIATE;
       DROP TABLE security_audit_head;
-      DELETE FROM security_audit_schema_migrations WHERE version = 2;
+      DELETE FROM security_audit_schema_migrations WHERE version >= 2;
       COMMIT;
     `);
+  } finally {
+    database.close();
+  }
+}
+
+function downgradeToV2(path: string): void {
+  const database = new DatabaseSync(path);
+  try {
+    database.exec(`
+      BEGIN IMMEDIATE;
+      DROP TRIGGER security_audit_no_update;
+      DROP TRIGGER security_audit_no_delete;
+      DROP INDEX security_audit_time_idx;
+      DROP INDEX security_audit_filter_idx;
+      DROP INDEX security_audit_actor_idx;
+      CREATE TABLE security_audit_events_v2 (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        timestamp TEXT NOT NULL,
+        category TEXT NOT NULL CHECK (category IN ('authentication','authorization','books','documents','reviews')),
+        action TEXT NOT NULL CHECK (action IN (
+          'auth.login','auth.logout','auth.session_revoked','authorization.denied',
+          'book.edition_status_changed','book.edition_published','book.edition_restored',
+          'document.ocr_approved','review.status_changed','review.decision_recorded'
+        )),
+        outcome TEXT NOT NULL CHECK (outcome IN ('success','denied','failure')),
+        actor_user_id TEXT,
+        subject_type TEXT CHECK (subject_type IS NULL OR subject_type IN (
+          'user','session','book_edition','document','review_item'
+        )),
+        subject_id TEXT,
+        request_id TEXT NOT NULL,
+        metadata_json TEXT NOT NULL CHECK (json_valid(metadata_json) AND json_type(metadata_json) = 'object'),
+        previous_hash TEXT NOT NULL CHECK (length(previous_hash) = 64),
+        event_hash TEXT NOT NULL UNIQUE CHECK (length(event_hash) = 64),
+        key_version TEXT NOT NULL,
+        CHECK ((subject_type IS NULL) = (subject_id IS NULL))
+      ) STRICT;
+      INSERT INTO security_audit_events_v2 SELECT * FROM security_audit_events;
+      DROP TABLE security_audit_events;
+      ALTER TABLE security_audit_events_v2 RENAME TO security_audit_events;
+      CREATE INDEX security_audit_time_idx ON security_audit_events(timestamp DESC, sequence DESC);
+      CREATE INDEX security_audit_filter_idx ON security_audit_events(category, action, outcome, timestamp DESC);
+      CREATE INDEX security_audit_actor_idx ON security_audit_events(actor_user_id, timestamp DESC);
+      CREATE TRIGGER security_audit_no_update BEFORE UPDATE ON security_audit_events BEGIN
+        SELECT RAISE(ABORT, 'security audit events are append-only');
+      END;
+      CREATE TRIGGER security_audit_no_delete BEFORE DELETE ON security_audit_events BEGIN
+        SELECT RAISE(ABORT, 'security audit events are append-only');
+      END;
+      DELETE FROM security_audit_schema_migrations WHERE version = 3;
+      COMMIT;
+    `);
+  } finally {
+    database.close();
+  }
+}
+
+function assertSchemaVersion(path: string, expected: number): void {
+  const database = new DatabaseSync(path);
+  try {
+    const row = database.prepare(`
+      SELECT MAX(version) AS version FROM security_audit_schema_migrations
+    `).get() as unknown as { version: number };
+    assert.equal(row.version, expected);
   } finally {
     database.close();
   }

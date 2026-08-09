@@ -23,8 +23,14 @@ const identifier = /^[\p{L}\p{N}._:@/-]{1,128}$/u;
 const requestIdentifier = /^[A-Za-z0-9._:-]{1,128}$/u;
 
 export function createSecurityAuditHandler(service: SecurityAuditService, logError: ErrorLogger) {
-  return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
-    const requestId = crypto.randomUUID();
+  return async (
+    request: IncomingMessage,
+    response: ServerResponse,
+    url: URL,
+    _principal?: unknown,
+    boundaryRequestId: string = crypto.randomUUID(),
+  ) => {
+    const requestId = boundaryRequestId;
     try {
       if (request.method !== 'GET') {
         response.setHeader('Allow', 'GET');

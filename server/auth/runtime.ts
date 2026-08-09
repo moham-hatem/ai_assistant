@@ -39,6 +39,10 @@ export async function createLocalAuthRuntime(
         publicOrigin: config.publicOrigin,
         recoveryTtlMs: 60 * 60_000,
       },
+      undefined,
+      undefined,
+      undefined,
+      audit,
     );
     return {
       accessHandler: createAccessHandler(accessService, origin, logError),

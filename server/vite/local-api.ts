@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import type { AuthPrincipal } from '../../shared/contracts/auth.ts';
 import type { Plugin } from 'vite';
 import type { AuthConfig } from '../auth/config.ts';
@@ -33,6 +34,7 @@ type ApiHandler = (
   response: ServerResponse,
   url: URL,
   principal: AuthPrincipal | null,
+  requestId: string,
 ) => void | Promise<void>;
 type AuthHandler = ReturnType<typeof createAuthHandler>;
 
@@ -140,7 +142,10 @@ export function createLocalApiRequestHandler(
   return async (request: IncomingMessage, response: ServerResponse, next: Next): Promise<void> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
     if (authHandler && await authHandler(request, response, url.pathname)) return;
-    const guard = await guardAdminRequest(request, response, url, security, logError);
+    const requestId = randomUUID();
+    const guard = await guardAdminRequest(
+      request, response, url, security, logError, requestId,
+    );
     if (!guard.allowed) return;
 
     const handler = selectHandler(url.pathname, handlers);
@@ -148,7 +153,7 @@ export function createLocalApiRequestHandler(
       next();
       return;
     }
-    await handler(request, response, url, guard.principal);
+    await handler(request, response, url, guard.principal, requestId);
   };
 }
 

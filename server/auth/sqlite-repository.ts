@@ -34,6 +34,7 @@ import {
   flushSecurityAuditOutbox,
   migrateSecurityAuditOutbox,
 } from '../modules/security-audit/sqlite-outbox.ts';
+import { withImmediateTransaction } from './sqlite-transaction.ts';
 
 interface UserRow {
   created_at: string;
@@ -66,7 +67,7 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
   async createUser(command: SaveUserCommand): Promise<AuthUser> {
     requireNormalizedDisplayName(command.displayName);
     try {
-      transaction(this.database, () => {
+      withImmediateTransaction(this.database, () => {
         this.database.prepare(`
           INSERT INTO auth_users (
             id, email, password_hash, created_at, updated_at, display_name, enabled
@@ -105,23 +106,15 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
   }
 
   async saveSession(session: AuthSession, audit?: SecurityAuditCommand): Promise<void> {
-    transaction(this.database, () => {
-      this.database.prepare(`
-      INSERT INTO auth_sessions (
-        token_hash, user_id, created_at, last_seen_at, idle_expires_at,
-        absolute_expires_at, revoked_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(
-      session.tokenHash,
-      session.userId,
-      session.createdAt,
-      session.lastSeenAt,
-      session.idleExpiresAt,
-      session.absoluteExpiresAt,
-      session.revokedAt,
-      );
-      if (audit) enqueueSecurityAudit(this.database, audit);
-    });
+    await this.sessions.save(session, audit);
+  }
+
+  async rotateSession(
+    previousTokenHash: string | undefined,
+    session: AuthSession,
+    audit?: readonly SecurityAuditCommand[],
+  ): Promise<void> {
+    await this.sessions.rotate(previousTokenHash, session, audit);
   }
 
   async findSession(tokenHash: string): Promise<AuthSession | undefined> {
@@ -133,27 +126,15 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
   }
 
   async revokeSession(tokenHash: string, revokedAt: string, audit?: SecurityAuditCommand): Promise<boolean> {
-    return transaction(this.database, () => {
-      const result = this.database.prepare(`
-      UPDATE auth_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL
-      `).run(revokedAt, tokenHash);
-      if (audit && result.changes === 1) enqueueSecurityAudit(this.database, audit);
-      return result.changes === 1;
-    });
+    return await this.sessions.revoke(tokenHash, revokedAt, audit);
   }
 
   async revokeAllUserSessions(userId: string, revokedAt: string, audit?: SecurityAuditCommand): Promise<number> {
-    return transaction(this.database, () => {
-      const result = this.database.prepare(`
-      UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL
-      `).run(revokedAt, userId);
-      if (audit && result.changes > 0) enqueueSecurityAudit(this.database, audit);
-      return Number(result.changes);
-    });
+    return await this.sessions.revokeAll(userId, revokedAt, audit);
   }
 
   async enqueueSecurityAudit(command: SecurityAuditCommand): Promise<void> {
-    transaction(this.database, () => enqueueSecurityAudit(this.database, command));
+    withImmediateTransaction(this.database, () => enqueueSecurityAudit(this.database, command));
   }
 
   flushSecurityAuditOutbox(sink: SecurityAuditSink): Promise<number> {
@@ -162,7 +143,7 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
 
   async updateUserSecurity(command: SaveUserCommand): Promise<AuthUser> {
     requireNormalizedDisplayName(command.displayName);
-    transaction(this.database, () => {
+    withImmediateTransaction(this.database, () => {
       const result = this.database.prepare(`
         UPDATE auth_users
         SET email = ?, password_hash = ?, display_name = ?, updated_at = ?
@@ -193,8 +174,8 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
     roles: AuthRole[];
     timestamp: string;
     userId: string;
-  }): Promise<AuthUser> {
-    return this.accessUsers.update(command);
+  }, audit?: readonly SecurityAuditCommand[]): Promise<AuthUser> {
+    return this.accessUsers.update(command, audit);
   }
 
   setUserEnabled(
@@ -202,12 +183,16 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
     userId: string,
     enabled: boolean,
     timestamp: string,
+    audit?: readonly SecurityAuditCommand[],
   ): Promise<AuthUser> {
-    return this.accessUsers.setEnabled(actorId, userId, enabled, timestamp);
+    return this.accessUsers.setEnabled(actorId, userId, enabled, timestamp, audit);
   }
 
-  createInvitation(record: CreateInvitationRecord): Promise<AuthInvitation> {
-    return this.accessTokens.createInvitation(record);
+  createInvitation(
+    record: CreateInvitationRecord,
+    audit?: SecurityAuditCommand,
+  ): Promise<AuthInvitation> {
+    return this.accessTokens.createInvitation(record, audit);
   }
 
   findInvitationByTokenHash(tokenHash: string): Promise<AuthInvitation | undefined> {
@@ -218,28 +203,34 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
     tokenHash: string,
     passwordHash: string,
     timestamp: string,
+    audit?: (user: AuthUser) => readonly SecurityAuditCommand[],
   ): Promise<AuthUser | undefined> {
-    return this.accessTokens.redeemInvitation(tokenHash, passwordHash, timestamp);
+    return this.accessTokens.redeemInvitation(tokenHash, passwordHash, timestamp, audit);
   }
 
-  revokeInvitation(id: string, timestamp: string): Promise<boolean> {
-    return this.accessTokens.revokeInvitation(id, timestamp);
+  revokeInvitation(id: string, timestamp: string, audit?: SecurityAuditCommand): Promise<boolean> {
+    return this.accessTokens.revokeInvitation(id, timestamp, audit);
   }
 
-  createRecovery(record: CreateRecoveryRecord): Promise<AuthRecovery> {
-    return this.accessTokens.createRecovery(record);
+  createRecovery(record: CreateRecoveryRecord, audit?: SecurityAuditCommand): Promise<AuthRecovery> {
+    return this.accessTokens.createRecovery(record, audit);
   }
 
   findRecoveryByTokenHash(tokenHash: string): Promise<AuthRecovery | undefined> {
     return this.accessTokens.findRecovery(tokenHash);
   }
 
-  redeemRecovery(tokenHash: string, passwordHash: string, timestamp: string): Promise<boolean> {
-    return this.accessTokens.redeemRecovery(tokenHash, passwordHash, timestamp);
+  redeemRecovery(
+    tokenHash: string,
+    passwordHash: string,
+    timestamp: string,
+    audit?: (user: AuthUser) => readonly SecurityAuditCommand[],
+  ): Promise<AuthUser | undefined> {
+    return this.accessTokens.redeemRecovery(tokenHash, passwordHash, timestamp, audit);
   }
 
-  revokeRecovery(id: string, timestamp: string): Promise<boolean> {
-    return this.accessTokens.revokeRecovery(id, timestamp);
+  revokeRecovery(id: string, timestamp: string, audit?: SecurityAuditCommand): Promise<boolean> {
+    return this.accessTokens.revokeRecovery(id, timestamp, audit);
   }
 
   close(): void {
@@ -282,17 +273,6 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
   }
 }
 
-function transaction<T>(database: DatabaseSync, operation: () => T): T {
-  database.exec('BEGIN IMMEDIATE;');
-  try {
-    const value = operation();
-    database.exec('COMMIT;');
-    return value;
-  } catch (error) {
-    database.exec('ROLLBACK;');
-    throw error;
-  }
-}
 
 function requireNormalizedDisplayName(value: string): void {
   if (normalizeDisplayName(value) !== value) throw new Error('Display name is not normalized.');

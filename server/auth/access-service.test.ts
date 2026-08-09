@@ -69,7 +69,7 @@ test('invitation links keep hashed, expiring, revocable, single-use tokens in fr
     const revoked = await service.createInvitation('admin-1', {
       displayName: 'Revoked Invite', email: 'revoked@example.org', roles: ['reviewer'],
     });
-    await service.revokeInvitation(revoked.id);
+    await service.revokeInvitation('admin-1', revoked.id);
     await assert.rejects(
       () => service.redeemInvitation(
         secretFromFragment(revoked.link, 'invitation'), 'revoked secure password', 'client-3',
@@ -160,7 +160,7 @@ test('disabled users cannot login or refresh sessions and recovery is single-use
     'expired-recovery-client',
   ), AccessTokenRejectedError);
   const revoked = await access.createRecovery('admin-1', 'user-1');
-  await access.revokeRecovery(revoked.id);
+  await access.revokeRecovery('admin-1', revoked.id);
   await assert.rejects(() => access.redeemRecovery(
     secretFromFragment(revoked.link, 'recovery'),
     'revoked recovery password',

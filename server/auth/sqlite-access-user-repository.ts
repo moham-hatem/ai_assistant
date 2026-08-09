@@ -1,6 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { AccessUserSummary } from '../../shared/contracts/access-management.ts';
 import type { AuthRole } from '../../shared/contracts/auth.ts';
+import type { SecurityAuditCommand } from '../modules/security-audit/domain.ts';
+import { enqueueSecurityAudit } from '../modules/security-audit/sqlite-outbox.ts';
 import {
   AccessLockoutError,
   AccessUserNotFoundError,
@@ -11,6 +13,7 @@ import {
   normalizeRoles,
   type AuthUser,
 } from './domain.ts';
+import { withImmediateTransaction } from './sqlite-transaction.ts';
 
 interface UserRow {
   created_at: string;
@@ -21,7 +24,6 @@ interface UserRow {
   password_hash: string;
   updated_at: string;
 }
-
 export class SqliteAccessUserRepository {
   private readonly database: DatabaseSync;
 
@@ -48,11 +50,11 @@ export class SqliteAccessUserRepository {
     roles: AuthRole[];
     timestamp: string;
     userId: string;
-  }): Promise<AuthUser> {
+  }, audit: readonly SecurityAuditCommand[] = []): Promise<AuthUser> {
     if (normalizeDisplayName(command.displayName) !== command.displayName) {
       throw new Error('Display name is not normalized.');
     }
-    return transaction(this.database, () => {
+    return withImmediateTransaction(this.database, () => {
       const current = this.findRow(command.userId);
       if (!current) throw new AccessUserNotFoundError();
       const roles = normalizeRoles(command.roles);
@@ -65,6 +67,7 @@ export class SqliteAccessUserRepository {
       `).run(command.displayName, command.timestamp, command.userId);
       this.replaceRoles(command.userId, roles);
       this.revokeSessions(command.userId, command.timestamp);
+      for (const event of audit) enqueueSecurityAudit(this.database, event);
       return this.requireUser(command.userId);
     });
   }
@@ -74,8 +77,9 @@ export class SqliteAccessUserRepository {
     userId: string,
     enabled: boolean,
     timestamp: string,
+    audit: readonly SecurityAuditCommand[] = [],
   ): Promise<AuthUser> {
-    return transaction(this.database, () => {
+    return withImmediateTransaction(this.database, () => {
       const current = this.findRow(userId);
       if (!current) throw new AccessUserNotFoundError();
       if (actorId === userId && !enabled) {
@@ -87,6 +91,7 @@ export class SqliteAccessUserRepository {
         UPDATE auth_users SET enabled = ?, updated_at = ? WHERE id = ?
       `).run(enabled ? 1 : 0, timestamp, userId);
       if (!enabled) this.revokeSessions(userId, timestamp);
+      for (const event of audit) enqueueSecurityAudit(this.database, event);
       return this.requireUser(userId);
     });
   }
@@ -151,17 +156,5 @@ export class SqliteAccessUserRepository {
       roles: this.rolesFor(row.id),
       updatedAt: row.updated_at,
     };
-  }
-}
-
-function transaction<T>(database: DatabaseSync, operation: () => T): T {
-  database.exec('BEGIN IMMEDIATE;');
-  try {
-    const value = operation();
-    database.exec('COMMIT;');
-    return value;
-  } catch (error) {
-    database.exec('ROLLBACK;');
-    throw error;
   }
 }
