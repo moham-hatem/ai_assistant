@@ -26,6 +26,7 @@ test('registration stays production-only and reloads only for an accepted update
   assert.match(registration, /browserWindow\.addEventListener\(PWA_APPLY_UPDATE_EVENT/);
   assert.match(registration, /if \(!reloadRequested \|\| didReload\) return;/);
   assert.match(registration, /waitingWorker\.postMessage\(\{ type: 'SKIP_WAITING' \}\)/);
+  assert.equal((registration.match(/announceUpdate\([^)]*\)\.catch\(\(\) => undefined\)/g) ?? []).length, 2);
   assert.match(registration, /channel\.port1\.close\(\)/);
   assert.match(registration, /channel\.port2\.close\(\)/);
 });

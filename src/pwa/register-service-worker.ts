@@ -57,14 +57,14 @@ async function installRegistration(
     browserWindow.dispatchEvent(new CustomEvent(PWA_UPDATE_READY_EVENT, { detail }));
   }
 
-  if (waitingWorker) void announceUpdate(waitingWorker);
+  if (waitingWorker) void announceUpdate(waitingWorker).catch(() => undefined);
 
   registration.addEventListener('updatefound', () => {
     const installingWorker = registration.installing;
     if (!installingWorker) return;
     installingWorker.addEventListener('statechange', () => {
       if (installingWorker.state === 'installed' && serviceWorker.controller) {
-        void announceUpdate(installingWorker);
+        void announceUpdate(installingWorker).catch(() => undefined);
       }
     });
   });
