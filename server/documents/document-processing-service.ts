@@ -1,41 +1,16 @@
 import type {
   DocumentProcessingState,
-  DocumentProcessingStatus,
   DocumentProcessingSummary,
 } from '../../shared/contracts/document-processing.ts';
 import { parseDocumentProcessingSummary } from '../../shared/contracts/document-processing.ts';
 import { AppError } from '../errors.ts';
+import type { DocumentProcessorPort } from './document-processor-port.ts';
+import {
+  assertCurrentProcessingAttempt,
+  assertDocumentProcessingTransition,
+} from './document-processing-transitions.ts';
 import type { DocumentStore } from './document-store.ts';
-
-export interface DocumentProcessingInput {
-  documentId: string;
-  generation: number;
-  name: string;
-  source: Buffer;
-}
-
-export interface DocumentProcessingOutput {
-  summary: DocumentProcessingSummary;
-  text: string;
-}
-
-export interface DocumentProcessorPort {
-  process(input: DocumentProcessingInput): Promise<DocumentProcessingOutput>;
-}
-
-const transitions: Readonly<Record<DocumentProcessingStatus, readonly DocumentProcessingStatus[]>> = {
-  failed: ['processing'],
-  ocr_required: ['processing'],
-  processing: ['ready', 'ocr_required', 'review_required', 'failed'],
-  ready: ['processing'],
-  review_required: ['processing'],
-};
-
-export function allowedDocumentProcessingTransitions(
-  status: DocumentProcessingStatus,
-): readonly DocumentProcessingStatus[] {
-  return transitions[status];
-}
+import { hasSufficientDocumentText } from './document-text-policy.ts';
 
 export class DocumentProcessingService {
   private readonly documents: DocumentStore;
@@ -67,6 +42,13 @@ export class DocumentProcessingService {
         source,
       });
       const summary = parseDocumentProcessingSummary(output.summary);
+      if (summary.status === 'ready' && !hasSufficientDocumentText(output.text)) {
+        throw new AppError(
+          'DOCUMENT_PROCESSING_FAILED',
+          'A ready document processing result must contain sufficient text.',
+          422,
+        );
+      }
       if (summary.status === 'processing' || summary.status === 'failed') {
         throw new AppError(
           'INVALID_DOCUMENT_PROCESSING_TRANSITION',
@@ -118,8 +100,8 @@ export class DocumentProcessingService {
     text: string,
   ): Promise<DocumentProcessingState> {
     return this.documents.updateProcessing(documentId, (current) => {
-      assertCurrentAttempt(current, generation);
-      assertTransition(current.summary.status, summary.status);
+      assertCurrentProcessingAttempt(current, generation);
+      assertDocumentProcessingTransition(current.summary.status, summary.status);
       return { generation, summary };
     }, text);
   }
@@ -130,8 +112,8 @@ export class DocumentProcessingService {
     code: string,
   ): Promise<DocumentProcessingState> {
     return this.documents.updateProcessing(documentId, (current) => {
-      assertCurrentAttempt(current, generation);
-      assertTransition(current.summary.status, 'failed');
+      assertCurrentProcessingAttempt(current, generation);
+      assertDocumentProcessingTransition(current.summary.status, 'failed');
       return {
         generation,
         summary: {
@@ -143,39 +125,6 @@ export class DocumentProcessingService {
         },
       };
     });
-  }
-}
-
-export class UnavailableDocumentProcessor implements DocumentProcessorPort {
-  async process(): Promise<never> {
-    throw new AppError(
-      'DOCUMENT_PROCESSOR_UNAVAILABLE',
-      'No document processor is configured.',
-      503,
-    );
-  }
-}
-
-function assertCurrentAttempt(current: DocumentProcessingState, generation: number): void {
-  if (current.generation !== generation || current.summary.status !== 'processing') {
-    throw new AppError(
-      'STALE_DOCUMENT_PROCESSING_RESULT',
-      'A newer document processing attempt superseded this result.',
-      409,
-    );
-  }
-}
-
-function assertTransition(
-  current: DocumentProcessingStatus,
-  target: DocumentProcessingStatus,
-): void {
-  if (!transitions[current].includes(target)) {
-    throw new AppError(
-      'INVALID_DOCUMENT_PROCESSING_TRANSITION',
-      `Document processing cannot transition from ${current} to ${target}.`,
-      409,
-    );
   }
 }
 

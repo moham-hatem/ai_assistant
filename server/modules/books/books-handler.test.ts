@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import type { DocumentProcessorPort } from '../../documents/document-processing-service.ts';
+import type { DocumentProcessorPort } from '../../documents/document-processor-port.ts';
 import { DocumentStore } from '../../documents/document-store.ts';
 import { BookDocumentService } from './book-document-service.ts';
 import { BookService } from './book-service.ts';

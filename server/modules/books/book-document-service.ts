@@ -4,9 +4,11 @@ import type { Book, BookEdition, EditionStatus } from '../../../shared/contracts
 import type { DocumentProcessingState } from '../../../shared/contracts/document-processing.ts';
 import {
   DocumentProcessingService,
+} from '../../documents/document-processing-service.ts';
+import {
   type DocumentProcessorPort,
   UnavailableDocumentProcessor,
-} from '../../documents/document-processing-service.ts';
+} from '../../documents/document-processor-port.ts';
 import type { DocumentStore } from '../../documents/document-store.ts';
 import type { DocumentMetadata } from '../../documents/types.ts';
 import type { DocumentResource, DocumentResourceKind } from '../../documents/types.ts';

@@ -41,13 +41,23 @@ export const legacyDocumentProcessingSummary: Readonly<DocumentProcessingSummary
 
 export function normalizeDocumentProcessingSummary(value: unknown): DocumentProcessingSummary {
   if (!isRecord(value)) return { ...legacyDocumentProcessingSummary };
+  const method = includes(documentProcessingMethods, value.method) ? value.method : 'native';
+  const pageCount = count(value.pageCount);
+  let averageConfidence = confidence(value.averageConfidence);
+  let ocrPageCount = Math.min(count(value.ocrPageCount), pageCount);
+  if (method === 'native') {
+    averageConfidence = null;
+    ocrPageCount = 0;
+  } else if (ocrPageCount > 0 && averageConfidence === null) {
+    ocrPageCount = 0;
+  }
   return {
-    averageConfidence: confidence(value.averageConfidence),
+    averageConfidence,
     failureCode: nullableString(value.failureCode),
-    lowConfidencePageCount: count(value.lowConfidencePageCount),
-    method: includes(documentProcessingMethods, value.method) ? value.method : 'native',
-    ocrPageCount: count(value.ocrPageCount),
-    pageCount: count(value.pageCount),
+    lowConfidencePageCount: Math.min(count(value.lowConfidencePageCount), pageCount),
+    method,
+    ocrPageCount,
+    pageCount,
     processedAt: nullableString(value.processedAt),
     status: includes(documentProcessingStatuses, value.status) ? value.status : 'ready',
   };
@@ -62,10 +72,17 @@ export function parseDocumentProcessingSummary(value: unknown): DocumentProcessi
     || !validCount(value.lowConfidencePageCount)
     || !validConfidence(value.averageConfidence)
     || !validNullableString(value.processedAt)
-    || !validNullableString(value.failureCode)) {
+    || !validNullableString(value.failureCode)
+    || value.ocrPageCount > value.pageCount
+    || value.lowConfidencePageCount > value.pageCount
+    || (value.method === 'native'
+      && (value.ocrPageCount !== 0 || value.averageConfidence !== null))
+    || (value.method !== 'native'
+      && value.ocrPageCount > 0
+      && typeof value.averageConfidence !== 'number')) {
     throw new TypeError('Invalid document processing summary.');
   }
-  return value as unknown as DocumentProcessingSummary;
+  return normalizeDocumentProcessingSummary(value);
 }
 
 export function normalizeDocumentProcessingGeneration(value: unknown): number {

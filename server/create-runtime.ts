@@ -39,7 +39,7 @@ import type { QualityMetricsRepository } from './modules/quality-metrics/quality
 import { QualityMetricsService } from './modules/quality-metrics/quality-metrics-service.ts';
 import { SqliteQualityMetricsRepository } from './modules/quality-metrics/sqlite-quality-metrics-repository.ts';
 import { UnavailableQualityMetricsRepository } from './modules/quality-metrics/unavailable-quality-metrics-repository.ts';
-import type { DocumentProcessorPort } from './documents/document-processing-service.ts';
+import type { DocumentProcessorPort } from './documents/document-processor-port.ts';
 
 export interface RuntimeDependencies {
   documentProcessor?: DocumentProcessorPort;

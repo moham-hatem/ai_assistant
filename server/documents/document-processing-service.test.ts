@@ -3,12 +3,13 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import type { DocumentProcessingOutput } from './document-processing-service.ts';
-import {
-  allowedDocumentProcessingTransitions,
-  DocumentProcessingService,
-  type DocumentProcessorPort,
-} from './document-processing-service.ts';
+import { parseDocumentProcessingSummary } from '../../shared/contracts/document-processing.ts';
+import type {
+  DocumentProcessingOutput,
+  DocumentProcessorPort,
+} from './document-processor-port.ts';
+import { DocumentProcessingService } from './document-processing-service.ts';
+import { allowedDocumentProcessingTransitions } from './document-processing-transitions.ts';
 import { DocumentStore } from './document-store.ts';
 import { AppError } from '../errors.ts';
 
@@ -20,6 +21,22 @@ test('processing transitions are deny-by-default', () => {
   );
   assert.equal(allowedDocumentProcessingTransitions('review_required').includes('ready'), false);
   assert.equal(allowedDocumentProcessingTransitions('failed').includes('ready'), false);
+});
+
+test('processing summary parser rejects contradictory page, method, and confidence fields', () => {
+  const valid = output('').summary;
+  const contradictory = [
+    { ...valid, ocrPageCount: valid.pageCount + 1 },
+    { ...valid, lowConfidencePageCount: valid.pageCount + 1 },
+    { ...valid, averageConfidence: null, method: 'native', ocrPageCount: 1 },
+    { ...valid, averageConfidence: 0.9, method: 'native', ocrPageCount: 0 },
+    { ...valid, averageConfidence: null, method: 'ocr', ocrPageCount: 1 },
+    { ...valid, averageConfidence: null, method: 'hybrid', ocrPageCount: 1 },
+  ];
+
+  for (const summary of contradictory) {
+    assert.throws(() => parseDocumentProcessingSummary(summary), TypeError);
+  }
 });
 
 test('a newer processing generation prevents an older result from replacing text', async () => {
@@ -106,6 +123,24 @@ test('an invalid processor status is rejected instead of normalized to ready', a
       (error: unknown) => error instanceof AppError && error.code === 'DOCUMENT_PROCESSING_FAILED',
     );
     assert.equal((await store.processingState(id)).summary.status, 'failed');
+    assert.equal(await store.readText(id), original);
+  });
+});
+
+test('a ready processor result with short text fails without replacing stored text', async () => {
+  await withStore(async (store, id) => {
+    const service = new DocumentProcessingService(store, {
+      async process() { return output('  too short  '); },
+    });
+    const original = await store.readText(id);
+
+    await assert.rejects(
+      service.reprocess(id),
+      (error: unknown) => error instanceof AppError && error.code === 'DOCUMENT_PROCESSING_FAILED',
+    );
+    const state = await store.processingState(id);
+    assert.equal(state.summary.status, 'failed');
+    assert.equal(state.summary.failureCode, 'DOCUMENT_PROCESSING_FAILED');
     assert.equal(await store.readText(id), original);
   });
 });
