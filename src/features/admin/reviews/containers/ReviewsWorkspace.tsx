@@ -5,12 +5,15 @@ import { reviewsCopies } from '../copy';
 import { ReviewDetails } from '../components/ReviewDetails';
 import { ReviewFilters } from '../components/ReviewFilters';
 import { ReviewQueue } from '../components/ReviewQueue';
-import { ReviewerSession } from '../components/ReviewerSession';
 import { useReviews } from '../hooks/use-reviews';
+import type { AuthPrincipal } from '../../../../../shared/contracts/auth';
+import { canApproveContentReview } from '../../../auth/permissions';
+import { reviewerIdFromPrincipal } from '../reviewer-session';
 
-export function ReviewsWorkspace({ language }: { language: AppLanguage }) {
+export function ReviewsWorkspace({ language, principal }: { language: AppLanguage; principal: AuthPrincipal }) {
   const copy = reviewsCopies[language];
-  const reviews = useReviews();
+  const reviews = useReviews(reviewerIdFromPrincipal(principal));
+  const canManage = canApproveContentReview(principal);
   const detailPanelRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -23,7 +26,6 @@ export function ReviewsWorkspace({ language }: { language: AppLanguage }) {
   const detail = reviews.state.detail;
   return (
     <div className="reviews-workspace">
-      <ReviewerSession copy={copy} onChange={reviews.setReviewerId} reviewerId={reviews.reviewerId} />
       <ReviewFilters copy={copy} filters={reviews.state.filters} onChange={reviews.setFilters} />
       {(reviews.state.successKind || reviews.state.mutationError) && (
         <button className={`review-feedback ${reviews.state.mutationError ? 'is-error' : 'is-success'}`} onClick={reviews.clearFeedback} type="button">
@@ -47,6 +49,7 @@ export function ReviewsWorkspace({ language }: { language: AppLanguage }) {
         />
         <ReviewDetails
           busy={reviews.state.mutationStatus === 'submitting'}
+          canManage={canManage}
           copy={copy}
           detail={detail}
           language={language}

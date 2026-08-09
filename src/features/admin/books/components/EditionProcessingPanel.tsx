@@ -20,6 +20,8 @@ import type { BookEdition, EditionProcessingEntry } from '../types.ts';
 type PreviewResource = 'source' | 'text';
 
 interface EditionProcessingPanelProps {
+  canReview: boolean;
+  canWrite: boolean;
   copy: ProcessingCopy;
   edition: BookEdition;
   entry?: EditionProcessingEntry;
@@ -93,7 +95,7 @@ export function EditionProcessingPanel(props: EditionProcessingPanelProps) {
             </button>
           </>
         )}
-        {actions.includes('reprocess') && (
+        {props.canWrite && actions.includes('reprocess') && (
           <button disabled={busy} onClick={props.onReprocess} type="button">
             {entry.action === 'reprocess'
               ? <LoaderCircle aria-hidden="true" className="processing-spinner" size={16} />
@@ -101,7 +103,7 @@ export function EditionProcessingPanel(props: EditionProcessingPanelProps) {
             {entry.action === 'reprocess' ? copy.reprocessing : copy.reprocess}
           </button>
         )}
-        {actions.includes('approve') && (
+        {props.canReview && actions.includes('approve') && (
           <button className="processing-approve" disabled={busy} onClick={props.onApprove} type="button">
             {entry.action === 'approve'
               ? <LoaderCircle aria-hidden="true" className="processing-spinner" size={16} />

@@ -12,6 +12,7 @@ import { ReviewTimeline } from './ReviewTimeline';
 
 interface ReviewDetailsProps {
   busy: boolean;
+  canManage: boolean;
   copy: ReviewsCopy;
   detail: ReviewDetail | null;
   language: AppLanguage;
@@ -75,7 +76,7 @@ function ReviewDetailContent(props: ReviewDetailsProps & { detail: ReviewDetail 
           {detail.item.decidedAt && <Metadata label={copy.decidedAt} value={<time dateTime={detail.item.decidedAt}>{formatReviewDate(detail.item.decidedAt, language)}</time>} />}
         </dl>
       </DetailSection>
-      <ReviewActions busy={props.busy} copy={copy} detail={detail} onClaim={props.onClaim} onDecide={props.onDecide} onRelease={props.onRelease} reviewerId={props.reviewerId} />
+      {props.canManage && <ReviewActions busy={props.busy} copy={copy} detail={detail} onClaim={props.onClaim} onDecide={props.onDecide} onRelease={props.onRelease} reviewerId={props.reviewerId} />}
       <ReviewDecisionSummary copy={copy} decision={detail.decision} />
       <ReviewTimeline copy={copy} events={detail.events} language={language} />
     </div>

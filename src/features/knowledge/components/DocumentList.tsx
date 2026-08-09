@@ -6,6 +6,7 @@ import type { KnowledgeCopy } from '../copy';
 
 interface DocumentListProps {
   busy: boolean;
+  canDelete: boolean;
   copy: KnowledgeCopy;
   documents: KnowledgeDocument[];
   language: AppLanguage;
@@ -14,7 +15,7 @@ interface DocumentListProps {
   onView: (document: KnowledgeDocument) => void;
 }
 
-export function DocumentList({ busy, copy, documents, language, loading, onDelete, onView }: DocumentListProps) {
+export function DocumentList({ busy, canDelete, copy, documents, language, loading, onDelete, onView }: DocumentListProps) {
   if (loading) return <p className="empty-state">{copy.loading}</p>;
   if (documents.length === 0) {
     return <p className="empty-state">{copy.empty}</p>;
@@ -38,7 +39,7 @@ export function DocumentList({ busy, copy, documents, language, loading, onDelet
               <Eye size={18} />
               <span>{copy.view}</span>
             </button>
-            <button
+            {canDelete && <button
               aria-label={copy.deleteFile(document.name)}
               className="delete-button"
               disabled={busy}
@@ -46,7 +47,7 @@ export function DocumentList({ busy, copy, documents, language, loading, onDelet
               type="button"
             >
               <Trash2 size={18} />
-            </button>
+            </button>}
           </div>
         </article>
       ))}

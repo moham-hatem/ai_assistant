@@ -67,6 +67,15 @@
   border-bottom: 1px solid #dfe8e1;
 }
 
+.admin-identity {
+  display: grid;
+  min-width: 0;
+}
+.admin-identity strong, .admin-identity span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-identity span { color: #61746a; font-size: .78rem; direction: ltr; }
+.admin-toolbar-actions { display: flex; align-items: center; gap: 9px; }
+.admin-logout { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 8px 12px; color: #8a3030; background: #fff5f5; border: 1px solid #ebcccc; border-radius: 10px; cursor: pointer; }
+.admin-logout:disabled { opacity: .6; }
 .admin-security-note {
   display: flex;
   align-items: flex-start;
@@ -162,6 +171,7 @@
   .admin-toolbar { align-items: flex-start; padding: 12px 16px; }
   .admin-security-note { font-size: .72rem; }
   .admin-toolbar .language-switch span { display: none; }
+  .admin-logout span { display: none; }
   .admin-content { width: min(100% - 28px, 1120px); padding-bottom: 42px; }
   .feature-status-grid { grid-template-columns: 1fr; }
   .settings-card { grid-template-columns: auto minmax(0, 1fr); }

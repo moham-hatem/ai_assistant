@@ -12,6 +12,7 @@ import {
   parseReviewItemResponse,
   parseReviewPage,
 } from './review-parser.ts';
+import { adminFetch } from '../../api/admin-fetch.ts';
 
 export { ReviewsApiError } from './review-api-error.ts';
 
@@ -24,12 +25,12 @@ export async function fetchReviewPage(
   appendFilter(query, 'answerLanguage', request.answerLanguage);
   appendFilter(query, 'channel', request.channel);
   appendFilter(query, 'reviewerId', request.reviewerId);
-  const response = await fetch(`/api/internal/reviews?${query}`, { signal });
+  const response = await adminFetch(`/api/internal/reviews?${query}`, { signal });
   return parseReviewPage(await readJson(response));
 }
 
 export async function fetchReview(id: string, signal?: AbortSignal): Promise<ReviewDetail> {
-  const response = await fetch(`/api/internal/reviews/${encodeURIComponent(id)}`, { signal });
+  const response = await adminFetch(`/api/internal/reviews/${encodeURIComponent(id)}`, { signal });
   return parseReviewDetailResponse(await readJson(response));
 }
 
@@ -50,7 +51,7 @@ export async function saveReviewDecision(
 }
 
 async function postJson(url: string, body: unknown): Promise<Response> {
-  return fetch(url, {
+  return adminFetch(url, {
     body: JSON.stringify(body),
     headers: { 'Content-Type': 'application/json' },
     method: 'POST',

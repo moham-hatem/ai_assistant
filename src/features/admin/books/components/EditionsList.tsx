@@ -13,6 +13,8 @@ import { EditionProcessingPanel } from './EditionProcessingPanel.tsx';
 interface EditionsListProps {
   canGoNext: boolean;
   canGoPrevious: boolean;
+  canReview: boolean;
+  canWrite: boolean;
   copy: BooksCopy;
   editions: EditionPage;
   language: AppLanguage;
@@ -43,6 +45,7 @@ export function EditionsList(props: EditionsListProps) {
           <div className="edition-with-processing" key={edition.id}>
             <EditionCard
               copy={props.copy}
+              canWrite={props.canWrite}
               edition={edition}
               language={props.language}
               onTransition={(item, target: EditionStatus) => props.onTransition({ edition: item, targetStatus: target })}
@@ -50,6 +53,8 @@ export function EditionsList(props: EditionsListProps) {
             />
             <EditionProcessingPanel
               copy={processingCopy}
+              canReview={props.canReview}
+              canWrite={props.canWrite}
               edition={edition}
               entry={props.processing.entries[edition.id]}
               language={props.language}

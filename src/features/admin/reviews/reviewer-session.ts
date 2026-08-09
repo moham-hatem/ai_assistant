@@ -1,23 +1,10 @@
-import { validateReviewerId } from './review-actions';
+import { validateReviewerId } from './review-actions.ts';
+import type { AuthPrincipal } from '../../../../shared/contracts/auth.ts';
 
-const storageKey = 'daleel-admin-reviewer-id';
-
-export function readReviewerId(): string {
-  try {
-    return localStorage.getItem(storageKey) ?? '';
-  } catch {
-    return '';
-  }
-}
-export function saveReviewerId(value: string): string {
-  const reviewerId = value.trim();
-  try {
-    if (reviewerId) localStorage.setItem(storageKey, reviewerId);
-    else localStorage.removeItem(storageKey);
-  } catch {
-    // The visible session field still works when browser storage is unavailable.
-  }
-  return reviewerId;
+// The reviewer identifier is deliberately isolated here so a future backend contract
+// can replace principal.id without touching review components or action payloads.
+export function reviewerIdFromPrincipal(principal: AuthPrincipal): string {
+  return principal.id;
 }
 
 export function isUsableReviewerId(value: string): boolean {

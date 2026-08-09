@@ -8,15 +8,17 @@ import { AdminQuestionLogsPage } from './pages/AdminQuestionLogsPage';
 import { AdminQualityPage } from './pages/AdminQualityPage';
 import { AdminReviewsPage } from './pages/AdminReviewsPage';
 import { AdminSettingsPage } from './pages/AdminSettingsPage';
+import type { AuthPrincipal } from '../../../shared/contracts/auth';
 
 interface AdminAppProps {
   language: AppLanguage;
   languageDetails: LanguageOption;
   onChooseLanguage: () => void;
   page: AdminPage;
+  principal: AuthPrincipal;
 }
 
-export function AdminApp({ language, languageDetails, onChooseLanguage, page }: AdminAppProps) {
+export function AdminApp({ language, languageDetails, onChooseLanguage, page, principal }: AdminAppProps) {
   const copy = adminCopies[language];
 
   return (
@@ -25,19 +27,20 @@ export function AdminApp({ language, languageDetails, onChooseLanguage, page }: 
       copy={copy}
       languageDetails={languageDetails}
       onChooseLanguage={onChooseLanguage}
+      principal={principal}
     >
-      {renderPage(page, copy, languageDetails)}
+      {renderPage(page, copy, languageDetails, principal)}
     </AdminLayout>
   );
 }
 
-function renderPage(page: AdminPage, copy: (typeof adminCopies)[AppLanguage], language: LanguageOption) {
+function renderPage(page: AdminPage, copy: (typeof adminCopies)[AppLanguage], language: LanguageOption, principal: AuthPrincipal) {
   switch (page) {
-    case 'books': return <AdminBooksPage copy={copy} language={language.code} />;
-    case 'reviews': return <AdminReviewsPage copy={copy} language={language.code} />;
+    case 'books': return <AdminBooksPage copy={copy} language={language.code} principal={principal} />;
+    case 'reviews': return <AdminReviewsPage copy={copy} language={language.code} principal={principal} />;
     case 'question-logs': return <AdminQuestionLogsPage copy={copy} language={language.code} />;
     case 'quality': return <AdminQualityPage copy={copy} language={language.code} />;
     case 'settings': return <AdminSettingsPage copy={copy} languageDetails={language} />;
-    default: return <AdminDashboardPage copy={copy} />;
+    default: return <AdminDashboardPage copy={copy} principal={principal} />;
   }
 }

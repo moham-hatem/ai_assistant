@@ -5,6 +5,7 @@
 @import './styles/knowledge.css';
 @import './styles/language.css';
 @import './styles/admin.css';
+@import './styles/auth.css';
 @import './styles/question-logs.css';
 @import './styles/books.css';
 @import './styles/book-processing.css';

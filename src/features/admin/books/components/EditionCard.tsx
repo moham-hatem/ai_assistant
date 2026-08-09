@@ -13,6 +13,7 @@ const actionIcons: Record<OperatorEditionTarget, typeof Archive> = {
 };
 
 interface EditionCardProps {
+  canWrite: boolean;
   copy: BooksCopy;
   edition: BookEdition;
   language: AppLanguage;
@@ -20,7 +21,7 @@ interface EditionCardProps {
   transitioning: boolean;
 }
 
-export function EditionCard({ copy, edition, language, onTransition, transitioning }: EditionCardProps) {
+export function EditionCard({ canWrite, copy, edition, language, onTransition, transitioning }: EditionCardProps) {
   const transitions = operatorEditionTransitions(edition.status);
   return (
     <article className="edition-card">
@@ -36,7 +37,7 @@ export function EditionCard({ copy, edition, language, onTransition, transitioni
         <div className="edition-reference"><dt>{copy.reference}</dt><dd dir="auto">{edition.originalDocumentReference}</dd></div>
         <div className="edition-fingerprint"><dt>{copy.fingerprint}</dt><dd dir="ltr"><code>{edition.contentHash}</code></dd></div>
       </dl>
-      {transitions.length > 0 && (
+      {canWrite && transitions.length > 0 && (
         <footer className="edition-actions">
           {transitions.map((target) => {
             const Icon = actionIcons[target];

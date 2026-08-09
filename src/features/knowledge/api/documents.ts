@@ -3,6 +3,7 @@ import {
   MAX_DOCUMENT_SIZE_BYTES,
 } from '../../../../shared/document-limits';
 import type { KnowledgeDocument } from '../types';
+import { adminFetch } from '../../admin/api/admin-fetch.ts';
 
 interface DocumentsResponse {
   documents: KnowledgeDocument[];
@@ -23,7 +24,7 @@ export class KnowledgeApiError extends Error {
 }
 
 export async function listDocuments(): Promise<KnowledgeDocument[]> {
-  const response = await fetch('/api/knowledge/documents');
+  const response = await adminFetch('/api/knowledge/documents');
   return (await readJson<DocumentsResponse>(response)).documents;
 }
 
@@ -33,7 +34,7 @@ export async function uploadDocument(file: File): Promise<KnowledgeDocument> {
   }
 
   const url = `/api/knowledge/documents?name=${encodeURIComponent(file.name)}`;
-  const response = await fetch(url, {
+  const response = await adminFetch(url, {
     method: 'POST',
     headers: { 'Content-Type': file.type || 'application/octet-stream' },
     body: file,
@@ -42,7 +43,7 @@ export async function uploadDocument(file: File): Promise<KnowledgeDocument> {
 }
 
 export async function deleteDocument(id: string): Promise<void> {
-  await readJson(await fetch(`/api/knowledge/documents/${encodeURIComponent(id)}`, {
+  await readJson(await adminFetch(`/api/knowledge/documents/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   }));
 }

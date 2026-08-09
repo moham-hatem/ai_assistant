@@ -7,6 +7,7 @@ import {
   parseQuestionLogPage,
   QuestionLogsApiError,
 } from './question-log-parser';
+import { adminFetch } from '../../api/admin-fetch.ts';
 
 export { QuestionLogsApiError } from './question-log-parser';
 
@@ -16,7 +17,7 @@ export async function fetchQuestionLogPage(
   signal?: AbortSignal,
 ): Promise<QuestionLogPage> {
   const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
-  const response = await fetch(`/api/internal/question-logs?${query}`, { signal });
+  const response = await adminFetch(`/api/internal/question-logs?${query}`, { signal });
   return parseQuestionLogPage(await readJson(response));
 }
 
@@ -24,7 +25,7 @@ export async function fetchQuestionLogRecord(
   id: string,
   signal?: AbortSignal,
 ): Promise<QuestionLogRecord> {
-  const response = await fetch(`/api/internal/question-logs/${encodeURIComponent(id)}`, { signal });
+  const response = await adminFetch(`/api/internal/question-logs/${encodeURIComponent(id)}`, { signal });
   return parseQuestionLogDetail(await readJson(response));
 }
 

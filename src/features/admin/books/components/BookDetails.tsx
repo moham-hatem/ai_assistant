@@ -17,6 +17,8 @@ interface BookDetailsProps {
   book: Book | null;
   canGoNext: boolean;
   canGoPrevious: boolean;
+  canReview: boolean;
+  canWrite: boolean;
   copy: BooksCopy;
   editions: EditionPage | null;
   language: AppLanguage;
@@ -45,16 +47,18 @@ export function BookDetails(props: BookDetailsProps) {
   return (
     <section className="book-details-panel">
       <BookMetadata book={props.book} copy={props.copy} language={props.language} />
-      <BookEditionUploader
+      {props.canWrite && <BookEditionUploader
         {...props.uploadState}
         bookTitle={props.book.title}
         copy={props.copy}
         key={props.book.id}
         onUpload={props.onUpload}
-      />
+      />}
       <EditionsList
         canGoNext={props.canGoNext}
         canGoPrevious={props.canGoPrevious}
+        canReview={props.canReview}
+        canWrite={props.canWrite}
         copy={props.copy}
         editions={props.editions}
         language={props.language}
