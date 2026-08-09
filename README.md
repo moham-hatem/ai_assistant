@@ -16,6 +16,16 @@ npm run dev
 
 يفتح الموقع على `http://127.0.0.1:5173`. يشغّل Vite الواجهة وAPI المحلي معًا؛ لا يحتاج التشغيل الحالي إلى Supabase أو Docker أو قاعدة بيانات.
 
+## بوت Telegram المحلي
+
+توجد قناة Telegram محلية اختيارية تعمل بـlong polling فقط. أضف `TELEGRAM_BOT_TOKEN` و`TELEGRAM_SESSION_SECRET` بطول 32 حرفًا على الأقل إلى `.env.local`، ثم شغّل:
+
+```bash
+npm run telegram:poll
+```
+
+لا تستخدم القناة webhook، ولا تحفظ chat id الخام أو الأسئلة أو history في قاعدة Telegram. تفاصيل الإعداد والخصوصية والتعافي موثقة في [`docs/TELEGRAM_BOT.md`](docs/TELEGRAM_BOT.md).
+
 ## الإعدادات
 
 ```env
