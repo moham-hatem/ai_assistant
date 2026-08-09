@@ -42,9 +42,10 @@ this configured origin too; it does not derive the trusted origin from the reque
 
 ## Local team access management
 
-Team access is managed only through the local SQLite backend. Routes under
-`/api/internal/access/*` require `settings:manage` and use the same session and trusted-origin
-guard as other admin writes. The API provides bounded cursor pagination, safe user details,
+This is a backend-only access lifecycle; no React management or password-setup UI is included
+yet. Routes under `/api/internal/access/*` require `settings:manage` and use the same session and
+trusted-origin guard as other admin writes. The API provides bounded cursor pagination, safe
+user details,
 display-name/role updates, enable/disable actions, full session revocation, invitations, and
 password recovery. Responses never include password hashes, session tokens, or stored token
 hashes.
@@ -52,12 +53,13 @@ hashes.
 Invitations use `POST /api/internal/access/invitations`; password setup is redeemed through
 `POST /api/auth/invitations/redeem`. Recovery links are created per user through
 `POST /api/internal/access/users/:id/recovery` and redeemed through
-`POST /api/auth/recovery/redeem`. Both public redemption endpoints require the configured
-`AUTH_PUBLIC_ORIGIN`, strict JSON bodies, and rate limiting. Invitation links expire after 24
-hours; recovery links expire after one hour. They are 256-bit random secrets, stored only as
-SHA-256 hashes, single-use, and revocable. No email is sent: the creating administrator receives
-the secret link exactly once in the creation response and must handle it as a password-equivalent
-secret. The server does not log it.
+`POST /api/auth/recovery/redeem`. Generated links place their secrets after `#` in hash-router
+routes, so browsers do not include them in HTTP request URLs. Both public redemption endpoints
+require the configured `AUTH_PUBLIC_ORIGIN`, strict JSON bodies, and rate limiting. Invitation
+links expire after 24 hours; recovery links expire after one hour. They are 256-bit random
+secrets, stored only as SHA-256 hashes, single-use, and revocable. No email is sent: the creating
+administrator receives the secret link exactly once in the creation response and must handle it
+as a password-equivalent secret. The server does not log it.
 
 Existing users migrate to `enabled`. Disabled users cannot log in or refresh a session, and all
 their active sessions are revoked. Role and enablement changes are transactional: the last

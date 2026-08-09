@@ -89,6 +89,7 @@ test('local access API enforces settings permission and origin without leaking s
       const createdText = await created.text();
       const invitation = JSON.parse(createdText) as { link: string; warning: string };
       assert.equal(invitation.link.includes('i'.repeat(43)), true);
+      assertSecretOnlyInFragment(invitation.link, 'invitation', 'i'.repeat(43));
       assert.equal(createdText.includes('tokenHash'), false);
       assert.equal(createdText.includes('passwordHash'), false);
 
@@ -155,7 +156,8 @@ test('local access API enforces settings permission and origin without leaking s
       );
       assert.equal(recovery.status, 201);
       const recoveryBody = await recovery.json() as { link: string };
-      const recoveryToken = new URL(recoveryBody.link).searchParams.get('recovery');
+      assertSecretOnlyInFragment(recoveryBody.link, 'recovery', 'i'.repeat(43));
+      const recoveryToken = secretFromFragment(recoveryBody.link, 'recovery');
       const recovered = await postJson(
         `${baseUrl}/api/auth/recovery/redeem`,
         { password: 'reviewer replacement password', token: recoveryToken },
@@ -258,4 +260,25 @@ async function withServer(
       server.close((error) => error ? reject(error) : resolve());
     });
   }
+}
+
+function assertSecretOnlyInFragment(
+  link: string,
+  parameter: string,
+  expectedToken: string,
+): void {
+  const url = new URL(link);
+  assert.equal(url.origin, publicOrigin);
+  assert.equal(url.pathname, '/');
+  assert.equal(url.search, '');
+  assert.equal(secretFromFragment(link, parameter), expectedToken);
+  const requestUrl = new URL(url);
+  requestUrl.hash = '';
+  assert.equal(requestUrl.href, `${publicOrigin}/`);
+  assert.equal(requestUrl.href.includes(expectedToken), false);
+}
+
+function secretFromFragment(link: string, parameter: string): string | null {
+  const query = new URL(link).hash.split('?', 2)[1] ?? '';
+  return new URLSearchParams(query).get(parameter);
 }

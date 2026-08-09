@@ -79,7 +79,7 @@ export class AccessTokenService {
     return {
       expiresAt,
       id: invitation.id,
-      link: `${this.options.publicOrigin}/password-setup?invitation=${encodeURIComponent(token)}`,
+      link: `${this.options.publicOrigin}/#/password-setup?invitation=${encodeURIComponent(token)}`,
       warning: SECRET_WARNING,
     };
   }
@@ -124,7 +124,7 @@ export class AccessTokenService {
     return {
       expiresAt,
       id: recovery.id,
-      link: `${this.options.publicOrigin}/password-recovery?recovery=${encodeURIComponent(token)}`,
+      link: `${this.options.publicOrigin}/#/password-recovery?recovery=${encodeURIComponent(token)}`,
       warning: SECRET_WARNING,
     };
   }

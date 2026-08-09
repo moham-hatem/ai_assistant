@@ -17,7 +17,7 @@ import { SqliteAuthRepository } from './sqlite-repository.ts';
 const fastScrypt = { cost: 1_024, keyLength: 32, maxMemory: 4 * 1024 * 1024 };
 const publicOrigin = 'http://app.local.test';
 
-test('invitation tokens are hashed, expiring, revocable, and single-use', async () => {
+test('invitation links keep hashed, expiring, revocable, single-use tokens in fragments', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'ila-access-token-'));
   const databasePath = join(directory, 'auth.sqlite');
   const repository = new SqliteAuthRepository(databasePath);
@@ -43,7 +43,7 @@ test('invitation tokens are hashed, expiring, revocable, and single-use', async 
       roles: ['reviewer'],
     });
     assert.equal(invitation.warning, 'This link is a secret and will not be shown again.');
-    assert.equal(new URL(invitation.link).searchParams.get('invitation'), 'a'.repeat(43));
+    assertSecretFragment(invitation.link, 'password-setup', 'invitation', 'a'.repeat(43));
     assert.equal(await repository.findUserByEmail('invited@example.org'), undefined);
     await service.redeemInvitation(
       'a'.repeat(43), 'invited secure password', 'client-1',
@@ -61,7 +61,7 @@ test('invitation tokens are hashed, expiring, revocable, and single-use', async 
     time += 1_001;
     await assert.rejects(
       () => service.redeemInvitation(
-        new URL(expiring.link).searchParams.get('invitation'), 'expired secure password', 'client-2',
+        secretFromFragment(expiring.link, 'invitation'), 'expired secure password', 'client-2',
       ),
       AccessTokenRejectedError,
     );
@@ -72,7 +72,7 @@ test('invitation tokens are hashed, expiring, revocable, and single-use', async 
     await service.revokeInvitation(revoked.id);
     await assert.rejects(
       () => service.redeemInvitation(
-        new URL(revoked.link).searchParams.get('invitation'), 'revoked secure password', 'client-3',
+        secretFromFragment(revoked.link, 'invitation'), 'revoked secure password', 'client-3',
       ),
       AccessTokenRejectedError,
     );
@@ -95,7 +95,9 @@ test('disabled users cannot login or refresh sessions and recovery is single-use
   const passwords = new ScryptPasswordHasher(fastScrypt);
   let time = Date.parse('2026-01-01T00:00:00.000Z');
   let sessionNumber = 0;
-  const recoveryTokens = ['r'.repeat(43), 'e'.repeat(43), 'v'.repeat(43)];
+  const recoveryTokens = [
+    'r'.repeat(43), 's'.repeat(43), 'e'.repeat(43), 'v'.repeat(43),
+  ];
   let recoveryId = 0;
   await createUser(repository, passwords, 'admin-1', 'admin@example.org', ['admin']);
   await createUser(repository, passwords, 'user-1', 'user@example.org', ['reviewer']);
@@ -126,10 +128,20 @@ test('disabled users cannot login or refresh sessions and recovery is single-use
 
   await access.setEnabled('admin-1', 'user-1', true);
   const recovery = await access.createRecovery('admin-1', 'user-1');
-  const rawToken = new URL(recovery.link).searchParams.get('recovery');
+  const siblingRecovery = await access.createRecovery('admin-1', 'user-1');
+  assertSecretFragment(recovery.link, 'password-recovery', 'recovery', 'r'.repeat(43));
+  const rawToken = secretFromFragment(recovery.link, 'recovery');
   await access.redeemRecovery(rawToken, 'replacement secure password', 'recovery-client');
   await assert.rejects(
     () => access.redeemRecovery(rawToken, 'second replacement password', 'recovery-client'),
+    AccessTokenRejectedError,
+  );
+  await assert.rejects(
+    () => access.redeemRecovery(
+      secretFromFragment(siblingRecovery.link, 'recovery'),
+      'sibling replacement password',
+      'sibling-recovery-client',
+    ),
     AccessTokenRejectedError,
   );
   await assert.rejects(() => auth.login({
@@ -143,17 +155,53 @@ test('disabled users cannot login or refresh sessions and recovery is single-use
   const expiring = await access.createRecovery('admin-1', 'user-1');
   time += 60_001;
   await assert.rejects(() => access.redeemRecovery(
-    new URL(expiring.link).searchParams.get('recovery'),
+    secretFromFragment(expiring.link, 'recovery'),
     'expired recovery password',
     'expired-recovery-client',
   ), AccessTokenRejectedError);
   const revoked = await access.createRecovery('admin-1', 'user-1');
   await access.revokeRecovery(revoked.id);
   await assert.rejects(() => access.redeemRecovery(
-    new URL(revoked.link).searchParams.get('recovery'),
+    secretFromFragment(revoked.link, 'recovery'),
     'revoked recovery password',
     'revoked-recovery-client',
   ), AccessTokenRejectedError);
+  repository.close();
+});
+
+test('concurrent recovery redemptions for one user allow exactly one token', async () => {
+  const repository = new SqliteAuthRepository(':memory:');
+  const passwords = new ScryptPasswordHasher(fastScrypt);
+  await createUser(repository, passwords, 'admin-1', 'admin@example.org', ['admin']);
+  await createUser(repository, passwords, 'user-1', 'user@example.org', ['reviewer']);
+  const rawTokens = ['c'.repeat(43), 'd'.repeat(43)];
+  let recoveryId = 0;
+  const access = new AccessService(
+    repository,
+    passwords,
+    new InMemoryLoginRateLimiter(20, 60_000),
+    { invitationTtlMs: 60_000, publicOrigin, recoveryTtlMs: 60_000 },
+    undefined,
+    () => rawTokens.shift()!,
+    () => `concurrent-recovery-${++recoveryId}`,
+  );
+  const first = await access.createRecovery('admin-1', 'user-1');
+  const second = await access.createRecovery('admin-1', 'user-1');
+
+  const results = await Promise.allSettled([
+    access.redeemRecovery(
+      secretFromFragment(first.link, 'recovery'), 'first concurrent password', 'client-a',
+    ),
+    access.redeemRecovery(
+      secretFromFragment(second.link, 'recovery'), 'second concurrent password', 'client-b',
+    ),
+  ]);
+  assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+  const rejected = results.find((result) => result.status === 'rejected');
+  assert.equal(rejected?.status, 'rejected');
+  if (rejected?.status === 'rejected') {
+    assert.equal(rejected.reason instanceof AccessTokenRejectedError, true);
+  }
   repository.close();
 });
 
@@ -212,4 +260,27 @@ async function createUser(
     roles,
     timestamp: '2026-01-01T00:00:00.000Z',
   });
+}
+
+function assertSecretFragment(
+  link: string,
+  route: string,
+  parameter: string,
+  expectedToken: string,
+): void {
+  const url = new URL(link);
+  assert.equal(url.origin, publicOrigin);
+  assert.equal(url.pathname, '/');
+  assert.equal(url.search, '');
+  assert.equal(url.hash.startsWith(`#/${route}?`), true);
+  assert.equal(secretFromFragment(link, parameter), expectedToken);
+  const requestUrl = new URL(url);
+  requestUrl.hash = '';
+  assert.equal(requestUrl.href, `${publicOrigin}/`);
+  assert.equal(requestUrl.href.includes(expectedToken), false);
+}
+
+function secretFromFragment(link: string, parameter: string): string | null {
+  const query = new URL(link).hash.split('?', 2)[1] ?? '';
+  return new URLSearchParams(query).get(parameter);
 }

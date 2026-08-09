@@ -178,6 +178,10 @@ export class SqliteAccessTokenRepository {
       this.database.prepare('UPDATE auth_recovery_tokens SET used_at = ? WHERE id = ?')
         .run(timestamp, row.id);
       this.database.prepare(`
+        UPDATE auth_recovery_tokens SET revoked_at = ?
+        WHERE user_id = ? AND id <> ? AND used_at IS NULL AND revoked_at IS NULL
+      `).run(timestamp, row.user_id, row.id);
+      this.database.prepare(`
         UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL
       `).run(timestamp, row.user_id);
       return true;
