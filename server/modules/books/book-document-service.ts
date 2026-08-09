@@ -1,6 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, extname } from 'node:path';
 import type { Book, BookEdition, EditionStatus } from '../../../shared/contracts/books.ts';
+import type { DocumentProcessingState } from '../../../shared/contracts/document-processing.ts';
+import {
+  DocumentProcessingService,
+} from '../../documents/document-processing-service.ts';
+import {
+  type DocumentProcessorPort,
+  UnavailableDocumentProcessor,
+} from '../../documents/document-processor-port.ts';
 import type { DocumentStore } from '../../documents/document-store.ts';
 import type { DocumentMetadata } from '../../documents/types.ts';
 import type { DocumentResource, DocumentResourceKind } from '../../documents/types.ts';
@@ -27,17 +35,20 @@ export class BookDocumentService {
   private readonly repository: BookRepository;
   private readonly documents: DocumentStore;
   private readonly createId: () => string;
+  private readonly processing: DocumentProcessingService;
 
   constructor(
     books: BookService,
     repository: BookRepository,
     documents: DocumentStore,
     createId: () => string = randomUUID,
+    processor: DocumentProcessorPort = new UnavailableDocumentProcessor(),
   ) {
     this.books = books;
     this.repository = repository;
     this.documents = documents;
     this.createId = createId;
+    this.processing = new DocumentProcessingService(documents, processor);
   }
 
   async listDocuments(): Promise<DocumentMetadata[]> {
@@ -46,6 +57,25 @@ export class BookDocumentService {
 
   async documentResource(id: string, kind: DocumentResourceKind): Promise<DocumentResource> {
     return this.documents.resource(id, kind);
+  }
+
+  async editionProcessing(bookId: string, editionId: string): Promise<DocumentProcessingState> {
+    const documentId = await this.editionDocumentId(bookId, editionId);
+    return this.processing.processingState(documentId);
+  }
+
+  async reprocessEdition(bookId: string, editionId: string): Promise<DocumentProcessingState> {
+    const edition = await this.books.getEdition(bookId, editionId);
+    if (edition.status === 'published') {
+      throw new AppError(
+        'PUBLISHED_EDITION_REPROCESS_FORBIDDEN',
+        'Published editions cannot be reprocessed in place.',
+        409,
+      );
+    }
+    const documentId = parseDocumentReference(edition.originalDocumentReference);
+    if (!documentId) throw unavailableDocument();
+    return this.processing.reprocess(documentId);
   }
 
   async upload(input: UploadBookDocumentInput): Promise<UploadBookDocumentResult> {
@@ -72,7 +102,16 @@ export class BookDocumentService {
       if (!documentId) throw unavailableDocument();
       try {
         await this.documents.readText(documentId);
+        const processing = await this.processing.processingState(documentId);
+        if (processing.summary.status !== 'ready') {
+          throw new AppError(
+            'EDITION_DOCUMENT_NOT_READY',
+            'The edition document requires successful processing before publication.',
+            409,
+          );
+        }
       } catch (error) {
+        if (error instanceof AppError && error.code === 'EDITION_DOCUMENT_NOT_READY') throw error;
         throw unavailableDocument(error);
       }
     }
@@ -131,6 +170,13 @@ export class BookDocumentService {
     } catch {
       // Preserve the processing error; repository failures are reported by their original operation.
     }
+  }
+
+  private async editionDocumentId(bookId: string, editionId: string): Promise<string> {
+    const edition = await this.books.getEdition(bookId, editionId);
+    const documentId = parseDocumentReference(edition.originalDocumentReference);
+    if (!documentId) throw unavailableDocument();
+    return documentId;
   }
 }
 

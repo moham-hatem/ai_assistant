@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
+import type { DocumentProcessingState } from '../../shared/contracts/document-processing.ts';
+import { legacyDocumentProcessingSummary } from '../../shared/contracts/document-processing.ts';
 import { AppError } from '../errors.ts';
 import { DocumentFiles, validateId, type StoredMetadata } from './document-files.ts';
 import { extractDocument } from './extract-document.ts';
@@ -12,6 +14,7 @@ import type {
 
 export class DocumentStore {
   private readonly files: DocumentFiles;
+  private readonly updates = new Map<string, Promise<void>>();
 
   constructor(documentDirectory: string, knowledgeDirectory: string) {
     this.files = new DocumentFiles(documentDirectory, knowledgeDirectory);
@@ -30,6 +33,8 @@ export class DocumentStore {
       size: input.buffer.length,
       characterCount: extracted.text.length,
       importedAt: new Date().toISOString(),
+      processing: { ...legacyDocumentProcessingSummary },
+      processingGeneration: 0,
     };
 
     await this.files.save(metadata, input.buffer, extracted.text);
@@ -77,6 +82,51 @@ export class DocumentStore {
     const stored = await this.files.read(validateId(id));
     return this.files.readText(stored);
   }
+
+  async readSource(id: string): Promise<{ metadata: DocumentMetadata; source: Buffer }> {
+    const stored = await this.files.read(validateId(id));
+    return { metadata: toPublicMetadata(stored), source: await this.files.readSource(stored) };
+  }
+
+  async processingState(id: string): Promise<DocumentProcessingState> {
+    const stored = await this.files.read(validateId(id));
+    return { generation: stored.processingGeneration, summary: stored.processing };
+  }
+
+  async updateProcessing(
+    id: string,
+    update: (current: DocumentProcessingState) => DocumentProcessingState,
+    text?: string,
+  ): Promise<DocumentProcessingState> {
+    return this.exclusive(validateId(id), async () => {
+      const stored = await this.files.read(id);
+      const next = update({ generation: stored.processingGeneration, summary: stored.processing });
+      const updated: StoredMetadata = {
+        ...stored,
+        characterCount: text === undefined ? stored.characterCount : text.length,
+        processing: next.summary,
+        processingGeneration: next.generation,
+      };
+      if (text === undefined) await this.files.writeMetadata(updated);
+      else await this.files.replaceText(updated, text);
+      return next;
+    });
+  }
+
+  private async exclusive<T>(id: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.updates.get(id) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => { release = resolve; });
+    const tail = previous.then(() => current);
+    this.updates.set(id, tail);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.updates.get(id) === tail) this.updates.delete(id);
+    }
+  }
 }
 
 function safeName(value: string): string {
@@ -86,6 +136,11 @@ function safeName(value: string): string {
 }
 
 function toPublicMetadata(metadata: StoredMetadata): DocumentMetadata {
-  const { sourceFile: _sourceFile, textFile: _textFile, ...publicMetadata } = metadata;
+  const {
+    processingGeneration: _processingGeneration,
+    sourceFile: _sourceFile,
+    textFile: _textFile,
+    ...publicMetadata
+  } = metadata;
   return publicMetadata;
 }

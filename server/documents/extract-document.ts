@@ -4,6 +4,7 @@ import { DocxExtractor } from './extractors/docx.ts';
 import { PdfExtractor } from './extractors/pdf.ts';
 import { TextExtractor } from './extractors/text.ts';
 import type { DocumentExtractor, DocumentFormat } from './types.ts';
+import { hasSufficientDocumentText } from './document-text-policy.ts';
 
 const textExtractor = new TextExtractor();
 const extractors = new Map<string, { extractor: DocumentExtractor; format: DocumentFormat }>([
@@ -26,7 +27,7 @@ export async function extractDocument(name: string, buffer: Buffer) {
   } catch (error) {
     throw extractionFailed(error);
   }
-  if (text.length < 20) {
+  if (!hasSufficientDocumentText(text)) {
     throw extractionFailed();
   }
 

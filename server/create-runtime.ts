@@ -39,12 +39,23 @@ import type { QualityMetricsRepository } from './modules/quality-metrics/quality
 import { QualityMetricsService } from './modules/quality-metrics/quality-metrics-service.ts';
 import { SqliteQualityMetricsRepository } from './modules/quality-metrics/sqlite-quality-metrics-repository.ts';
 import { UnavailableQualityMetricsRepository } from './modules/quality-metrics/unavailable-quality-metrics-repository.ts';
+import type { DocumentProcessorPort } from './documents/document-processor-port.ts';
 
-export function createRuntime(config: LocalRuntimeConfig) {
+export interface RuntimeDependencies {
+  documentProcessor?: DocumentProcessorPort;
+}
+
+export function createRuntime(config: LocalRuntimeConfig, dependencies: RuntimeDependencies = {}) {
   const documentStore = new DocumentStore(config.documentDirectory, config.knowledgeDirectory);
   const bookRepository = createBookRepository(config.booksDatabaseFile);
   const bookService = new BookService(bookRepository);
-  const bookDocuments = new BookDocumentService(bookService, bookRepository, documentStore);
+  const bookDocuments = new BookDocumentService(
+    bookService,
+    bookRepository,
+    documentStore,
+    undefined,
+    dependencies.documentProcessor,
+  );
   const embedder = new MultilingualEmbedder(
     config.semantic.model,
     config.semantic.cacheDirectory,
