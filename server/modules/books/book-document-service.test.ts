@@ -46,7 +46,7 @@ test('extraction failure rejects the edition without leaving document metadata',
         name: 'broken.txt',
         version: 'v1',
       }),
-      (error: unknown) => error instanceof AppError && error.code === 'INVALID_REQUEST',
+      (error: unknown) => error instanceof AppError && error.code === 'DOCUMENT_EXTRACTION_FAILED',
     );
 
     const editions = await books.listEditions(book.id, { limit: 10, offset: 0 });
@@ -118,7 +118,7 @@ test('failed implicit upload leaves only a rejected attempt and no partial docum
   await withApplication(async ({ application, books, repository }) => {
     await assert.rejects(
       application.upload({ buffer: Buffer.from('too short'), name: 'broken.txt' }),
-      (error: unknown) => error instanceof AppError && error.code === 'INVALID_REQUEST',
+      (error: unknown) => error instanceof AppError && error.code === 'DOCUMENT_EXTRACTION_FAILED',
     );
 
     const bookPage = await books.listBooks({ limit: 10, offset: 0 });

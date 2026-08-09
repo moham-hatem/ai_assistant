@@ -1,5 +1,11 @@
 import { allowedEditionTransitions } from '../../../../shared/contracts/books.ts';
-import type { Book, EditionStatus } from './types';
+import type {
+  Book,
+  BookEditionUploadError,
+  BookEditionUploadState,
+  EditionStatus,
+} from './types';
+import { BooksApiError } from './api/book-parser.ts';
 
 export type OperatorEditionTarget = 'archived' | 'published' | 'ready' | 'rejected';
 export type TransitionFailure = 'refresh' | 'transition';
@@ -37,6 +43,33 @@ export function isCurrentBookRequest(
   requestedEditionOffset: number,
 ): boolean {
   return activeBookId === requestedBookId && activeEditionOffset === requestedEditionOffset;
+}
+
+export function isCurrentUploadRequest(
+  activeBookId: string | null,
+  requestedBookId: string,
+  activeRequestId: number,
+  requestedRequestId: number,
+): boolean {
+  return activeBookId === requestedBookId && activeRequestId === requestedRequestId;
+}
+
+export function initialBookEditionUploadState(): BookEditionUploadState {
+  return { error: null, progress: 0, status: 'idle', version: null };
+}
+
+export function classifyBookEditionUploadError(error: unknown): BookEditionUploadError {
+  if (!(error instanceof BooksApiError)) return 'unavailable';
+  if (error.code === 'DUPLICATE_EDITION') return 'duplicate';
+  if (error.code === 'UNSUPPORTED_FILE_TYPE') return 'file-type';
+  if (error.code === 'FILE_TOO_LARGE' || error.code === 'REQUEST_TOO_LARGE') return 'file-size';
+  if (error.code === 'EMPTY_FILE') return 'empty-file';
+  if (error.code === 'INVALID_VERSION') return 'invalid-version';
+  if (error.code === 'BOOK_NOT_FOUND') return 'book-unavailable';
+  if (error.code === 'INVALID_REQUEST' || error.code === 'DOCUMENT_EXTRACTION_FAILED') {
+    return 'extraction';
+  }
+  return 'unavailable';
 }
 
 export function transitionFailureState(

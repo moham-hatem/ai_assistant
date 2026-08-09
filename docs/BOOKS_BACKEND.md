@@ -26,11 +26,18 @@ which clears its `archivedAt`, and then publish it in a separate transition. Dir
 `archived` is invalid. Republishing records a new `publishedAt` and atomically archives whichever
 edition was active, while both edition records and their content hashes remain in history.
 
-## Deliberate integration boundary
+## Document integration boundary
 
-This registry is not connected to the existing document upload, extraction, or knowledge-search
-paths. Creating or publishing an edition does not import a file, rebuild an index, change search
-results, or publish content externally. That integration requires a separate reviewed milestone.
+`POST /api/knowledge/documents?bookId=...&version=...&name=...` attaches an uploaded document to
+an existing book. It creates the edition as `draft`, extracts and stores the document while the
+edition is `processing`, then returns `{ book, edition, document }` only after the edition reaches
+`ready`. Uploading never publishes a linked edition; publication remains an explicit lifecycle
+transition. A duplicate content hash returns `DUPLICATE_EDITION`, while extraction failures return
+`DOCUMENT_EXTRACTION_FAILED` without exposing extractor internals.
 
-If the books database cannot initialize, the books API returns `BOOKS_UNAVAILABLE`; the existing
-answer and document-upload paths continue to initialize independently.
+The compatibility upload without `bookId` remains available for legacy operators. It creates an
+implicit `und` book and publishes that edition automatically, so the admin UI presents it in a
+separate, clearly labelled section.
+
+If the books database cannot initialize, the books API and linked upload return
+`BOOKS_UNAVAILABLE`; the answer path continues to initialize independently.

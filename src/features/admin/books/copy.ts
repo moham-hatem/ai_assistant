@@ -1,5 +1,5 @@
 import type { AppLanguage } from '../../../i18n/language';
-import type { EditionStatus } from './types';
+import type { BookEditionUploadError, EditionStatus } from './types';
 
 export interface BooksCopy {
   actions: Record<EditionStatus, string>;
@@ -47,6 +47,20 @@ export interface BooksCopy {
   transitionRefreshError: string;
   transitionSuccess: (version: string, status: string) => string;
   updatedAt: string;
+  uploadAction: string;
+  uploadBadge: string;
+  uploadBook: (title: string) => string;
+  uploadChooseFile: string;
+  uploadErrors: Record<BookEditionUploadError, string>;
+  uploadLifecycle: string;
+  uploadProgress: string;
+  uploadProgressValue: (progress: number) => string;
+  uploadSuccess: (version: string) => string;
+  uploadSupported: (size: number) => string;
+  uploadTitle: string;
+  uploading: string;
+  uploadVersion: string;
+  uploadVersionPlaceholder: string;
   version: string;
 }
 
@@ -60,7 +74,7 @@ export const booksCopies: Record<AppLanguage, BooksCopy> = {
     editionCount: (count) => `${count.toLocaleString('ar-EG')} إصدار`, editions: 'الإصدارات',
     emptyBooksBody: 'أنشئ سجل كتاب وإصداراته عبر واجهات الخادم المعتمدة ليظهر هنا.', emptyBooksTitle: 'لا توجد سجلات كتب',
     emptyEditions: 'لا توجد إصدارات مسجلة لهذا الكتاب.', fingerprint: 'بصمة المحتوى (SHA-256)',
-    legacyBadge: 'منفصل مؤقتًا', legacyBody: 'تدير هذه الأدوات ملفات قاعدة المعرفة القديمة فقط. الرفع هنا لا ينشئ إصدارًا ولا يغيّر دورة حالته.',
+    legacyBadge: 'مسار توافق', legacyBody: 'استخدم هذا القسم فقط للتوافق مع العمل القديم: الرفع هنا ينشئ كتابًا ضمنيًا وإصدارًا منشورًا تلقائيًا. لإضافة إصدار جاهز دون نشره، استخدم نموذج الكتاب المحدد أعلاه.',
     legacyTitle: 'إدارة الملفات القديمة', listError: 'تعذر تحميل سجلات الكتب من الخادم.', loadingBooks: 'جارٍ تحميل الكتب…',
     loadingDetails: 'جارٍ تحميل تفاصيل الكتاب وإصداراته…', nextPage: 'الصفحة التالية', noAuthor: 'غير محدد', noSubject: 'غير محدد',
     notAvailable: 'غير متاح', previousPage: 'الصفحة السابقة', publishedAt: 'تاريخ النشر', refresh: 'تحديث', reference: 'مرجع الملف الأصلي',
@@ -69,7 +83,25 @@ export const booksCopies: Record<AppLanguage, BooksCopy> = {
     statuses: { archived: 'مؤرشف', draft: 'مسودة', processing: 'قيد المعالجة', published: 'منشور', ready: 'جاهز', rejected: 'مرفوض' },
     subject: 'الموضوع', transitionError: 'تعذر تغيير حالة الإصدار. ربما تغيرت حالته؛ حدّث التفاصيل وحاول مجددًا.',
     transitionRefreshError: 'تم تنفيذ الإجراء، لكن تعذر تحديث التفاصيل من الخادم. أعد تحميل التفاصيل للمزامنة.',
-    transitionSuccess: (version, status) => `انتقل الإصدار ${version} بنجاح إلى «${status}».`, updatedAt: 'آخر تحديث', version: 'الإصدار',
+    transitionSuccess: (version, status) => `انتقل الإصدار ${version} بنجاح إلى «${status}».`, updatedAt: 'آخر تحديث',
+    uploadAction: 'رفع الإصدار', uploadBadge: 'رفع مرتبط', uploadBook: (title) => `سيُضاف هذا الإصدار إلى «${title}».`,
+    uploadChooseFile: 'اختر ملف الإصدار',
+    uploadErrors: {
+      'book-unavailable': 'الكتاب المحدد لم يعد متاحًا. حدّث القائمة واختر الكتاب مجددًا.',
+      duplicate: 'هذا الملف مطابق لإصدار موجود في الكتاب. اختر ملفًا بمحتوى مختلف.',
+      'empty-file': 'الملف فارغ. اختر ملفًا يحتوي على نص قابل للاستخراج.',
+      extraction: 'تعذر استخراج نص كافٍ من الملف. تحقق من سلامته ومحتواه ثم حاول مجددًا.',
+      'file-size': 'حجم الملف يتجاوز الحد المسموح.',
+      'file-type': 'نوع الملف غير مدعوم. استخدم TXT أو Markdown أو PDF أو Word.',
+      'invalid-version': 'أدخل اسم إصدار واضحًا لا يتجاوز 100 حرف.',
+      unavailable: 'تعذر الوصول إلى خدمة الكتب الآن. حاول مجددًا بعد قليل.',
+    },
+    uploadLifecycle: 'ينتهي الرفع بحالة «جاهز» ولا ينشر الإصدار تلقائيًا.', uploadProgress: 'تقدم رفع الإصدار',
+    uploadProgressValue: (progress) => `تم رفع ${progress.toLocaleString('ar-EG')}٪`,
+    uploadSuccess: (version) => `أُضيف الإصدار ${version} بحالة «جاهز». يمكنك نشره لاحقًا من إجراءات الإصدار.`,
+    uploadSupported: (size) => `ملف TXT أو Markdown أو PDF أو Word، بحد أقصى ${size} ميجابايت.`,
+    uploadTitle: 'إضافة إصدار جديد', uploading: 'جارٍ الرفع والاستخراج…', uploadVersion: 'اسم الإصدار (مطلوب)',
+    uploadVersionPlaceholder: 'مثال: 2.0 أو طبعة 1448هـ', version: 'الإصدار',
     range: (start, end, total) => `${start.toLocaleString('ar-EG')}–${end.toLocaleString('ar-EG')} من ${total.toLocaleString('ar-EG')}`,
   },
   en: {
@@ -81,7 +113,7 @@ export const booksCopies: Record<AppLanguage, BooksCopy> = {
     editionCount: (count) => `${count} ${count === 1 ? 'edition' : 'editions'}`, editions: 'Editions',
     emptyBooksBody: 'Create a book record and its editions through the supported server APIs to see them here.', emptyBooksTitle: 'No book records',
     emptyEditions: 'No editions are registered for this book.', fingerprint: 'Content fingerprint (SHA-256)',
-    legacyBadge: 'Temporarily separate', legacyBody: 'These tools manage legacy knowledge files only. Uploading here does not create an edition or change its lifecycle.',
+    legacyBadge: 'Compatibility path', legacyBody: 'Use this section only for the legacy workflow: an upload creates an implicit book and publishes its edition automatically. To add a ready, unpublished edition, use the selected book form above.',
     legacyTitle: 'Legacy file management', listError: 'Book records could not be loaded from the server.', loadingBooks: 'Loading books…',
     loadingDetails: 'Loading book details and editions…', nextPage: 'Next page', noAuthor: 'Not specified', noSubject: 'Not specified',
     notAvailable: 'Not available', previousPage: 'Previous page', publishedAt: 'Published', refresh: 'Refresh', reference: 'Original file reference',
@@ -90,7 +122,25 @@ export const booksCopies: Record<AppLanguage, BooksCopy> = {
     statuses: { archived: 'Archived', draft: 'Draft', processing: 'Processing', published: 'Published', ready: 'Ready', rejected: 'Rejected' },
     subject: 'Subject', transitionError: 'The edition status could not be changed. It may have changed already; refresh the details and try again.',
     transitionRefreshError: 'The action completed, but fresh details could not be loaded. Retry the details to synchronize this view.',
-    transitionSuccess: (version, status) => `Edition ${version} moved to “${status}”.`, updatedAt: 'Last updated', version: 'Version',
+    transitionSuccess: (version, status) => `Edition ${version} moved to “${status}”.`, updatedAt: 'Last updated',
+    uploadAction: 'Upload edition', uploadBadge: 'Linked upload', uploadBook: (title) => `This edition will be added to “${title}”.`,
+    uploadChooseFile: 'Choose the edition file',
+    uploadErrors: {
+      'book-unavailable': 'The selected book is no longer available. Refresh the list and select it again.',
+      duplicate: 'This file matches an edition already in the book. Choose a file with different content.',
+      'empty-file': 'The file is empty. Choose a file with extractable text.',
+      extraction: 'Enough text could not be extracted. Check that the file is valid and contains text, then try again.',
+      'file-size': 'The file exceeds the allowed size.',
+      'file-type': 'This file type is not supported. Use TXT, Markdown, PDF, or Word.',
+      'invalid-version': 'Enter a clear version name no longer than 100 characters.',
+      unavailable: 'The book service is unavailable right now. Try again shortly.',
+    },
+    uploadLifecycle: 'The upload finishes as Ready and is not published automatically.', uploadProgress: 'Edition upload progress',
+    uploadProgressValue: (progress) => `${progress}% uploaded`,
+    uploadSuccess: (version) => `Edition ${version} was added as Ready. You can publish it later from its actions.`,
+    uploadSupported: (size) => `TXT, Markdown, PDF, or Word, up to ${size} MB.`, uploadTitle: 'Add a new edition',
+    uploading: 'Uploading and extracting…', uploadVersion: 'Version name (required)', uploadVersionPlaceholder: 'For example, 2.0 or 2026 edition',
+    version: 'Version',
     range: (start, end, total) => `${start}–${end} of ${total}`,
   },
   sw: {
@@ -101,7 +151,7 @@ export const booksCopies: Record<AppLanguage, BooksCopy> = {
     confirmTitle: 'Thibitisha mabadiliko ya hali', createdAt: 'Kiliundwa', detailError: 'Maelezo ya kitabu na matoleo hayakuweza kupakiwa kutoka kwenye seva.', editionCount: (count) => `Matoleo ${count}`, editions: 'Matoleo',
     emptyBooksBody: 'Unda rekodi ya kitabu na matoleo yake kupitia API za seva ili vionekane hapa.', emptyBooksTitle: 'Hakuna rekodi za vitabu',
     emptyEditions: 'Hakuna matoleo yaliyosajiliwa kwa kitabu hiki.', fingerprint: 'Alama ya maudhui (SHA-256)',
-    legacyBadge: 'Imetengwa kwa muda', legacyBody: 'Zana hizi zinasimamia faili za zamani za maarifa pekee. Kupakia hapa hakuundi toleo wala kubadili mzunguko wake.',
+    legacyBadge: 'Njia ya uoanifu', legacyBody: 'Tumia sehemu hii kwa mtiririko wa zamani pekee: upakiaji huunda kitabu cha ndani na kuchapisha toleo lake moja kwa moja. Ili kuongeza toleo lililo tayari bila kulichapisha, tumia fomu ya kitabu kilichochaguliwa hapo juu.',
     legacyTitle: 'Usimamizi wa faili za zamani', listError: 'Rekodi za vitabu hazikuweza kupakiwa kutoka kwenye seva.', loadingBooks: 'Inapakia vitabu…',
     loadingDetails: 'Inapakia maelezo ya kitabu na matoleo…', nextPage: 'Ukurasa unaofuata', noAuthor: 'Haijabainishwa', noSubject: 'Haijabainishwa',
     notAvailable: 'Haipatikani', previousPage: 'Ukurasa uliotangulia', publishedAt: 'Kilichapishwa', refresh: 'Onyesha upya', reference: 'Rejeleo la faili asili',
@@ -110,7 +160,25 @@ export const booksCopies: Record<AppLanguage, BooksCopy> = {
     statuses: { archived: 'Kimehifadhiwa', draft: 'Rasimu', processing: 'Kinachakatwa', published: 'Kimechapishwa', ready: 'Tayari', rejected: 'Kimekataliwa' },
     subject: 'Mada', transitionError: 'Hali ya toleo haikuweza kubadilishwa. Huenda tayari imebadilika; pakia upya maelezo kisha ujaribu tena.',
     transitionRefreshError: 'Kitendo kimekamilika, lakini maelezo mapya hayakuweza kupakiwa. Jaribu kupakia maelezo tena ili kulandanisha ukurasa.',
-    transitionSuccess: (version, status) => `Toleo ${version} limehamishwa hadi “${status}”.`, updatedAt: 'Ilisasishwa', version: 'Toleo',
+    transitionSuccess: (version, status) => `Toleo ${version} limehamishwa hadi “${status}”.`, updatedAt: 'Ilisasishwa',
+    uploadAction: 'Pakia toleo', uploadBadge: 'Upakiaji uliounganishwa', uploadBook: (title) => `Toleo hili litaongezwa kwenye “${title}”.`,
+    uploadChooseFile: 'Chagua faili ya toleo',
+    uploadErrors: {
+      'book-unavailable': 'Kitabu kilichochaguliwa hakipatikani tena. Pakia upya orodha kisha ukichague tena.',
+      duplicate: 'Faili hii inafanana na toleo lililopo kwenye kitabu. Chagua faili yenye maudhui tofauti.',
+      'empty-file': 'Faili haina maudhui. Chagua faili yenye maandishi yanayoweza kutolewa.',
+      extraction: 'Maandishi ya kutosha hayakuweza kutolewa. Hakikisha faili ni sahihi na ina maandishi, kisha ujaribu tena.',
+      'file-size': 'Faili imezidi ukubwa unaoruhusiwa.',
+      'file-type': 'Aina hii ya faili haikubaliki. Tumia TXT, Markdown, PDF, au Word.',
+      'invalid-version': 'Weka jina wazi la toleo lisilozidi herufi 100.',
+      unavailable: 'Huduma ya vitabu haipatikani sasa. Jaribu tena baada ya muda mfupi.',
+    },
+    uploadLifecycle: 'Upakiaji huishia katika hali ya Tayari na hauchapishwi moja kwa moja.', uploadProgress: 'Maendeleo ya kupakia toleo',
+    uploadProgressValue: (progress) => `${progress}% imepakiwa`,
+    uploadSuccess: (version) => `Toleo ${version} limeongezwa kama Tayari. Unaweza kulichapisha baadaye kupitia vitendo vyake.`,
+    uploadSupported: (size) => `TXT, Markdown, PDF, au Word, hadi MB ${size}.`, uploadTitle: 'Ongeza toleo jipya',
+    uploading: 'Inapakia na kutoa maandishi…', uploadVersion: 'Jina la toleo (linahitajika)', uploadVersionPlaceholder: 'Kwa mfano, 2.0 au toleo la 2026',
+    version: 'Toleo',
     range: (start, end, total) => `${start}–${end} kati ya ${total}`,
   },
 };

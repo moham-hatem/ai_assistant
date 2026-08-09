@@ -5,6 +5,38 @@ export type BookPage = Page<Book>;
 export type EditionPage = Page<BookEdition>;
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'error';
 
+export interface BookDocumentMetadata {
+  characterCount: number;
+  format: 'docx' | 'markdown' | 'pdf' | 'text';
+  id: string;
+  importedAt: string;
+  name: string;
+  size: number;
+}
+
+export interface BookEditionUploadResult {
+  book: Book;
+  document: BookDocumentMetadata;
+  edition: BookEdition;
+}
+
+export type BookEditionUploadError =
+  | 'book-unavailable'
+  | 'duplicate'
+  | 'empty-file'
+  | 'extraction'
+  | 'file-size'
+  | 'file-type'
+  | 'invalid-version'
+  | 'unavailable';
+
+export interface BookEditionUploadState {
+  error: BookEditionUploadError | null;
+  progress: number;
+  status: 'idle' | 'uploading' | 'success' | 'error';
+  version: string | null;
+}
+
 export interface PendingTransition {
   edition: BookEdition;
   targetStatus: EditionStatus;

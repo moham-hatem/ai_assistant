@@ -20,10 +20,24 @@ export async function extractDocument(name: string, buffer: Buffer) {
     throw new AppError('INVALID_REQUEST', 'الصيغة المدعومة هي TXT أو Markdown أو PDF أو DOCX.', 400);
   }
 
-  const text = (await selected.extractor.extract(buffer)).trim();
+  let text: string;
+  try {
+    text = (await selected.extractor.extract(buffer)).trim();
+  } catch (error) {
+    throw extractionFailed(error);
+  }
   if (text.length < 20) {
-    throw new AppError('INVALID_REQUEST', 'لم أجد نصًا كافيًا داخل الملف.', 400);
+    throw extractionFailed();
   }
 
   return { extension, format: selected.format, text };
+}
+
+function extractionFailed(cause?: unknown): AppError {
+  return new AppError(
+    'DOCUMENT_EXTRACTION_FAILED',
+    'تعذر استخراج نص كافٍ من الملف.',
+    422,
+    cause === undefined ? undefined : { cause },
+  );
 }

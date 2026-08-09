@@ -9,7 +9,14 @@ import {
   transitionFailureState,
   type TransitionFailure,
 } from '../books-state';
-import type { Book, BookPage, EditionPage, EditionStatus, LoadStatus } from '../types';
+import type {
+  Book,
+  BookEditionUploadResult,
+  BookPage,
+  EditionPage,
+  EditionStatus,
+  LoadStatus,
+} from '../types';
 
 const bookPageSize = 12;
 const editionPageSize = 8;
@@ -161,6 +168,16 @@ export function useBooks() {
     setOffset(next);
   }
 
+  const synchronizeUpload = useCallback((result: BookEditionUploadResult) => {
+    if (selectedIdRef.current !== result.book.id) return;
+    editionOffsetRef.current = 0;
+    setEditionOffset(0);
+    setBook(null);
+    setEditions(null);
+    setDetailStatus('loading');
+    setDetailReload((value) => value + 1);
+  }, []);
+
   return {
     book, canEditionsGoNext: Boolean(editions && editions.offset + editions.items.length < editions.total),
     canEditionsGoPrevious: editionOffset > 0,
@@ -171,7 +188,7 @@ export function useBooks() {
     goToNextPage: () => page && goToBookPage(nextOffset(offset, page.limit, page.total)),
     goToPreviousPage: () => goToBookPage(previousOffset(offset, page?.limit ?? bookPageSize)),
     listStatus, page, retryDetail: () => setDetailReload((value) => value + 1),
-    retryList: () => setListReload((value) => value + 1), runTransition,
+    retryList: () => setListReload((value) => value + 1), runTransition, synchronizeUpload,
     select: (id: string) => select(id), selectedId, transitionError, transitioningId,
   };
 }

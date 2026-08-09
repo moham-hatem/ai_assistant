@@ -2,7 +2,15 @@ import type { AppLanguage } from '../../../../i18n/language';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { visibleRange } from '../books-state';
 import type { BooksCopy } from '../copy';
-import type { Book, EditionPage, EditionStatus, LoadStatus, PendingTransition } from '../types';
+import type {
+  Book,
+  BookEditionUploadState,
+  EditionPage,
+  EditionStatus,
+  LoadStatus,
+  PendingTransition,
+} from '../types';
+import { BookEditionUploader } from './BookEditionUploader';
 import { BookMetadata } from './BookMetadata';
 import { BooksPanelState } from './BooksPanelState';
 import { EditionCard } from './EditionCard';
@@ -18,9 +26,11 @@ interface BookDetailsProps {
   onPrevious: () => void;
   onRetry: () => void;
   onTransition: (transition: PendingTransition) => void;
+  onUpload: (file: File, version: string) => Promise<boolean>;
   selectedId: string | null;
   status: LoadStatus;
   transitioningId: string | null;
+  uploadState: BookEditionUploadState;
 }
 
 export function BookDetails(props: BookDetailsProps) {
@@ -37,6 +47,13 @@ export function BookDetails(props: BookDetailsProps) {
   return (
     <section className="book-details-panel">
       <BookMetadata book={props.book} copy={props.copy} language={props.language} />
+      <BookEditionUploader
+        {...props.uploadState}
+        bookTitle={props.book.title}
+        copy={props.copy}
+        key={props.book.id}
+        onUpload={props.onUpload}
+      />
       <div className="editions-section">
         <header><div><span>{props.copy.editions}</span><strong>{props.copy.editionCount(props.editions.total)}</strong></div></header>
         {props.editions.items.length === 0
