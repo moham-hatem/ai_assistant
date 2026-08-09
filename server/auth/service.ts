@@ -81,7 +81,13 @@ export class AuthService {
 
     const user = email ? await this.repository.findUserByEmail(email) : undefined;
     const valid = await this.passwords.verify(password, user?.passwordHash ?? this.dummyPasswordHash);
-    if (!user || !valid) throw new InvalidCredentialsError('Invalid email or password.');
+    if (!user || !valid) {
+      const failure = await this.rateLimiter.recordFailure(rateKey, now.getTime());
+      if (!failure.allowed) {
+        throw new TooManyLoginAttemptsError(failure.retryAfterSeconds);
+      }
+      throw new InvalidCredentialsError('Invalid email or password.');
+    }
 
     if (command.previousSessionToken) {
       await this.repository.revokeSession(
@@ -103,6 +109,7 @@ export class AuthService {
       tokenHash: hashSessionToken(sessionToken),
       userId: user.id,
     });
+    await this.rateLimiter.reset(rateKey);
     return { principal: toPrincipal(user), sessionToken };
   }
 

@@ -122,10 +122,78 @@ test('sessions enforce idle and absolute expiry and security changes revoke all 
   repository.close();
 });
 
-test('local rate limiter is replaceable and returns a retry duration', async () => {
-  const limiter = new InMemoryLoginRateLimiter(1, 5_000);
+test('local rate limiter records only failures and reset clears their window', async () => {
+  const limiter = new InMemoryLoginRateLimiter(2, 5_000);
   assert.equal((await limiter.check('same-key', 1_000)).allowed, true);
-  const blocked = await limiter.check('same-key', 2_000);
+  assert.equal((await limiter.check('same-key', 1_500)).allowed, true);
+  assert.equal((await limiter.recordFailure('same-key', 2_000)).allowed, true);
+  assert.equal((await limiter.check('same-key', 2_500)).allowed, true);
+  const blocked = await limiter.recordFailure('same-key', 3_000);
   assert.equal(blocked.allowed, false);
   assert.equal(blocked.retryAfterSeconds, 4);
+  assert.equal((await limiter.check('same-key', 3_500)).allowed, false);
+  await limiter.reset('same-key');
+  assert.equal((await limiter.check('same-key', 3_500)).allowed, true);
+});
+
+test('repeated successful logins never consume failure capacity', async () => {
+  const repository = new SqliteAuthRepository(':memory:');
+  const passwords = new ScryptPasswordHasher(fastScrypt);
+  await repository.createUser({
+    displayName: 'Local Operator',
+    email: 'operator@example.org',
+    id: 'operator-1',
+    passwordHash: await passwords.hash('operator secure password'),
+    roles: ['operator'],
+    timestamp: '2026-01-01T00:00:00.000Z',
+  });
+  let token = 0;
+  const service = await createAuthService(
+    repository,
+    passwords,
+    new InMemoryLoginRateLimiter(2, 60_000),
+    { absoluteTtlMs: 60_000, idleTtlMs: 10_000 },
+    { tokenFactory: () => String(++token).padStart(43, 't') },
+  );
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const login = await service.login({
+      email: 'operator@example.org',
+      password: 'operator secure password',
+      rateLimitKey: 'client',
+    });
+    assert.equal(login.principal.id, 'operator-1');
+  }
+  repository.close();
+});
+
+test('a success clears prior failures while subsequent failures remain limited', async () => {
+  const repository = new SqliteAuthRepository(':memory:');
+  const passwords = new ScryptPasswordHasher(fastScrypt);
+  await repository.createUser({
+    displayName: 'Local Reviewer',
+    email: 'limited@example.org',
+    id: 'limited-1',
+    passwordHash: await passwords.hash('correct limited password'),
+    roles: ['reviewer'],
+    timestamp: '2026-01-01T00:00:00.000Z',
+  });
+  const service = await createAuthService(
+    repository,
+    passwords,
+    new InMemoryLoginRateLimiter(2, 60_000),
+    { absoluteTtlMs: 60_000, idleTtlMs: 10_000 },
+    { tokenFactory: () => 'z'.repeat(43) },
+  );
+  const command = { email: 'limited@example.org', rateLimitKey: 'client' };
+  await assert.rejects(() => service.login({
+    ...command, password: 'first incorrect password',
+  }), InvalidCredentialsError);
+  await service.login({ ...command, password: 'correct limited password' });
+  await assert.rejects(() => service.login({
+    ...command, password: 'second incorrect password',
+  }), InvalidCredentialsError);
+  await assert.rejects(() => service.login({
+    ...command, password: 'third incorrect password',
+  }), TooManyLoginAttemptsError);
+  repository.close();
 });

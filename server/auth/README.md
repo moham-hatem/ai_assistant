@@ -25,6 +25,10 @@ read/write books, review content, and read question logs and quality metrics; op
 the same read-only operational access without content review; admins receive only
 `settings:manage`. Admin does not imply any content permission.
 
+The replaceable login rate-limit port records failed credential checks only. A successful login
+clears prior failures for the same client/email key; account-missing and wrong-password failures
+remain indistinguishable to callers.
+
 Production requires an HTTPS `AUTH_PUBLIC_ORIGIN`. Production cookies use
 `__Host-ila_session; Secure; HttpOnly; SameSite=Strict; Path=/` and never set `Domain`.
 Development uses the separate non-Secure `ila_local_session` cookie.

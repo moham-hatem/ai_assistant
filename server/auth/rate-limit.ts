@@ -5,6 +5,8 @@ export interface RateLimitDecision {
 
 export interface LoginRateLimiter {
   check(key: string, nowMs: number): Promise<RateLimitDecision>;
+  recordFailure(key: string, nowMs: number): Promise<RateLimitDecision>;
+  reset(key: string): Promise<void>;
 }
 
 export class InMemoryLoginRateLimiter implements LoginRateLimiter {
@@ -23,21 +25,39 @@ export class InMemoryLoginRateLimiter implements LoginRateLimiter {
   }
 
   async check(key: string, nowMs: number): Promise<RateLimitDecision> {
+    const recent = this.recentAttempts(key, nowMs);
+    if (recent.length === 0) this.attempts.delete(key);
+    else this.attempts.set(key, recent);
+    return this.decision(recent, nowMs);
+  }
+
+  async recordFailure(key: string, nowMs: number): Promise<RateLimitDecision> {
     if (!this.attempts.has(key) && this.attempts.size >= this.maxKeys) {
       const oldestKey = this.attempts.keys().next().value as string | undefined;
       if (oldestKey !== undefined) this.attempts.delete(oldestKey);
     }
-    const cutoff = nowMs - this.windowMs;
-    const recent = (this.attempts.get(key) ?? []).filter((timestamp) => timestamp > cutoff);
+    const recent = this.recentAttempts(key, nowMs);
+    recent.push(nowMs);
+    this.attempts.set(key, recent);
+    return this.decision(recent, nowMs);
+  }
+
+  async reset(key: string): Promise<void> {
+    this.attempts.delete(key);
+  }
+
+  private decision(recent: readonly number[], nowMs: number): RateLimitDecision {
     if (recent.length >= this.limit) {
-      this.attempts.set(key, recent);
       return {
         allowed: false,
         retryAfterSeconds: Math.max(1, Math.ceil((recent[0] + this.windowMs - nowMs) / 1_000)),
       };
     }
-    recent.push(nowMs);
-    this.attempts.set(key, recent);
     return { allowed: true, retryAfterSeconds: 0 };
+  }
+
+  private recentAttempts(key: string, nowMs: number): number[] {
+    const cutoff = nowMs - this.windowMs;
+    return (this.attempts.get(key) ?? []).filter((timestamp) => timestamp > cutoff);
   }
 }
