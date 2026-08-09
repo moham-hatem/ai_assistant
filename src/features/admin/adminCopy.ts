@@ -27,9 +27,6 @@ export interface AdminCopy {
     questionLogs: { body: string; next: string };
     settings: { body: string; next: string };
   };
-  placeholder: {
-    reviews: { current: string; next: string; points: string[] };
-  };
 }
 
 export const adminCopies: Record<AppLanguage, AdminCopy> = {
@@ -45,7 +42,7 @@ export const adminCopies: Record<AppLanguage, AdminCopy> = {
     nextStep: 'الخطوة التالية',
     pageIntro: {
       books: 'إدارة سجلات الكتب وإصداراتها ودورة نشرها، مع إبقاء أدوات الملفات القديمة منفصلة أثناء الانتقال.',
-      reviews: 'مساحة مخططة لمراجعة الإجابات التي تحتاج إلى تدخل معلم.',
+      reviews: 'طابور فعلي لمراجعة إجابات المعلمين واستلامها واعتمادها أو تصحيحها مع سجل تدقيق كامل.',
       questionLogs: 'متابعة الأسئلة المسجلة ونتائجها وأدلتها وبيانات تنفيذها من سجل الخادم الحقيقي.',
       settings: 'حالة الإعدادات الإدارية وحدود ما يمكن تغييره حاليًا.',
     },
@@ -59,16 +56,9 @@ export const adminCopies: Record<AppLanguage, AdminCopy> = {
     status: 'الحالة',
     featureCards: {
       books: { body: 'تعرض الصفحة الكتب وإصداراتها وتنفذ انتقالات الحالة التي تسمح بها عقود الخادم.', next: 'ربط الرفع بدورة الإصدارات في مهمة مستقلة بعد تحديد سير الاستيراد.' },
-      reviews: { body: 'لا توجد قائمة مراجعة أو قرارات اعتماد محفوظة بعد.', next: 'تعريف نموذج المراجعة ونقاط API وأدوار المعلمين.' },
+      reviews: { body: 'تعرض الصفحة طابور الخادم الحقيقي وتدعم الاستلام والإفلات والقرارات النهائية مع سجل الأحداث.', next: 'إضافة مصادقة وتفويض خادميين واستبدال معرّف المراجع المؤقت بهوية موثقة.' },
       questionLogs: { body: 'تعرض الصفحة سجل الأسئلة الحقيقي مع التصفح وتفاصيل النتيجة والأدلة.', next: 'إضافة مصادقة وصلاحيات إدارية في الخادم قبل النشر.' },
       settings: { body: 'تعرض الصفحة الحدود الحالية فقط دون حفظ إعدادات جديدة.', next: 'تحديد الإعدادات المسموح بها وعقد الحفظ في الخادم.' },
-    },
-    placeholder: {
-      reviews: {
-        current: 'الواجهة جاهزة لاستقبال قائمة مراجعة، لكن لا يوجد مصدر بيانات أو إجراء اعتماد حاليًا.',
-        next: 'ربط قائمة انتظار من الخادم بعد تعريف حالات المراجعة والصلاحيات.',
-        points: ['تصفية الإجابات التي تحتاج مراجعة', 'إظهار السؤال والأدلة والإجابة معًا', 'تسجيل قرار المعلم وملاحظاته'],
-      },
     },
   },
   en: {
@@ -83,7 +73,7 @@ export const adminCopies: Record<AppLanguage, AdminCopy> = {
     nextStep: 'Next step',
     pageIntro: {
       books: 'Manage book records, editions, and publication lifecycle while legacy file tools remain separate during migration.',
-      reviews: 'A planned workspace for answers that need a teacher review.',
+      reviews: 'A live teacher-review queue for claiming, approving, correcting, rejecting, and auditing answers.',
       questionLogs: 'Inspect recorded questions, outcomes, evidence, and execution metadata from the real server log.',
       settings: 'The current state and boundaries of administrative settings.',
     },
@@ -97,16 +87,9 @@ export const adminCopies: Record<AppLanguage, AdminCopy> = {
     status: 'Status',
     featureCards: {
       books: { body: 'The page shows books and editions and runs only lifecycle transitions permitted by server contracts.', next: 'Connect uploads to editions in a separate task after defining the import workflow.' },
-      reviews: { body: 'There is no review queue or persisted approval decision yet.', next: 'Define the review model, API endpoints, and teacher roles.' },
+      reviews: { body: 'The page uses the real server queue and supports assignment, final decisions, and ordered audit history.', next: 'Add server authentication and authorization, then replace the temporary reviewer ID with a trusted identity.' },
       questionLogs: { body: 'The page reads the real question log with pagination, outcome details, and evidence.', next: 'Add server-side admin authentication and authorization before release.' },
       settings: { body: 'This page documents current boundaries without persisting new settings.', next: 'Choose editable settings and define a server persistence contract.' },
-    },
-    placeholder: {
-      reviews: {
-        current: 'The UI is ready to host a review queue, but there is no data source or approval action yet.',
-        next: 'Connect a server queue after review states and permissions are defined.',
-        points: ['Filter answers that need review', 'Show question, evidence, and answer together', 'Record the teacher decision and notes'],
-      },
     },
   },
   sw: {
@@ -121,7 +104,7 @@ export const adminCopies: Record<AppLanguage, AdminCopy> = {
     nextStep: 'Hatua inayofuata',
     pageIntro: {
       books: 'Simamia rekodi za vitabu, matoleo, na mzunguko wa uchapishaji huku zana za faili za zamani zikiwa tofauti.',
-      reviews: 'Sehemu iliyopangwa kwa majibu yanayohitaji mapitio ya mwalimu.',
+      reviews: 'Foleni halisi ya walimu ya kuchukua, kuidhinisha, kusahihisha, kukataa, na kukagua majibu.',
       questionLogs: 'Kagua maswali, matokeo, ushahidi, na data ya utekelezaji kutoka kwenye kumbukumbu halisi ya seva.',
       settings: 'Hali na mipaka ya sasa ya mipangilio ya usimamizi.',
     },
@@ -135,16 +118,9 @@ export const adminCopies: Record<AppLanguage, AdminCopy> = {
     status: 'Hali',
     featureCards: {
       books: { body: 'Ukurasa unaonyesha vitabu na matoleo na kutekeleza mabadiliko yanayoruhusiwa na mikataba ya seva pekee.', next: 'Unganisha upakiaji na matoleo katika kazi tofauti baada ya kufafanua mtiririko wa uingizaji.' },
-      reviews: { body: 'Bado hakuna foleni ya mapitio wala maamuzi yaliyohifadhiwa.', next: 'Fafanua muundo wa mapitio, API, na majukumu ya walimu.' },
+      reviews: { body: 'Ukurasa unatumia foleni halisi ya seva na una usimamizi wa kazi, maamuzi, na historia iliyopangwa.', next: 'Ongeza uthibitishaji na ruhusa za seva, kisha badilisha kitambulisho cha muda na utambulisho unaoaminika.' },
       questionLogs: { body: 'Ukurasa unasoma kumbukumbu halisi kwa kurasa pamoja na matokeo na ushahidi.', next: 'Ongeza uthibitishaji na ruhusa za msimamizi kwenye seva kabla ya kutolewa.' },
       settings: { body: 'Ukurasa unaonyesha mipaka ya sasa bila kuhifadhi mipangilio mipya.', next: 'Chagua mipangilio inayoweza kubadilishwa na mkataba wa seva.' },
-    },
-    placeholder: {
-      reviews: {
-        current: 'Kiolesura kiko tayari kwa foleni, lakini bado hakuna chanzo cha data au kitendo cha kuidhinisha.',
-        next: 'Unganisha foleni ya seva baada ya kufafanua hali na ruhusa.',
-        points: ['Chuja majibu yanayohitaji mapitio', 'Onyesha swali, ushahidi, na jibu pamoja', 'Hifadhi uamuzi na maelezo ya mwalimu'],
-      },
     },
   },
 };

@@ -1,15 +1,15 @@
+import type { AppLanguage } from '../../../i18n/language';
 import type { AdminCopy } from '../adminCopy';
 import { AdminPageHeader } from '../components/AdminPageHeader';
-import { PlannedFeaturePanel } from '../components/PlannedFeaturePanel';
+import { ReviewsWorkspace } from '../reviews/containers/ReviewsWorkspace';
 
-interface AdminReviewsPageProps { copy: AdminCopy }
+interface AdminReviewsPageProps { copy: AdminCopy; language: AppLanguage }
 
-export function AdminReviewsPage({ copy }: AdminReviewsPageProps) {
-  const content = copy.placeholder.reviews;
+export function AdminReviewsPage({ copy, language }: AdminReviewsPageProps) {
   return (
     <>
       <AdminPageHeader description={copy.pageIntro.reviews} eyebrow={copy.navigation.reviews} title={copy.pageTitle.reviews} />
-      <PlannedFeaturePanel copy={copy} current={content.current} next={content.next} points={content.points} />
+      <ReviewsWorkspace language={language} />
     </>
   );
 }
