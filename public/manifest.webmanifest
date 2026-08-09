@@ -1,0 +1,32 @@
+{
+  "name": "Daleel | دليل",
+  "short_name": "دليل",
+  "description": "مساعد تعليمي يجيب من الكتب والمناهج المضافة إلى المشروع.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/#/chat",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f6f8f3",
+  "theme_color": "#0b4f35",
+  "icons": [
+    {
+      "src": "/icons/daleel-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/daleel-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/daleel-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
