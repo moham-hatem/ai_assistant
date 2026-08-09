@@ -6,19 +6,22 @@ import { AppError } from '../../errors.ts';
 import { sendError, type ErrorLogger } from '../../http/error-response.ts';
 import { discardRequestBody, readJson, sendJson } from '../../http/json.ts';
 import type { BookService } from './book-service.ts';
+import type { BookAuditContext } from './book-service.ts';
 
 interface EditionTransitioner {
   transitionEdition(
     bookId: string,
     editionId: string,
     targetStatus: EditionStatus,
+    auditContext?: BookAuditContext,
   ): Promise<unknown>;
   editionProcessing?(bookId: string, editionId: string): Promise<DocumentProcessingState>;
-  reprocessEdition?(bookId: string, editionId: string): Promise<DocumentProcessingState>;
+  reprocessEdition?(bookId: string, editionId: string, auditContext?: BookAuditContext): Promise<DocumentProcessingState>;
   approveEditionProcessing?(
     bookId: string,
     editionId: string,
     actorId: string,
+    requestId?: string,
   ): Promise<{ edition: unknown; processing: DocumentProcessingState }>;
 }
 
@@ -93,6 +96,7 @@ export function createBooksHandler(
           validId(transition[0]),
           validId(transition[1]),
           status,
+          { actorUserId: requirePrincipal(principal).id, requestId },
         );
         sendJson(response, 200, { edition, requestId });
         return;
@@ -120,6 +124,7 @@ export function createBooksHandler(
             bookId,
             editionId,
             requirePrincipal(principal).id,
+            requestId,
           )),
           requestId,
         });
@@ -144,7 +149,10 @@ export function createBooksHandler(
           sendJson(response, 200, {
             bookId,
             editionId,
-            processing: await transitions.reprocessEdition(bookId, editionId),
+            processing: await transitions.reprocessEdition(bookId, editionId, {
+              actorUserId: requirePrincipal(principal).id,
+              requestId,
+            }),
             requestId,
           });
           return;

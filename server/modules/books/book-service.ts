@@ -14,6 +14,13 @@ import {
   DuplicateEditionError,
   type BookRepository,
 } from './book-repository.ts';
+import type { SecurityAuditService } from '../security-audit/service.ts';
+import type { SecurityAuditAction } from '../../../shared/contracts/security-audit.ts';
+import type { SecurityAuditCommand, SecurityAuditContext } from '../security-audit/domain.ts';
+
+export interface BookAuditContext extends SecurityAuditContext {
+  action?: Extract<SecurityAuditAction, 'document.ocr_approved'>;
+}
 
 export interface CreateBookInput {
   authorOrOrganization?: string;
@@ -33,15 +40,18 @@ export class BookService {
   private readonly repository: BookRepository;
   private readonly now: () => Date;
   private readonly createId: () => string;
+  private readonly audit?: SecurityAuditService;
 
   constructor(
     repository: BookRepository,
     now: () => Date = () => new Date(),
     createId: () => string = randomUUID,
+    audit?: SecurityAuditService,
   ) {
     this.repository = repository;
     this.now = now;
     this.createId = createId;
+    this.audit = audit;
   }
 
   async createBook(input: CreateBookInput): Promise<Book> {
@@ -102,6 +112,7 @@ export class BookService {
     bookId: string,
     editionId: string,
     targetStatus: EditionStatus,
+    auditContext?: BookAuditContext,
   ): Promise<BookEdition> {
     const edition = await this.getEdition(bookId, editionId);
 
@@ -121,12 +132,25 @@ export class BookService {
       expectedStatus: edition.status,
       targetStatus,
     };
-    return this.call(() => targetStatus === 'published'
-      ? this.repository.publishEdition(command)
-      : this.repository.transitionEdition(command));
+    const audit = auditContext && this.audit ? this.auditCommand(
+      auditContext,
+      edition.status,
+      targetStatus,
+      editionId,
+      command.at,
+    ) : undefined;
+    const result = await this.call(() => targetStatus === 'published'
+      ? this.repository.publishEdition({ ...command, audit })
+      : this.repository.transitionEdition({ ...command, audit }));
+    if (audit) await this.flushAudit();
+    return result;
   }
 
-  async reopenEditionProcessing(bookId: string, editionId: string): Promise<BookEdition> {
+  async reopenEditionProcessing(
+    bookId: string,
+    editionId: string,
+    auditContext?: BookAuditContext,
+  ): Promise<BookEdition> {
     const edition = await this.getEdition(bookId, editionId);
     if (edition.status !== 'ready') {
       throw new AppError(
@@ -135,13 +159,20 @@ export class BookService {
         409,
       );
     }
-    return this.call(() => this.repository.transitionEdition({
-      at: this.now().toISOString(),
+    const at = this.now().toISOString();
+    const audit = auditContext && this.audit
+      ? this.auditCommand(auditContext, 'ready', 'processing', editionId, at)
+      : undefined;
+    const result = await this.call(() => this.repository.transitionEdition({
+      at,
+      audit,
       bookId,
       editionId,
       expectedStatus: 'ready',
       targetStatus: 'processing',
     }));
+    if (audit) await this.flushAudit();
+    return result;
   }
 
   private async call<T>(operation: () => Promise<T>): Promise<T> {
@@ -158,6 +189,39 @@ export class BookService {
         throw new AppError('BOOKS_UNAVAILABLE', error.message, 503, { cause: error });
       }
       throw error;
+    }
+  }
+
+  private auditCommand(
+    context: BookAuditContext,
+    fromStatus: EditionStatus,
+    toStatus: EditionStatus,
+    editionId: string,
+    timestamp: string,
+  ): SecurityAuditCommand {
+    const action: SecurityAuditCommand['action'] = context.action ?? (toStatus === 'published'
+      ? 'book.edition_published'
+      : fromStatus === 'archived' ? 'book.edition_restored' : 'book.edition_status_changed');
+    const metadata = action === 'document.ocr_approved'
+      ? { fromStatus, toStatus }
+      : action === 'book.edition_status_changed' ? { fromStatus, toStatus } : { fromStatus };
+    return {
+      action,
+      actorUserId: context.actorUserId,
+      category: action === 'document.ocr_approved' ? 'documents' as const : 'books' as const,
+      id: this.createId(),
+      metadata,
+      outcome: 'success' as const,
+      requestId: context.requestId,
+      subjectId: editionId,
+      subjectType: 'book_edition',
+      timestamp,
+    };
+  }
+
+  private async flushAudit(): Promise<void> {
+    if (this.audit && this.repository.flushSecurityAuditOutbox) {
+      await this.repository.flushSecurityAuditOutbox(this.audit);
     }
   }
 }

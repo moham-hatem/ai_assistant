@@ -34,6 +34,8 @@ import {
   toReviewDecision,
   toReviewItem,
 } from './sqlite-review-rows.ts';
+import type { SecurityAuditSink } from '../security-audit/repository.ts';
+import { enqueueSecurityAudit, flushSecurityAuditOutbox, migrateSecurityAuditOutbox } from '../security-audit/sqlite-outbox.ts';
 
 interface ApprovedAnswerRow {
   answer_language: string;
@@ -62,6 +64,7 @@ export class SqliteReviewRepository implements ReviewRepository, ApprovedAnswerR
     this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
     if (path !== ':memory:') this.database.exec('PRAGMA journal_mode = WAL;');
     migrateReviewDatabase(this.database);
+    migrateSecurityAuditOutbox(this.database);
     migrateApprovedAnswerDatabase(this.database);
   }
 
@@ -156,6 +159,7 @@ export class SqliteReviewRepository implements ReviewRepository, ApprovedAnswerR
         toStatus: command.targetStatus,
         type: command.eventType,
       });
+      if (command.audit) enqueueSecurityAudit(this.database, command.audit);
       return this.requireItem(command.reviewItemId);
     });
   }
@@ -205,6 +209,7 @@ export class SqliteReviewRepository implements ReviewRepository, ApprovedAnswerR
           type: 'decision_saved',
         });
         if (command.approvedAnswer) this.saveApprovedAnswer(command.approvedAnswer);
+        if (command.audit) enqueueSecurityAudit(this.database, command.audit);
         return this.requireItem(decision.reviewItemId);
       });
     } catch (error) {
@@ -215,6 +220,10 @@ export class SqliteReviewRepository implements ReviewRepository, ApprovedAnswerR
 
   close(): void {
     this.database.close();
+  }
+
+  flushSecurityAuditOutbox(sink: SecurityAuditSink): Promise<number> {
+    return flushSecurityAuditOutbox(this.database, sink);
   }
 
   private requireItem(id: string): ReviewItem {

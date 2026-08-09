@@ -8,8 +8,11 @@ import type {
   ReviewStatus,
 } from '../../../shared/contracts/reviews.ts';
 import type { ApprovedAnswerApproval } from '../approved-answers/approved-answer-repository.ts';
+import type { SecurityAuditCommand } from '../security-audit/domain.ts';
+import type { SecurityAuditSink } from '../security-audit/repository.ts';
 
 export interface ReviewTransitionCommand {
+  audit?: SecurityAuditCommand;
   at: string;
   expectedStatus: ReviewStatus;
   reviewerId: string;
@@ -20,6 +23,7 @@ export interface ReviewTransitionCommand {
 }
 
 export interface SaveReviewDecisionCommand {
+  audit?: SecurityAuditCommand;
   approvedAnswer?: ApprovedAnswerApproval;
   decision: ReviewDecision;
   eventId: string;
@@ -35,6 +39,7 @@ export interface ReviewRepository {
   list(query: ReviewListQuery): Promise<ReviewPage>;
   saveDecision(command: SaveReviewDecisionCommand): Promise<ReviewItem>;
   transition(command: ReviewTransitionCommand): Promise<ReviewItem>;
+  flushSecurityAuditOutbox?(sink: SecurityAuditSink): Promise<number>;
 }
 
 export class QuestionLogMissingError extends Error {

@@ -27,6 +27,13 @@ import { SqliteAccessTokenRepository } from './sqlite-access-token-repository.ts
 import { SqliteAccessUserRepository } from './sqlite-access-user-repository.ts';
 import { migrateAuthDatabase } from './sqlite-migrations.ts';
 import { SqliteSessionRepository } from './sqlite-session-repository.ts';
+import type { SecurityAuditCommand } from '../modules/security-audit/domain.ts';
+import type { SecurityAuditSink } from '../modules/security-audit/repository.ts';
+import {
+  enqueueSecurityAudit,
+  flushSecurityAuditOutbox,
+  migrateSecurityAuditOutbox,
+} from '../modules/security-audit/sqlite-outbox.ts';
 
 interface UserRow {
   created_at: string;
@@ -50,6 +57,7 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
     this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
     if (path !== ':memory:') this.database.exec('PRAGMA journal_mode = WAL;');
     migrateAuthDatabase(this.database);
+    migrateSecurityAuditOutbox(this.database);
     this.accessTokens = new SqliteAccessTokenRepository(this.database);
     this.accessUsers = new SqliteAccessUserRepository(this.database);
     this.sessions = new SqliteSessionRepository(this.database);
@@ -96,8 +104,24 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
     return row ? this.toUser(row) : undefined;
   }
 
-  async saveSession(session: AuthSession): Promise<void> {
-    await this.sessions.save(session);
+  async saveSession(session: AuthSession, audit?: SecurityAuditCommand): Promise<void> {
+    transaction(this.database, () => {
+      this.database.prepare(`
+      INSERT INTO auth_sessions (
+        token_hash, user_id, created_at, last_seen_at, idle_expires_at,
+        absolute_expires_at, revoked_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+      session.tokenHash,
+      session.userId,
+      session.createdAt,
+      session.lastSeenAt,
+      session.idleExpiresAt,
+      session.absoluteExpiresAt,
+      session.revokedAt,
+      );
+      if (audit) enqueueSecurityAudit(this.database, audit);
+    });
   }
 
   async findSession(tokenHash: string): Promise<AuthSession | undefined> {
@@ -108,12 +132,26 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
     return await this.sessions.touch(tokenHash, lastSeenAt, idleExpiresAt);
   }
 
-  async revokeSession(tokenHash: string, revokedAt: string): Promise<void> {
-    await this.sessions.revoke(tokenHash, revokedAt);
+  async revokeSession(tokenHash: string, revokedAt: string, audit?: SecurityAuditCommand): Promise<void> {
+    transaction(this.database, () => {
+      this.database.prepare(`
+      UPDATE auth_sessions SET revoked_at = COALESCE(revoked_at, ?) WHERE token_hash = ?
+      `).run(revokedAt, tokenHash);
+      if (audit) enqueueSecurityAudit(this.database, audit);
+    });
   }
 
-  async revokeAllUserSessions(userId: string, revokedAt: string): Promise<void> {
-    await this.sessions.revokeAll(userId, revokedAt);
+  async revokeAllUserSessions(userId: string, revokedAt: string, audit?: SecurityAuditCommand): Promise<void> {
+    transaction(this.database, () => {
+      this.database.prepare(`
+      UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL
+      `).run(revokedAt, userId);
+      if (audit) enqueueSecurityAudit(this.database, audit);
+    });
+  }
+
+  flushSecurityAuditOutbox(sink: SecurityAuditSink): Promise<number> {
+    return flushSecurityAuditOutbox(this.database, sink);
   }
 
   async updateUserSecurity(command: SaveUserCommand): Promise<AuthUser> {

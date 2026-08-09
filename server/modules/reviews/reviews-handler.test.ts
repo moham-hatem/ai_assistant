@@ -11,13 +11,20 @@ import { SqliteQuestionLogRepository } from '../question-log/sqlite-question-log
 import { ReviewService } from './review-service.ts';
 import { createReviewsHandler } from './reviews-handler.ts';
 import { SqliteReviewRepository } from './sqlite-review-repository.ts';
+import { randomBytes } from 'node:crypto';
+import { SecurityAuditService } from '../security-audit/service.ts';
+import { SqliteSecurityAuditRepository } from '../security-audit/sqlite-repository.ts';
 
 test('internal review API validates, creates, claims, decides, lists, and returns details', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'reviews-handler-test-'));
   const path = join(directory, 'question-log.sqlite');
   const questionLogs = new SqliteQuestionLogRepository(path);
   const reviews = new SqliteReviewRepository(path);
-  const service = new ReviewService(reviews, questionLogs);
+  const auditRepository = new SqliteSecurityAuditRepository(
+    ':memory:', new Map([['v1', randomBytes(32)]]), 'v1',
+  );
+  const audit = new SecurityAuditService(auditRepository);
+  const service = new ReviewService(reviews, questionLogs, undefined, undefined, audit);
   const questionLog = record();
   await questionLogs.save(questionLog);
   const handler = createReviewsHandler(service, () => undefined);
@@ -102,6 +109,13 @@ test('internal review API validates, creates, claims, decides, lists, and return
         principal.id,
         principal.id,
       ]);
+      const auditEvents = await audit.list({ category: 'reviews', limit: 10, offset: 0 });
+      assert.deepEqual(auditEvents.items.map((event) => event.action).sort(), [
+        'review.decision_recorded', 'review.status_changed',
+      ]);
+      assert.equal(auditEvents.items.every((event) => event.actorUserId === principal.id), true);
+      assert.equal(JSON.stringify(auditEvents).includes(questionLog.question), false);
+      assert.equal(JSON.stringify(auditEvents).includes(questionLog.answer ?? ''), false);
 
       const list = await requestJson(
         `${baseUrl}/api/internal/reviews?status=approved&channel=web&limit=1&offset=0`,
@@ -124,6 +138,7 @@ test('internal review API validates, creates, claims, decides, lists, and return
       assert.equal(invalidId.response.status, 400);
     });
   } finally {
+    auditRepository.close();
     reviews.close();
     questionLogs.close();
     await rm(directory, { recursive: true, force: true });

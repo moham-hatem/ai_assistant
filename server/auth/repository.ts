@@ -1,5 +1,7 @@
 import type { AuthRole } from '../../shared/contracts/auth.ts';
 import type { AuthSession, AuthUser } from './domain.ts';
+import type { SecurityAuditCommand } from '../modules/security-audit/domain.ts';
+import type { SecurityAuditSink } from '../modules/security-audit/repository.ts';
 
 export interface SaveUserCommand {
   displayName: string;
@@ -14,11 +16,12 @@ export interface AuthRepository {
   createUser(command: SaveUserCommand): Promise<AuthUser>;
   findUserByEmail(normalizedEmail: string): Promise<AuthUser | undefined>;
   findUserById(id: string): Promise<AuthUser | undefined>;
-  saveSession(session: AuthSession): Promise<void>;
+  saveSession(session: AuthSession, audit?: SecurityAuditCommand): Promise<void>;
   findSession(tokenHash: string): Promise<AuthSession | undefined>;
   touchSession(tokenHash: string, lastSeenAt: string, idleExpiresAt: string): Promise<boolean>;
-  revokeSession(tokenHash: string, revokedAt: string): Promise<void>;
-  revokeAllUserSessions(userId: string, revokedAt: string): Promise<void>;
+  revokeSession(tokenHash: string, revokedAt: string, audit?: SecurityAuditCommand): Promise<void>;
+  revokeAllUserSessions(userId: string, revokedAt: string, audit?: SecurityAuditCommand): Promise<void>;
+  flushSecurityAuditOutbox?(sink: SecurityAuditSink): Promise<number>;
   updateUserSecurity(command: SaveUserCommand): Promise<AuthUser>;
 }
 

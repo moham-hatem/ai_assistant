@@ -9,16 +9,23 @@ import { readBinary } from './binary.ts';
 import { sendError, type ErrorLogger } from './error-response.ts';
 import { sendFile } from './send-file.ts';
 import { sendJson } from './json.ts';
+import type { AuthPrincipal } from '../../shared/contracts/auth.ts';
+import type { SecurityAuditContext } from '../modules/security-audit/domain.ts';
 
 interface DocumentApplication {
   documentResource(id: string, kind: DocumentResourceKind): Promise<DocumentResource>;
   listDocuments(): Promise<DocumentMetadata[]>;
   removeDocument(id: string): Promise<void>;
-  upload(input: UploadBookDocumentInput): Promise<UploadBookDocumentResult>;
+  upload(input: UploadBookDocumentInput, auditContext?: SecurityAuditContext): Promise<UploadBookDocumentResult>;
 }
 
 export function createDocumentsHandler(application: DocumentApplication, logError: ErrorLogger) {
-  return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
+  return async (
+    request: IncomingMessage,
+    response: ServerResponse,
+    url: URL,
+    principal: AuthPrincipal | null = null,
+  ) => {
     const requestId = crypto.randomUUID();
 
     try {
@@ -37,7 +44,7 @@ export function createDocumentsHandler(application: DocumentApplication, logErro
           buffer: await readBinary(request),
           name,
           version,
-        });
+        }, principal ? { actorUserId: principal.id, requestId } : undefined);
         sendJson(response, 201, bookId
           ? { ...result, requestId }
           : { document: result.document, requestId });

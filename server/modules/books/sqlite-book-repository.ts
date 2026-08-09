@@ -15,6 +15,8 @@ import {
   type EditionTransitionCommand,
 } from './book-repository.ts';
 import { migrateBookDatabase } from './sqlite-book-migrations.ts';
+import type { SecurityAuditSink } from '../security-audit/repository.ts';
+import { enqueueSecurityAudit, flushSecurityAuditOutbox, migrateSecurityAuditOutbox } from '../security-audit/sqlite-outbox.ts';
 
 interface BookRow {
   author_organization: string | null;
@@ -47,6 +49,7 @@ export class SqliteBookRepository implements BookRepository {
     this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
     if (path !== ':memory:') this.database.exec('PRAGMA journal_mode = WAL;');
     migrateBookDatabase(this.database);
+    migrateSecurityAuditOutbox(this.database);
   }
 
   async createBook(book: Book): Promise<void> {
@@ -162,6 +165,7 @@ export class SqliteBookRepository implements BookRepository {
       );
       if (result.changes !== 1) throw new ConcurrentEditionUpdateError();
       touchBook(this.database, command.bookId, command.at);
+      if (command.audit) enqueueSecurityAudit(this.database, command.audit);
       return this.requireEdition(command.bookId, command.editionId);
     });
   }
@@ -181,12 +185,17 @@ export class SqliteBookRepository implements BookRepository {
       `).run(command.at, command.editionId, command.bookId, command.expectedStatus);
       if (result.changes !== 1) throw new ConcurrentEditionUpdateError();
       touchBook(this.database, command.bookId, command.at);
+      if (command.audit) enqueueSecurityAudit(this.database, command.audit);
       return this.requireEdition(command.bookId, command.editionId);
     });
   }
 
   close(): void {
     this.database.close();
+  }
+
+  flushSecurityAuditOutbox(sink: SecurityAuditSink): Promise<number> {
+    return flushSecurityAuditOutbox(this.database, sink);
   }
 
   private readEdition(bookId: string, editionId: string): BookEdition | undefined {

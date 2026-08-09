@@ -5,8 +5,11 @@ import type {
   Page,
   PageQuery,
 } from '../../../shared/contracts/books.ts';
+import type { SecurityAuditCommand } from '../security-audit/domain.ts';
+import type { SecurityAuditSink } from '../security-audit/repository.ts';
 
 export interface EditionTransitionCommand {
+  audit?: SecurityAuditCommand;
   at: string;
   bookId: string;
   editionId: string;
@@ -25,6 +28,7 @@ export interface BookRepository {
   listEditions(bookId: string, query: PageQuery): Promise<Page<BookEdition>>;
   publishEdition(command: EditionTransitionCommand): Promise<BookEdition>;
   transitionEdition(command: EditionTransitionCommand): Promise<BookEdition>;
+  flushSecurityAuditOutbox?(sink: SecurityAuditSink): Promise<number>;
 }
 
 export class DuplicateEditionError extends Error {

@@ -49,6 +49,7 @@ export function createReviewsHandler(service: ReviewService, logError: ErrorLogg
           validReviewId(status[0]),
           input.status,
           requirePrincipal(principal).id,
+          { actorUserId: requirePrincipal(principal).id, requestId },
         );
         sendJson(response, 200, { review, requestId });
         return;
@@ -60,6 +61,7 @@ export function createReviewsHandler(service: ReviewService, logError: ErrorLogg
         const review = await service.saveDecision(
           validReviewId(decision[0]),
           { ...parseDecision(await readJson(request)), reviewerId: requirePrincipal(principal).id },
+          { actorUserId: requirePrincipal(principal).id, requestId },
         );
         sendJson(response, 200, { review, requestId });
         return;

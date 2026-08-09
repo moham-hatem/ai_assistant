@@ -5,7 +5,7 @@
 ## التشغيل المحلي
 
 1. انسخ `.env.example` إلى `.env.local`.
-2. ضع مفتاح OpenCode في `OPENCODE_API_KEY` داخل `.env.local`، ولا ترسله إلى الشات أو تضعه في متغير يبدأ بـ`VITE_`.
+2. ضع مفتاح OpenCode في `OPENCODE_API_KEY` ومفتاح HMAC عشوائيًا مستقلًا (32 بايت على الأقل بترميز base64url) في `SECURITY_AUDIT_HMAC_KEY` داخل `.env.local`، ولا ترسل أيًا منهما إلى الشات أو تضعه في متغير يبدأ بـ`VITE_`.
 3. افتح تبويب «الكتب» وارفع ملفات TXT أو Markdown أو PDF أو Word حتى 100 ميجابايت.
 4. شغّل المشروع:
 
@@ -30,7 +30,7 @@ npm run dev
 
 يدعم الأمر الأدوار `reviewer` و`content_manager` و`operator` و`admin`، ويمكن جمعها بقائمة مفصولة بفواصل. لا يمنح دور `admin` صلاحيات المحتوى ضمنيًا. راجع [توثيق المصادقة المحلية](server/auth/README.md) للتفاصيل.
 
-هذا تنفيذ محلي مجاني ولا يعتمد Supabase، لكنه **ليس إعلان جاهزية للنشر العام**. ما زال يلزم قبل ذلك: دورة الدعوات والاستعادة وتعطيل الحساب، rate limit دائم/موزع للنشر متعدد النسخ، audit أمني دائم للأفعال الحساسة ومنه اعتماد OCR، خادم production وHTTPS وإدارة أسرار، النسخ الاحتياطي والاستعادة وسياسات الاحتفاظ، حماية إساءة استخدام الواجهات العامة، واختبارات الحمل ومراجعة أمنية. قد تبقى Telegram وPWA للمتعلم anonymous حسب قرار المنتج بعد استكمال تلك الضوابط. التفاصيل في [نطاق المنتج](docs/PRODUCT_SCOPE.md) و[خارطة الطريق](docs/ROADMAP.md).
+هذا تنفيذ محلي مجاني ولا يعتمد Supabase، لكنه **ليس إعلان جاهزية للنشر العام**. ما زال يلزم قبل ذلك: دورة الدعوات والاستعادة وتعطيل الحساب، rate limit دائم/موزع للنشر متعدد النسخ، خادم production وHTTPS وإدارة أسرار، النسخ الاحتياطي والاستعادة وسياسات الاحتفاظ، حماية إساءة استخدام الواجهات العامة، واختبارات الحمل ومراجعة أمنية. قد تبقى Telegram وPWA للمتعلم anonymous حسب قرار المنتج بعد استكمال تلك الضوابط. التفاصيل في [نطاق المنتج](docs/PRODUCT_SCOPE.md) و[خارطة الطريق](docs/ROADMAP.md).
 
 ## بوت Telegram المحلي
 
@@ -71,9 +71,14 @@ AUTH_DATABASE_PATH=data/auth.sqlite
 AUTH_PUBLIC_ORIGIN=http://127.0.0.1:5173
 AUTH_IDLE_TTL_MS=1800000
 AUTH_ABSOLUTE_TTL_MS=43200000
+SECURITY_AUDIT_DATABASE_FILE=data/security-audit.sqlite
+SECURITY_AUDIT_HMAC_KEY=ضع-هنا-32-بايت-عشوائية-بترميز-base64url
+SECURITY_AUDIT_HMAC_KEY_VERSION=v1
 ```
 
 ملف `.env.local` مستبعد من Git. مفتاح OpenCode يُقرأ داخل خادم Vite المحلي فقط ولا يُضمّن في ملفات React.
+
+يحفظ سجل الأمان المحلي أحداث الدخول والخروج ورفض الصلاحيات وتغييرات/نشر/استعادة إصدارات الكتب واعتماد OCR وقرارات المراجعة، ببيانات وصفية محدودة لا تحتوي الأسرار أو نصوص المحتوى. السجل append-only في الاستخدام العادي ومترابط بـHMAC لاكتشاف العبث؛ هو **tamper-evident وليس tamper-proof**. قراءة السجل وملخص integrity متاحان فقط لصلاحية `settings:manage` عبر `/api/internal/security-audit` و`/api/internal/security-audit/integrity`. تفاصيل حدود المعاملات وoutbox وتدوير المفاتيح في [توثيق سجل الأمان](server/modules/security-audit/README.md).
 
 ## تدفق الإجابة
 

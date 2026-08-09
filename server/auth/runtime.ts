@@ -8,10 +8,12 @@ import { createAuthService } from './service.ts';
 import { SqliteAuthRepository } from './sqlite-repository.ts';
 import { AccessService } from './access-service.ts';
 import { createAccessHandler } from './access-http-handler.ts';
+import type { SecurityAuditService } from '../modules/security-audit/service.ts';
 
 export async function createLocalAuthRuntime(
   config: AuthConfig,
   logError: AuthErrorLogger = () => undefined,
+  audit?: SecurityAuditService,
 ) {
   const repository = new SqliteAuthRepository(config.databasePath);
   try {
@@ -20,7 +22,9 @@ export async function createLocalAuthRuntime(
       new ScryptPasswordHasher(),
       new InMemoryLoginRateLimiter(),
       { absoluteTtlMs: config.absoluteTtlMs, idleTtlMs: config.idleTtlMs },
+      { audit },
     );
+    if (audit) await repository.flushSecurityAuditOutbox(audit);
     const cookie = createAuthCookiePolicy(config);
     const origin = new SameOriginAuthPolicy(config.publicOrigin);
     const accessService = new AccessService(

@@ -27,6 +27,8 @@ import {
   ReviewRepositoryUnavailableError,
   type ReviewRepository,
 } from './review-repository.ts';
+import type { SecurityAuditContext } from '../security-audit/domain.ts';
+import type { SecurityAuditService } from '../security-audit/service.ts';
 
 export interface SaveDecisionInput {
   correctedAnswer?: string;
@@ -40,17 +42,20 @@ export class ReviewService {
   private readonly questionLogs: QuestionLogRepository;
   private readonly now: () => Date;
   private readonly createId: () => string;
+  private readonly audit?: SecurityAuditService;
 
   constructor(
     reviews: ReviewRepository,
     questionLogs: QuestionLogRepository,
     now: () => Date = () => new Date(),
     createId: () => string = randomUUID,
+    audit?: SecurityAuditService,
   ) {
     this.reviews = reviews;
     this.questionLogs = questionLogs;
     this.now = now;
     this.createId = createId;
+    this.audit = audit;
   }
 
   async createReview(questionLogId: string): Promise<ReviewItem> {
@@ -97,11 +102,26 @@ export class ReviewService {
     id: string,
     targetStatus: ReviewStatus,
     reviewerId: string,
+    auditContext?: SecurityAuditContext,
   ): Promise<ReviewItem> {
     const item = await this.requireItem(id);
     this.validateTransition(item, targetStatus, reviewerId);
-    return this.call(() => this.reviews.transition({
-      at: this.now().toISOString(),
+    const at = this.now().toISOString();
+    const audit = auditContext && this.audit ? {
+      action: 'review.status_changed' as const,
+      actorUserId: auditContext.actorUserId,
+      category: 'reviews' as const,
+      id: this.createId(),
+      metadata: { fromStatus: item.status, toStatus: targetStatus },
+      outcome: 'success' as const,
+      requestId: auditContext.requestId,
+      subjectId: id,
+      subjectType: 'review_item' as const,
+      timestamp: at,
+    } : undefined;
+    const result = await this.call(() => this.reviews.transition({
+      at,
+      audit,
       eventId: this.createId(),
       eventType: transitionEventType(item.status, targetStatus),
       expectedStatus: item.status,
@@ -109,9 +129,11 @@ export class ReviewService {
       reviewItemId: id,
       targetStatus,
     }));
+    if (audit) await this.flushAudit();
+    return result;
   }
 
-  async saveDecision(id: string, input: SaveDecisionInput): Promise<ReviewDetail> {
+  async saveDecision(id: string, input: SaveDecisionInput, auditContext?: SecurityAuditContext): Promise<ReviewDetail> {
     const item = await this.requireItem(id);
     try {
       assertDecisionCanBeSaved(item.status);
@@ -142,13 +164,27 @@ export class ReviewService {
     const approvedAnswer = input.outcome === 'approved'
       ? await this.buildApprovedAnswer(item.questionLogId, decision)
       : undefined;
+    const audit = auditContext && this.audit ? {
+      action: 'review.decision_recorded' as const,
+      actorUserId: auditContext.actorUserId,
+      category: 'reviews' as const,
+      id: this.createId(),
+      metadata: { decisionOutcome: input.outcome, hasCorrection: decision.correctedAnswer !== null },
+      outcome: 'success' as const,
+      requestId: auditContext.requestId,
+      subjectId: id,
+      subjectType: 'review_item' as const,
+      timestamp: at,
+    } : undefined;
     await this.call(() => this.reviews.saveDecision({
       approvedAnswer,
+      audit,
       decision,
       eventId: this.createId(),
       expectedStatus: item.status,
       targetStatus: decisionStatus(input.outcome),
     }));
+    if (audit) await this.flushAudit();
     return this.getReview(id);
   }
 
@@ -227,6 +263,12 @@ export class ReviewService {
         throw new AppError('REVIEWS_UNAVAILABLE', error.message, 503, { cause: error });
       }
       throw error;
+    }
+  }
+
+  private async flushAudit(): Promise<void> {
+    if (this.audit && this.reviews.flushSecurityAuditOutbox) {
+      await this.reviews.flushSecurityAuditOutbox(this.audit);
     }
   }
 }

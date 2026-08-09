@@ -15,6 +15,8 @@ import type { DocumentResource, DocumentResourceKind } from '../../documents/typ
 import { AppError } from '../../errors.ts';
 import type { BookRepository } from './book-repository.ts';
 import type { BookService } from './book-service.ts';
+import type { BookAuditContext } from './book-service.ts';
+import type { SecurityAuditContext } from '../security-audit/domain.ts';
 import { createDocumentReference, parseDocumentReference } from './document-reference.ts';
 
 export interface UploadBookDocumentInput {
@@ -74,7 +76,7 @@ export class BookDocumentService {
     return this.processing.processingState(documentId);
   }
 
-  async reprocessEdition(bookId: string, editionId: string): Promise<DocumentProcessingState> {
+  async reprocessEdition(bookId: string, editionId: string, auditContext?: BookAuditContext): Promise<DocumentProcessingState> {
     let edition = await this.books.getEdition(bookId, editionId);
     if (edition.status === 'published') {
       throw new AppError(
@@ -84,7 +86,7 @@ export class BookDocumentService {
       );
     }
     if (edition.status === 'ready') {
-      edition = await this.books.reopenEditionProcessing(bookId, editionId);
+      edition = await this.books.reopenEditionProcessing(bookId, editionId, auditContext);
     }
     if (edition.status !== 'processing') {
       throw new AppError(
@@ -97,7 +99,7 @@ export class BookDocumentService {
     if (!documentId) throw unavailableDocument();
     const state = await this.processing.reprocess(documentId);
     if (state.summary.status === 'ready') {
-      await this.books.transitionEdition(bookId, editionId, 'ready');
+      await this.books.transitionEdition(bookId, editionId, 'ready', auditContext);
     }
     return state;
   }
@@ -106,6 +108,7 @@ export class BookDocumentService {
     bookId: string,
     editionId: string,
     _actorId: string,
+    requestId = randomUUID(),
   ): Promise<ApproveEditionProcessingResult> {
     const edition = await this.books.getEdition(bookId, editionId);
     if (edition.status === 'published') {
@@ -126,20 +129,22 @@ export class BookDocumentService {
     if (!documentId) throw unavailableDocument();
     const processing = await this.processing.approveReview(documentId);
     return {
-      edition: await this.books.transitionEdition(bookId, editionId, 'ready'),
+      edition: await this.books.transitionEdition(bookId, editionId, 'ready', {
+        action: 'document.ocr_approved', actorUserId: _actorId, requestId,
+      }),
       processing,
     };
   }
 
-  async upload(input: UploadBookDocumentInput): Promise<UploadBookDocumentResult> {
+  async upload(input: UploadBookDocumentInput, auditContext?: SecurityAuditContext): Promise<UploadBookDocumentResult> {
     const book = input.bookId
       ? await this.books.getBook(input.bookId)
       : await this.books.createBook({ language: 'und', title: defaultTitle(input.name) });
-    const uploaded = await this.uploadEdition(book, input);
+    const uploaded = await this.uploadEdition(book, input, auditContext);
 
     if (input.bookId) return uploaded;
     return uploaded.edition.status === 'ready'
-      ? { ...uploaded, edition: await this.transitionEdition(book.id, uploaded.edition.id, 'published') }
+      ? { ...uploaded, edition: await this.transitionEdition(book.id, uploaded.edition.id, 'published', auditContext) }
       : uploaded;
   }
 
@@ -147,6 +152,7 @@ export class BookDocumentService {
     bookId: string,
     editionId: string,
     targetStatus: EditionStatus,
+    auditContext?: BookAuditContext,
   ): Promise<BookEdition> {
     if (targetStatus === 'published') {
       const edition = await this.books.getEdition(bookId, editionId);
@@ -167,7 +173,7 @@ export class BookDocumentService {
         throw unavailableDocument(error);
       }
     }
-    return this.books.transitionEdition(bookId, editionId, targetStatus);
+    return this.books.transitionEdition(bookId, editionId, targetStatus, auditContext);
   }
 
   async removeDocument(documentId: string): Promise<void> {
@@ -187,6 +193,7 @@ export class BookDocumentService {
   private async uploadEdition(
     book: Book,
     input: UploadBookDocumentInput,
+    auditContext?: SecurityAuditContext,
   ): Promise<UploadBookDocumentResult> {
     const documentId = this.createId();
     const edition = await this.books.addEdition({
@@ -198,7 +205,7 @@ export class BookDocumentService {
     let document: DocumentMetadata | undefined;
 
     try {
-      const processingEdition = await this.books.transitionEdition(book.id, edition.id, 'processing');
+      const processingEdition = await this.books.transitionEdition(book.id, edition.id, 'processing', auditContext);
       document = await this.documents.import({
         buffer: input.buffer,
         id: documentId,
@@ -207,20 +214,24 @@ export class BookDocumentService {
       if (document.processing.status !== 'ready') {
         return { book, document, edition: processingEdition };
       }
-      const ready = await this.books.transitionEdition(book.id, edition.id, 'ready');
+      const ready = await this.books.transitionEdition(book.id, edition.id, 'ready', auditContext);
       return { book, document, edition: ready };
     } catch (error) {
       if (document) await this.documents.remove(document.id).catch(() => undefined);
-      await this.rejectFailedEdition(book.id, edition.id);
+      await this.rejectFailedEdition(book.id, edition.id, auditContext);
       throw error;
     }
   }
 
-  private async rejectFailedEdition(bookId: string, editionId: string): Promise<void> {
+  private async rejectFailedEdition(
+    bookId: string,
+    editionId: string,
+    auditContext?: SecurityAuditContext,
+  ): Promise<void> {
     try {
       const edition = await this.books.getEdition(bookId, editionId);
       if (edition.status === 'draft' || edition.status === 'processing') {
-        await this.books.transitionEdition(bookId, editionId, 'rejected');
+        await this.books.transitionEdition(bookId, editionId, 'rejected', auditContext);
       }
     } catch {
       // Preserve the processing error; repository failures are reported by their original operation.

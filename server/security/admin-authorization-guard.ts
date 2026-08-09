@@ -8,10 +8,12 @@ import type {
   StateChangingRequestOriginGuard,
 } from './admin-request-authorizer.ts';
 import { adminRoutePolicy } from './admin-route-policy.ts';
+import type { SecurityAuditService } from '../modules/security-audit/service.ts';
 
 export interface AdminApiSecurity {
   authorizer: AdminRequestAuthorizer;
   originGuard: StateChangingRequestOriginGuard;
+  audit?: SecurityAuditService;
 }
 
 export type AdminGuardResult =
@@ -30,6 +32,11 @@ export async function guardAdminRequest(
 
   const requestId = crypto.randomUUID();
   if (policy.kind === 'denied') {
+    await security.audit?.bestEffort({
+      action: 'authorization.denied', actorUserId: null, category: 'authorization',
+      metadata: { method: request.method?.toUpperCase() ?? 'GET', permission: 'deny-by-default', reason: 'route_policy' },
+      outcome: 'denied', requestId, subjectId: null, subjectType: null,
+    });
     sendDenied(response, requestId, 403);
     return { allowed: false, principal: null };
   }
@@ -43,6 +50,14 @@ export async function guardAdminRequest(
     const status = error instanceof AppError && error.status === 401 ? 401
       : error instanceof AppError && error.status === 403 ? 403
       : 503;
+    await security.audit?.bestEffort({
+      action: 'authorization.denied', actorUserId: null, category: 'authorization',
+      metadata: {
+        method: request.method?.toUpperCase() ?? 'GET', permission: policy.permission,
+        reason: status === 401 ? 'unauthenticated' : status === 403 ? 'forbidden' : 'unavailable',
+      },
+      outcome: status === 503 ? 'failure' : 'denied', requestId, subjectId: null, subjectType: null,
+    });
     sendDenied(response, requestId, status);
     return { allowed: false, principal: null };
   }

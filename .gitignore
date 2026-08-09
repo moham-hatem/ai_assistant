@@ -12,4 +12,5 @@ data/models/
 data/question-log.sqlite*
 data/books.sqlite*
 data/auth.sqlite*
+data/security-audit.sqlite*
 data/telegram.sqlite*

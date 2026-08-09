@@ -20,6 +20,10 @@ import {
   type AdminApiSecurity,
 } from '../security/admin-authorization-guard.ts';
 import { createRuntimeAdminSecurity } from '../security/runtime-admin-security.ts';
+import type { SecurityAuditConfig } from '../modules/security-audit/config.ts';
+import { SqliteSecurityAuditRepository } from '../modules/security-audit/sqlite-repository.ts';
+import { SecurityAuditService } from '../modules/security-audit/service.ts';
+import { createSecurityAuditHandler } from '../modules/security-audit/security-audit-handler.ts';
 
 type Next = (error?: unknown) => void;
 type ApiHandler = (
@@ -39,25 +43,43 @@ export interface LocalApiHandlers {
   qualityMetrics: ApiHandler;
   questionLogs: ApiHandler;
   reviews: ApiHandler;
+  securityAudit?: ApiHandler;
   version: ApiHandler;
 }
 
 export function createLocalApiPlugin(
   config: LocalRuntimeConfig,
   authConfig: AuthConfig,
+  auditConfig: SecurityAuditConfig,
 ): Plugin {
   return {
     name: 'local-answer-api',
     async configureServer(server) {
-      const runtime = createRuntime(config);
       const logError: ErrorLogger = (requestId, error) => {
         const loggedError = error instanceof Error ? error : new Error(String(error));
         server.config.logger.error(
           `Local API request failed (${requestId}): ${loggedError.name}`,
         );
       };
-      const auth = await createLocalAuthRuntime(authConfig, logError);
-      const security = createRuntimeAdminSecurity(auth.service, auth.cookie, auth.origin);
+      const auditRepository = new SqliteSecurityAuditRepository(
+        auditConfig.databasePath,
+        auditConfig.keys,
+        auditConfig.currentKeyVersion,
+      );
+      const audit = new SecurityAuditService(auditRepository, undefined, undefined, (error) => {
+        logError('security-audit', error);
+      });
+      let runtime: ReturnType<typeof createRuntime> | undefined;
+      let auth: Awaited<ReturnType<typeof createLocalAuthRuntime>>;
+      try {
+        runtime = createRuntime(config, { securityAudit: audit });
+        auth = await createLocalAuthRuntime(authConfig, logError, audit);
+      } catch (error) {
+        runtime?.close();
+        auditRepository.close();
+        throw error;
+      }
+      const security = createRuntimeAdminSecurity(auth.service, auth.cookie, auth.origin, audit);
       const handler = createLocalApiRequestHandler({
         access: auth.accessHandler,
         answer: createAnswerHandler(runtime.answerRequestService, logError),
@@ -67,10 +89,15 @@ export function createLocalApiPlugin(
         qualityMetrics: createQualityMetricsHandler(runtime.qualityMetricsService, logError),
         questionLogs: createQuestionLogHandler(runtime.questionLogRepository, logError),
         reviews: createReviewsHandler(runtime.reviewService, logError),
+        securityAudit: createSecurityAuditHandler(audit, logError),
         version: handleApiVersionRequest,
       }, security, logError, auth.handler);
 
-      server.httpServer?.once('close', () => auth.repository.close());
+      server.httpServer?.once('close', () => {
+        auth.repository.close();
+        runtime.close();
+        auditRepository.close();
+      });
 
       server.middlewares.use((request, response, next) => {
         void handler(request, response, next).catch(next);
@@ -114,6 +141,7 @@ function selectHandler(pathname: string, handlers: LocalApiHandlers): ApiHandler
   if (pathname.startsWith('/api/internal/question-logs')) return handlers.questionLogs;
   if (pathname.startsWith('/api/internal/quality-metrics')) return handlers.qualityMetrics;
   if (pathname.startsWith('/api/internal/reviews')) return handlers.reviews;
+  if (pathname.startsWith('/api/internal/security-audit')) return handlers.securityAudit;
   if (pathname === '/api/knowledge/documents'
     || pathname.startsWith('/api/knowledge/documents/')) return handlers.documents;
   return undefined;

@@ -51,6 +51,7 @@ export function createAuthHandler(
             password: login?.password,
             previousSessionToken: readSessionCookie(request.headers, cookie),
             rateLimitKey: request.socket.remoteAddress ?? 'unknown',
+            requestId,
           });
           response.setHeader(
             'Set-Cookie',
@@ -73,7 +74,7 @@ export function createAuthHandler(
       if (pathname === AUTH_API_PATHS.session) {
         if (!requireMethod(request, response, 'GET', requestId)) return true;
         const token = readSessionCookie(request.headers, cookie);
-        const principal = await service.getPrincipal(token);
+        const principal = await service.getPrincipal(token, requestId);
         if (token && !principal) {
           response.setHeader('Set-Cookie', serializeClearedSessionCookie(cookie));
         }
@@ -83,7 +84,7 @@ export function createAuthHandler(
 
       if (!requireMethod(request, response, 'POST', requestId) ||
           !requireSameOrigin(request, response, origin, requestId)) return true;
-      await service.logout(readSessionCookie(request.headers, cookie));
+      await service.logout(readSessionCookie(request.headers, cookie), requestId);
       response.setHeader('Set-Cookie', serializeClearedSessionCookie(cookie));
       response.statusCode = 204;
       response.end();

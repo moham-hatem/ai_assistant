@@ -26,6 +26,7 @@ const protectedRoutes: readonly ProtectedRoute[] = [
     /^\/api\/internal\/access\/(?:invitations|recoveries)\/[^/]+\/revoke$/u,
     'settings:manage',
   ),
+  route('GET', /^\/api\/internal\/security-audit(?:\/integrity)?$/u, 'settings:manage'),
   route('GET', /^\/api\/internal\/books$/u, 'books:read'),
   route('POST', /^\/api\/internal\/books$/u, 'books:write'),
   route('GET', /^\/api\/internal\/books\/[^/]+$/u, 'books:read'),
