@@ -40,3 +40,33 @@ test('quality metrics parser rejects extra sensitive fields and broken invariant
     },
   }), QualityMetricsApiError);
 });
+
+test('quality metrics parser rejects non-canonical metadata and server-incompatible filters', () => {
+  const invalidPayloads = [
+    { ...qualityMetricsPayload(), generatedAt: '2026-08-09 12:00:00Z' },
+    { ...qualityMetricsPayload(), generatedAt: '2026-08-09T12:00:00Z' },
+    { ...qualityMetricsPayload(), requestId: 'request-123' },
+    {
+      ...qualityMetricsPayload(),
+      appliedFilters: {
+        ...qualityMetricsPayload().appliedFilters,
+        from: '2026-08-01T00:00:00+00:00',
+      },
+    },
+    {
+      ...qualityMetricsPayload(),
+      appliedFilters: { ...qualityMetricsPayload().appliedFilters, to: '2026-02-30T00:00:00.000Z' },
+    },
+    {
+      ...qualityMetricsPayload(),
+      appliedFilters: { ...qualityMetricsPayload().appliedFilters, language: 'en us' },
+    },
+    {
+      ...qualityMetricsPayload(),
+      appliedFilters: { ...qualityMetricsPayload().appliedFilters, channel: 'web/chat' },
+    },
+  ];
+  for (const payload of invalidPayloads) {
+    assert.throws(() => parseQualityMetricsResponse(payload), QualityMetricsApiError);
+  }
+});

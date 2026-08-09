@@ -11,6 +11,10 @@ const metricKeys = [
   'feedbackCoverageRate', 'feedbackCoveredAnswerAttempts', 'helpful',
   'medianReviewClosureMs', 'openReviewCount', 'satisfactionRate', 'unhelpful',
 ] as const;
+const canonicalUtcTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const languagePattern = /^[a-z]{2,8}(?:-[a-z0-9]{1,8})*$/iu;
+const channelPattern = /^[a-z0-9][a-z0-9_-]{0,63}$/iu;
 
 export class QualityMetricsApiError extends Error {
   readonly status: number | null;
@@ -37,16 +41,16 @@ export function parseQualityMetricsResponse(value: unknown): QualityMetricsRespo
       },
       totals: parseMetricSet(metrics.totals),
     },
-    requestId: nonEmptyString(payload.requestId, 'requestId'),
+    requestId: uuid(payload.requestId, 'requestId'),
   };
 }
 
 function parseFilters(value: unknown): QualityMetricsFilters {
   const filters = objectWithKeys(value, ['channel', 'from', 'language', 'to'], 'appliedFilters');
   return {
-    channel: nullableString(filters.channel, 'channel'),
+    channel: nullableIdentifier(filters.channel, channelPattern, 'channel'),
     from: nullableDate(filters.from, 'from'),
-    language: nullableString(filters.language, 'language'),
+    language: nullableIdentifier(filters.language, languagePattern, 'language'),
     to: nullableDate(filters.to, 'to'),
   };
 }
@@ -110,8 +114,11 @@ function nullableNumber(value: unknown, field: string): number | null {
   return value;
 }
 
-function nullableString(value: unknown, field: string): string | null {
-  return value === null ? null : nonEmptyString(value, field);
+function nullableIdentifier(value: unknown, pattern: RegExp, field: string): string | null {
+  if (value === null) return null;
+  const text = nonEmptyString(value, field);
+  if (!pattern.test(text)) invalid(field);
+  return text;
 }
 
 function nullableDate(value: unknown, field: string): string | null {
@@ -120,7 +127,15 @@ function nullableDate(value: unknown, field: string): string | null {
 
 function dateString(value: unknown, field: string): string {
   const text = nonEmptyString(value, field);
-  if (Number.isNaN(Date.parse(text))) invalid(field);
+  if (!canonicalUtcTimestamp.test(text)) invalid(field);
+  const timestamp = Date.parse(text);
+  if (!Number.isFinite(timestamp) || new Date(timestamp).toISOString() !== text) invalid(field);
+  return text;
+}
+
+function uuid(value: unknown, field: string): string {
+  const text = nonEmptyString(value, field);
+  if (!uuidPattern.test(text)) invalid(field);
   return text;
 }
 
