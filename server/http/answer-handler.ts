@@ -28,11 +28,6 @@ export function createAnswerHandler(
       input = parseAnswerInput(await readJson(request));
       const execution = await service.answerWithContext(input);
       const completedAt = new Date();
-      sendJson(response, 200, {
-        answer: execution.result.answer,
-        grounded: execution.result.grounded,
-        requestId,
-      });
       await safeRecord(questionLog, toCompletedRecord({
         completedAt,
         evidenceReferences: execution.evidenceReferences,
@@ -42,8 +37,12 @@ export function createAnswerHandler(
         result: execution.result,
         startedAt,
       }));
+      sendJson(response, 200, {
+        answer: execution.result.answer,
+        grounded: execution.result.grounded,
+        requestId,
+      });
     } catch (error) {
-      sendError(response, requestId, error, logError);
       if (input) {
         const completedAt = new Date();
         const publicError = createPublicErrorResponse(requestId, error);
@@ -65,6 +64,7 @@ export function createAnswerHandler(
           sufficiency: 'unknown',
         });
       }
+      sendError(response, requestId, error, logError);
     }
   };
 }

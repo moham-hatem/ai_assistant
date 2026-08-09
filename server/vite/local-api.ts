@@ -6,6 +6,7 @@ import { createDocumentsHandler } from '../http/documents-handler.ts';
 import { createQuestionLogHandler } from '../modules/question-log/question-log-handler.ts';
 import { createBooksHandler } from '../modules/books/books-handler.ts';
 import { createReviewsHandler } from '../modules/reviews/reviews-handler.ts';
+import { createFeedbackHandler } from '../modules/feedback/feedback-handler.ts';
 
 export function localAnswerApi(config: LocalRuntimeConfig): Plugin {
   return {
@@ -15,7 +16,7 @@ export function localAnswerApi(config: LocalRuntimeConfig): Plugin {
       const logError = (requestId: string, error: unknown) => {
         const loggedError = error instanceof Error ? error : new Error(String(error));
         server.config.logger.error(
-          `Local answer API failed (${requestId}): ${loggedError.stack ?? loggedError.message}`,
+          `Local API request failed (${requestId}): ${loggedError.name}`,
         );
       };
       const answer = createAnswerHandler(runtime.answerService, runtime.questionLogService, logError);
@@ -23,10 +24,14 @@ export function localAnswerApi(config: LocalRuntimeConfig): Plugin {
       const documents = createDocumentsHandler(runtime.bookDocuments, logError);
       const questionLogs = createQuestionLogHandler(runtime.questionLogRepository, logError);
       const reviews = createReviewsHandler(runtime.reviewService, logError);
+      const feedback = createFeedbackHandler(runtime.feedbackService, logError);
 
       server.middlewares.use((request, response, next) => {
         const url = new URL(request.url ?? '/', 'http://localhost');
         if (url.pathname === '/api/answer-question') void answer(request, response);
+        else if (url.pathname === '/api/feedback' || url.pathname.startsWith('/api/internal/feedback')) {
+          void feedback(request, response, url);
+        }
         else if (url.pathname.startsWith('/api/internal/books')) {
           void books(request, response, url);
         }

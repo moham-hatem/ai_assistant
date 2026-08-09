@@ -30,6 +30,10 @@ import { UnavailableReviewRepository } from './modules/reviews/unavailable-revie
 import type { ApprovedAnswerRepository } from './modules/approved-answers/approved-answer-repository.ts';
 import { PublishedApprovedAnswerEvidenceValidator } from './modules/approved-answers/approved-answer-evidence-validator.ts';
 import { LocalPublishedEvidenceSource } from './knowledge/local-published-evidence-source.ts';
+import type { FeedbackRepository } from './modules/feedback/feedback-repository.ts';
+import { FeedbackService } from './modules/feedback/feedback-service.ts';
+import { SqliteFeedbackRepository } from './modules/feedback/sqlite-feedback-repository.ts';
+import { UnavailableFeedbackRepository } from './modules/feedback/unavailable-feedback-repository.ts';
 
 export function createRuntime(config: LocalRuntimeConfig) {
   const documentStore = new DocumentStore(config.documentDirectory, config.knowledgeDirectory);
@@ -76,6 +80,7 @@ export function createRuntime(config: LocalRuntimeConfig) {
     : undefined;
   const questionLogRepository = createQuestionLogRepository(config.questionLogDatabaseFile);
   const reviewRepository = createReviewRepository(config.questionLogDatabaseFile);
+  const feedbackRepository = createFeedbackRepository(config.questionLogDatabaseFile);
   return {
     answerService: new AnswerService(
       knowledge,
@@ -91,12 +96,23 @@ export function createRuntime(config: LocalRuntimeConfig) {
     documentStore,
     bookRepository,
     bookService,
+    feedbackRepository,
+    feedbackService: new FeedbackService(feedbackRepository),
     knowledge,
     questionLogRepository,
     questionLogService: new QuestionLogService(questionLogRepository),
     reviewRepository,
     reviewService: new ReviewService(reviewRepository, questionLogRepository),
   };
+}
+
+function createFeedbackRepository(path: string): FeedbackRepository {
+  try {
+    return new SqliteFeedbackRepository(path);
+  } catch (error) {
+    console.warn('Local feedback database could not be initialized; feedback is unavailable.');
+    return new UnavailableFeedbackRepository(error);
+  }
 }
 
 function createReviewRepository(path: string): ReviewRepository & ApprovedAnswerRepository {
