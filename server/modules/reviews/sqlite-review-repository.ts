@@ -287,15 +287,12 @@ function isDuplicateDecision(error: unknown): boolean {
 }
 
 function toApprovedAnswer(row: ApprovedAnswerRow): ApprovedAnswer {
-  const references = JSON.parse(row.evidence_references) as unknown;
   return {
     answer: row.answer_text,
     answerLanguage: row.answer_language,
     approvedAt: row.approved_at,
     createdAt: row.created_at,
-    evidenceReferences: Array.isArray(references)
-      ? references.filter((item): item is string => typeof item === 'string')
-      : [],
+    evidenceReferences: parseEvidenceReferences(row.evidence_references),
     id: row.id,
     normalizedQuestion: row.normalized_question,
     question: row.question_text,
@@ -307,4 +304,16 @@ function toApprovedAnswer(row: ApprovedAnswerRow): ApprovedAnswer {
     supersededByAnswerId: row.superseded_by_answer_id,
     version: row.version,
   };
+}
+
+function parseEvidenceReferences(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)
+      || parsed.length === 0
+      || !parsed.every((item) => typeof item === 'string' && item.trim().length > 0)) return [];
+    return parsed.map((item) => item.trim());
+  } catch {
+    return [];
+  }
 }

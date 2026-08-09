@@ -144,8 +144,9 @@ function backfillApprovedAnswers(database: DatabaseSync): void {
     const references = JSON.parse(row.evidence_references) as unknown;
     if (!Array.isArray(references)
       || references.length === 0
-      || !references.every((item) => typeof item === 'string' && item.length > 0)) continue;
+      || !references.every((item) => typeof item === 'string' && item.trim().length > 0)) continue;
     const normalizedQuestion = normalizeApprovedQuestion(row.question);
+    if (!normalizedQuestion) continue;
     const id = `migration:approved:${row.decision_id}`;
     const latest = database.prepare(`
       SELECT COALESCE(MAX(version), 0) AS version FROM approved_answers

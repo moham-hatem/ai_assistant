@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { SqliteReviewRepository } from './sqlite-review-repository.ts';
 
-test('migration 2 preserves legacy corrections as edited approvals and seeds immutable history', async () => {
+test('migrations backfill eligible approvals and skip punctuation-only normalized questions', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'review-migration-test-'));
   const path = join(directory, 'question-log.sqlite');
   const database = new DatabaseSync(path);
@@ -23,6 +23,10 @@ test('migration 2 preserves legacy corrections as edited approvals and seeds imm
     INSERT INTO question_logs VALUES (
       'question-1', 'What is purification?', 'en', 'answered',
       'Original generated answer.', '["books/book-1/editions/edition-1:1"]'
+    );
+    INSERT INTO question_logs VALUES (
+      'question-2', ' ؟! ... ', 'ar', 'answered',
+      'Historical answer that must not be published.', '["books/book-1/editions/edition-1:2"]'
     );
 
     CREATE TABLE review_items (
@@ -55,9 +59,17 @@ test('migration 2 preserves legacy corrections as edited approvals and seeds imm
       'review-1', 'question-1', 'needs_changes', 'teacher-legacy',
       '2026-08-06T10:00:00Z', '2026-08-06T10:05:00Z', NULL, '2026-08-06T10:05:00Z'
     );
+    INSERT INTO review_items VALUES (
+      'review-2', 'question-2', 'needs_changes', 'teacher-legacy',
+      '2026-08-06T10:01:00Z', '2026-08-06T10:06:00Z', NULL, '2026-08-06T10:06:00Z'
+    );
     INSERT INTO review_decisions VALUES (
       'decision-1', 'review-1', 'needs_changes', 'teacher-legacy', NULL,
       'Legacy corrected answer.', '2026-08-06T10:05:00Z'
+    );
+    INSERT INTO review_decisions VALUES (
+      'decision-2', 'review-2', 'needs_changes', 'teacher-legacy', NULL,
+      'Punctuation-only question correction.', '2026-08-06T10:06:00Z'
     );
   `);
   database.close();
@@ -108,6 +120,10 @@ test('migration 2 preserves legacy corrections as edited approvals and seeds imm
       status: 'active',
       version: 1,
     });
+    const ineligibleCount = migrated.prepare(`
+      SELECT COUNT(*) AS total FROM approved_answers WHERE source_decision_id = 'decision-2'
+    `).get() as unknown as { total: number };
+    assert.equal(ineligibleCount.total, 0);
     assert.throws(() => migrated.exec(`
       UPDATE review_events SET to_status = 'rejected' WHERE review_item_id = 'review-1';
     `), /append-only/u);

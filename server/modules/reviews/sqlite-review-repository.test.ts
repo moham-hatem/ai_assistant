@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import type { QuestionLogRecord } from '../../../shared/contracts/question-log.ts';
 import { AppError } from '../../errors.ts';
+import { AnswerService } from '../../answer-service.ts';
 import { SqliteQuestionLogRepository } from '../question-log/sqlite-question-log-repository.ts';
 import { ReviewService } from './review-service.ts';
 import { SqliteReviewRepository } from './sqlite-review-repository.ts';
@@ -190,6 +191,67 @@ test('exact normalized lookup remains language-specific', async () => {
       answerLanguage: 'en',
       normalizedQuestion: normalizeApprovedQuestion('What is ritual Wudu?'),
     }), undefined);
+  });
+});
+
+test('mixed evidence JSON fails closed and AnswerService falls back to the normal model path', async () => {
+  await withFixture(async ({ path, reviews, service, questionLogs }) => {
+    const questionLog = record({ question: 'Can corrupted evidence be served?' });
+    await questionLogs.save(questionLog);
+    const item = await service.createReview(questionLog.id);
+    await service.saveDecision(item.id, { outcome: 'approved', reviewerId: 'teacher' });
+
+    const control = new DatabaseSync(path);
+    try {
+      control.exec('DROP TRIGGER approved_answers_retirement_only;');
+      control.prepare(`
+        UPDATE approved_answers SET evidence_references = ? WHERE source_review_item_id = ?
+      `).run('["book:edition:chunk", 7]', item.id);
+    } finally {
+      control.close();
+    }
+
+    const stored = await reviews.findActiveExact({
+      answerLanguage: questionLog.answerLanguage,
+      normalizedQuestion: normalizeApprovedQuestion(questionLog.question),
+    });
+    assert.deepEqual(stored?.evidenceReferences, []);
+
+    let modelCalls = 0;
+    let validationCalls = 0;
+    const answerService = new AnswerService(
+      {
+        search: async () => ({
+          evidence: [{ content: 'Fresh, currently valid evidence.', id: 'fresh:1' }],
+          fileCount: 1,
+        }),
+      },
+      4,
+      {
+        answer: async () => {
+          modelCalls += 1;
+          return { answer: 'Fresh fallback answer.', grounded: true };
+        },
+      },
+      undefined,
+      reviews,
+      {
+        validate: async () => {
+          validationCalls += 1;
+          return { evidence: [], valid: true };
+        },
+      },
+    );
+
+    const result = await answerService.answer({
+      history: [],
+      language: 'en',
+      question: questionLog.question,
+    });
+    assert.equal(result.answer, 'Fresh fallback answer.');
+    assert.equal(result.generation?.provider, undefined);
+    assert.equal(modelCalls, 1);
+    assert.equal(validationCalls, 0);
   });
 });
 

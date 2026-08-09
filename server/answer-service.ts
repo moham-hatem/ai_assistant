@@ -91,7 +91,7 @@ export class AnswerService {
         answerLanguage: input.language,
         normalizedQuestion: normalizeApprovedQuestion(input.question),
       });
-      if (!answer) return undefined;
+      if (!answer || answer.evidenceReferences.length === 0) return undefined;
       const validation = await this.approvedAnswerEvidence.validate(answer.evidenceReferences);
       if (!validation.valid) return undefined;
       return {
