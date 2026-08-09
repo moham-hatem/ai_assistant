@@ -17,6 +17,7 @@ import {
   readEnum,
   readInteger,
   readNullableBoolean,
+  readNullableNonEmptyString,
   readNullableString,
   readString,
 } from './review-parser-primitives.ts';
@@ -62,7 +63,7 @@ export function parseReviewDetail(value: unknown): ReviewDetail {
 export function parseReviewItem(value: unknown): ReviewItem {
   const payload = asObject(value, 'review item');
   return {
-    assignedReviewerId: readNullableString(payload.assignedReviewerId, 'assignedReviewerId'),
+    assignedReviewerId: readNullableNonEmptyString(payload.assignedReviewerId, 'assignedReviewerId'),
     claimedAt: nullableDate(payload.claimedAt, 'claimedAt'),
     createdAt: readDate(payload.createdAt, 'createdAt'),
     decidedAt: nullableDate(payload.decidedAt, 'decidedAt'),
@@ -97,13 +98,13 @@ function parseEvent(value: unknown): ReviewEvent {
   const payload = asObject(value, 'event');
   return {
     createdAt: readDate(payload.createdAt, 'event createdAt'),
-    decisionId: readNullableString(payload.decisionId, 'event decisionId'),
+    decisionId: readNullableNonEmptyString(payload.decisionId, 'event decisionId'),
     fromStatus: payload.fromStatus === null
       ? null
       : readEnum(payload.fromStatus, reviewStatuses, 'event fromStatus'),
     id: readString(payload.id, 'event id'),
     reviewItemId: readString(payload.reviewItemId, 'event reviewItemId'),
-    reviewerId: readNullableString(payload.reviewerId, 'event reviewerId'),
+    reviewerId: readNullableNonEmptyString(payload.reviewerId, 'event reviewerId'),
     toStatus: readEnum(payload.toStatus, reviewStatuses, 'event toStatus'),
     type: readEnum(payload.type, reviewEventTypes, 'event type'),
   };
@@ -111,13 +112,15 @@ function parseEvent(value: unknown): ReviewEvent {
 
 function parseQuestionLogRecord(value: unknown): QuestionLogRecord {
   const payload = asObject(value, 'question log');
-  if (!Array.isArray(payload.evidenceReferences)
-    || !payload.evidenceReferences.every((item) => typeof item === 'string')) invalid('evidenceReferences');
+  if (!Array.isArray(payload.evidenceReferences)) invalid('evidenceReferences');
+  const evidenceReferences = payload.evidenceReferences.map(
+    (item, index) => readString(item, `evidenceReferences[${index}]`),
+  );
   const record: QuestionLogRecord = {
     ...parseQuestionLogSummary(payload),
     answer: readNullableString(payload.answer, 'answer'),
     apology: readNullableString(payload.apology, 'apology'),
-    evidenceReferences: payload.evidenceReferences as string[],
+    evidenceReferences,
   };
   const hasAnsweredShape = record.answer !== null && record.apology === null;
   const hasDeclinedShape = record.answer === null && record.apology !== null;

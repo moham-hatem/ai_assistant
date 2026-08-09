@@ -1,6 +1,7 @@
 import { Check, Hand, PencilLine, RotateCcw, ShieldX, Wrench } from 'lucide-react';
 import { useState } from 'react';
 import type { ReviewsCopy } from '../copy';
+import { canApproveAsIs } from '../review-action-availability';
 import { isUsableReviewerId } from '../reviewer-session';
 import type { DecisionMode, ReviewDecisionRequest, ReviewDetail } from '../types';
 import { ReviewDecisionDialog } from './ReviewDecisionDialog';
@@ -22,6 +23,7 @@ export function ReviewActions(props: ReviewActionsProps) {
   const hasReviewer = isUsableReviewerId(reviewerId);
   const ownsReview = item.status === 'in_review' && item.assignedReviewerId === reviewerId;
   const canDecide = hasReviewer && (item.status === 'pending' || ownsReview);
+  const canApproveOriginal = canDecide && canApproveAsIs(props.detail.questionLog.answer);
   const isFinal = !['pending', 'in_review'].includes(item.status);
 
   if (isFinal) return null;
@@ -32,7 +34,7 @@ export function ReviewActions(props: ReviewActionsProps) {
       <div className="review-actions">
           {item.status === 'pending' && <ActionButton disabled={!hasReviewer || props.busy} icon={<Hand size={17} />} label={props.copy.claim} onClick={props.onClaim} />}
           {item.status === 'in_review' && <ActionButton disabled={!ownsReview || props.busy} icon={<RotateCcw size={17} />} label={props.copy.release} onClick={props.onRelease} />}
-          <ActionButton disabled={!canDecide || props.busy} icon={<Check size={17} />} label={props.copy.approveAsIs} onClick={() => setMode('approve_as_is')} />
+          <ActionButton disabled={!canApproveOriginal || props.busy} icon={<Check size={17} />} label={props.copy.approveAsIs} onClick={() => setMode('approve_as_is')} />
           <ActionButton disabled={!canDecide || props.busy} icon={<PencilLine size={17} />} label={props.copy.approveEdited} onClick={() => setMode('approve_edited')} />
           <ActionButton danger disabled={!canDecide || props.busy} icon={<ShieldX size={17} />} label={props.copy.reject} onClick={() => setMode('reject')} />
           <ActionButton disabled={!canDecide || props.busy} icon={<Wrench size={17} />} label={props.copy.needsChanges} onClick={() => setMode('needs_changes')} />

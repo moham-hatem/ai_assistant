@@ -6,13 +6,17 @@ export function asObject(value: unknown, field: string): Record<string, unknown>
 }
 
 export function readString(value: unknown, field: string): string {
-  if (typeof value !== 'string') invalid(field);
+  if (typeof value !== 'string' || value.trim().length === 0) invalid(field);
   return value;
 }
 
 export function readNullableString(value: unknown, field: string): string | null {
   if (value !== null && typeof value !== 'string') invalid(field);
   return value as string | null;
+}
+
+export function readNullableNonEmptyString(value: unknown, field: string): string | null {
+  return value === null ? null : readString(value, field);
 }
 
 export function readInteger(value: unknown, field: string): number {

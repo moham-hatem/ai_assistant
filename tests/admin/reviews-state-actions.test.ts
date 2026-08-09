@@ -5,6 +5,7 @@ import {
   buildDecisionRequest,
   ReviewActionValidationError,
 } from '../../src/features/admin/reviews/review-actions.ts';
+import { canApproveAsIs } from '../../src/features/admin/reviews/review-action-availability.ts';
 import {
   createReviewWorkspaceState,
   reviewWorkspaceReducer,
@@ -40,6 +41,19 @@ test('decision builders reject missing, oversized, and byte-heavy fields', () =>
   assertValidation('notes_required', () => buildDecisionRequest({ correctedAnswer: '', internalNotes: ' ', mode: 'needs_changes', reviewerId: 'teacher-a' }));
   assertValidation('notes_too_long', () => buildDecisionRequest({ correctedAnswer: '', internalNotes: 'x'.repeat(4_001), mode: 'needs_changes', reviewerId: 'teacher-a' }));
   assertValidation('request_too_large', () => buildDecisionRequest({ correctedAnswer: 'م'.repeat(8_200), internalNotes: '', mode: 'approve_edited', reviewerId: 'teacher-a' }));
+});
+
+test('as-is approval requires an original answer while edited approval remains independent', () => {
+  assert.equal(canApproveAsIs('Original grounded answer.'), true);
+  assert.equal(canApproveAsIs(null), false);
+  assert.equal(canApproveAsIs('   '), false);
+
+  assert.doesNotThrow(() => buildDecisionRequest({
+    correctedAnswer: 'Teacher-supplied corrected answer.',
+    internalNotes: '',
+    mode: 'approve_edited',
+    reviewerId: 'teacher-a',
+  }));
 });
 
 test('action lock drops repeated submissions and unlocks after completion', async () => {

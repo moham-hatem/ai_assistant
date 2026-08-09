@@ -75,6 +75,34 @@ test('review parsers reject malformed nested contracts', () => {
   );
 });
 
+test('review parsers reject blank essential identifiers and content fields', () => {
+  const malformedPayloads = [
+    () => parseReviewPage({ ...reviewPage, items: [{ item: { ...reviewItem, id: '   ' }, questionLog: questionSummary }] }),
+    () => parseReviewPage({ ...reviewPage, items: [{ item: reviewItem, questionLog: { ...questionSummary, question: '\t' } }] }),
+    () => parseReviewPage({ ...reviewPage, items: [{ item: reviewItem, questionLog: { ...questionSummary, answerLanguage: ' ' } }] }),
+    () => parseReviewPage({ ...reviewPage, items: [{ item: reviewItem, questionLog: { ...questionSummary, channel: '\n' } }] }),
+    () => parseReviewDetailResponse({ review: { ...reviewDetail, item: { ...reviewItem, assignedReviewerId: ' ' } } }),
+    () => parseReviewDetailResponse({ review: { ...reviewDetail, events: [{ ...reviewDetail.events[0], reviewerId: '\t' }] } }),
+    () => parseReviewDetailResponse({ review: { ...reviewDetail, questionLog: { ...reviewDetail.questionLog, evidenceReferences: ['  '] } } }),
+    () => parseReviewDetailResponse({
+      review: {
+        ...reviewDetail,
+        decision: {
+          correctedAnswer: null,
+          createdAt: '2026-08-08T08:01:00.000Z',
+          id: '89332da9-2151-42de-a49d-b94efc72ade1',
+          internalNotes: null,
+          outcome: 'approved',
+          reviewItemId: reviewItem.id,
+          reviewerId: ' ',
+        },
+      },
+    }),
+  ];
+
+  for (const parse of malformedPayloads) assert.throws(parse, ReviewsApiError);
+});
+
 test('typed review client encodes exact filters and omits absent decision fields', async () => {
   const originalFetch = globalThis.fetch;
   const calls: Array<{ body?: string; method?: string; url: string }> = [];
