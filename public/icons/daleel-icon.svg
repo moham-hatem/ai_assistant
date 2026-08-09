@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">Daleel book mark</title>
+  <desc id="description">A cream open book on a deep green background</desc>
+  <rect width="512" height="512" fill="#0b4f35"/>
+  <circle cx="256" cy="248" r="154" fill="#126b49"/>
+  <path d="M256 174c-31-26-76-38-126-31v188c50-7 95 5 126 31V174Z" fill="#fffdf4"/>
+  <path d="M256 174c31-26 76-38 126-31v188c-50-7-95 5-126 31V174Z" fill="#f1f4e9"/>
+  <path d="M256 174v188" fill="none" stroke="#d2b466" stroke-linecap="round" stroke-width="12"/>
+  <path d="M163 194c25-1 47 4 67 14M163 236c25-1 47 4 67 14M349 194c-25-1-47 4-67 14M349 236c-25-1-47 4-67 14" fill="none" stroke="#0b4f35" stroke-linecap="round" stroke-width="10" opacity=".72"/>
+</svg>
