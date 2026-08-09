@@ -8,15 +8,17 @@ const documentFormats = ['docx', 'markdown', 'pdf', 'text'] as const;
 
 export function parseBookEditionUpload(
   value: unknown,
-  expectedBookId?: string,
+  expectedBookId: string,
+  expectedVersion: string,
 ): BookEditionUploadResult {
   const payload = asObject(value, 'edition upload');
   const book = parseBook(payload.book);
   const edition = parseEdition(payload.edition);
   const document = parseDocument(payload.document);
 
-  if ((expectedBookId && book.id !== expectedBookId)
+  if (book.id !== expectedBookId
     || edition.bookId !== book.id
+    || edition.version !== expectedVersion
     || edition.status !== 'ready'
     || edition.originalDocumentReference !== `document:${document.id}`) {
     invalid('edition upload relationship');

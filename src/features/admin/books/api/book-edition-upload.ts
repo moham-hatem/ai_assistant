@@ -53,7 +53,7 @@ export async function uploadBookEdition(
         return;
       }
       try {
-        resolve(parseBookEditionUpload(payload, bookId));
+        resolve(parseBookEditionUpload(payload, bookId, normalizedVersion));
       } catch (error) {
         reject(error);
       }

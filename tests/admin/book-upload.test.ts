@@ -41,20 +41,42 @@ const edition = {
 const payload = { book, document, edition, requestId: 'ignored' };
 
 test('linked upload parser accepts only a coherent ready edition result', () => {
-  assert.deepEqual(parseBookEditionUpload(payload, book.id), payloadWithoutMetadata());
+  assert.deepEqual(
+    parseBookEditionUpload(payload, book.id, edition.version),
+    payloadWithoutMetadata(),
+  );
   assert.throws(
-    () => parseBookEditionUpload({ ...payload, edition: { ...edition, status: 'published' } }),
+    () => parseBookEditionUpload(
+      { ...payload, edition: { ...edition, status: 'published' } },
+      book.id,
+      edition.version,
+    ),
     BooksApiError,
   );
   assert.throws(
-    () => parseBookEditionUpload({ ...payload, document: { ...document, format: 'epub' } }),
+    () => parseBookEditionUpload(
+      { ...payload, document: { ...document, format: 'epub' } },
+      book.id,
+      edition.version,
+    ),
     BooksApiError,
   );
   assert.throws(
-    () => parseBookEditionUpload({ ...payload, edition: { ...edition, bookId: 'another-book' } }),
+    () => parseBookEditionUpload(
+      { ...payload, edition: { ...edition, bookId: 'another-book' } },
+      book.id,
+      edition.version,
+    ),
     BooksApiError,
   );
-  assert.throws(() => parseBookEditionUpload(payload, 'another-book'), BooksApiError);
+  assert.throws(
+    () => parseBookEditionUpload(payload, 'another-book', edition.version),
+    BooksApiError,
+  );
+  assert.throws(
+    () => parseBookEditionUpload(payload, book.id, 'another-version'),
+    BooksApiError,
+  );
 });
 
 test('linked upload client sends encoded identity and reports upload progress', async () => {
@@ -101,6 +123,19 @@ test('linked upload client preserves stable backend failures without exposing me
   await rejectsWithCode(
     uploadBookEdition(book.id, 'v2', file('lesson.txt', 80), { createRequest: () => request }),
     'DUPLICATE_EDITION',
+  );
+});
+
+test('linked upload client rejects a successful payload for a different version', async () => {
+  const mismatched = {
+    ...payload,
+    edition: { ...edition, version: 'another-version' },
+  };
+  await rejectsWithCode(
+    uploadBookEdition(book.id, ' 2.0 beta ', file('lesson.txt', 80), {
+      createRequest: () => new FakeUploadRequest(mismatched, 201),
+    }),
+    'INVALID_RESPONSE',
   );
 });
 
