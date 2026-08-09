@@ -61,11 +61,11 @@ const metadataKeys: Record<SecurityAuditAction, readonly string[]> = {
   'access.recovery_created': ['reason'],
   'access.recovery_redeemed': ['reason'],
   'access.recovery_revoked': ['reason'],
-  'access.user_disabled': ['reason'],
-  'access.user_enabled': ['reason'],
-  'access.user_profile_changed': ['displayNameChanged', 'reason'],
-  'access.user_roles_changed': ['nextRoleCount', 'previousRoleCount', 'reason'],
-  'access.user_sessions_revoked': ['reason'],
+  'access.user_disabled': ['changed', 'reason'],
+  'access.user_enabled': ['changed', 'reason'],
+  'access.user_profile_changed': ['changed', 'reason'],
+  'access.user_roles_changed': ['changed', 'nextRoleCount', 'previousRoleCount', 'reason'],
+  'access.user_sessions_revoked': ['reason', 'sessionCount'],
   'auth.login': ['reason'],
   'auth.logout': [],
   'auth.session_revoked': ['reason'],
@@ -102,7 +102,7 @@ const administrativeAccessActions = new Set<SecurityAuditAction>([
 const accessReasons = new Set([
   'administrative', 'conflict', 'invalid_or_expired', 'invalid_request', 'last_admin',
   'not_found', 'rate_limited', 'recovery_redeemed', 'self_lockout', 'storage_failure',
-  'user_access_changed', 'user_disabled',
+  'sibling_redeemed', 'user_access_changed', 'user_disabled',
 ]);
 const forbiddenMetadataName = /(email|password|passphrase|secret|token|cookie|link|hash|question|answer|content|bookText|text)/iu;
 
@@ -130,7 +130,11 @@ export function validateSecurityAuditCommand(command: SecurityAuditCommand): Sec
   if (publicRedemptionActions.has(command.action) && command.actorUserId !== null) {
     invalid('Public redemption events cannot have an actor.');
   }
-  if (administrativeAccessActions.has(command.action) && command.actorUserId === null) {
+  const siblingRevocation = (command.action === 'access.invitation_revoked'
+      || command.action === 'access.recovery_revoked')
+    && command.metadata?.reason === 'sibling_redeemed';
+  if (administrativeAccessActions.has(command.action) && command.actorUserId === null
+      && !siblingRevocation) {
     invalid('Administrative access events require an actor.');
   }
   const metadata = command.metadata ?? {};
@@ -147,8 +151,12 @@ export function validateSecurityAuditCommand(command: SecurityAuditCommand): Sec
         invalid('Access audit role count is invalid.');
       }
     }
-    if (command.category === 'access' && key === 'displayNameChanged' && value !== true) {
+    if (command.category === 'access' && key === 'changed' && typeof value !== 'boolean') {
       invalid('Access audit change flag is invalid.');
+    }
+    if (command.category === 'access' && key === 'sessionCount'
+        && (!Number.isSafeInteger(value) || Number(value) < 0)) {
+      invalid('Access audit session count is invalid.');
     }
     if (command.category === 'access' && key === 'reason'
         && (typeof value !== 'string' || !accessReasons.has(value))) {

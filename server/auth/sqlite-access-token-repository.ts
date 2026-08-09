@@ -32,7 +32,10 @@ export class SqliteAccessTokenRepository {
     tokenHash: string,
     passwordHash: string,
     timestamp: string,
-    audit?: (user: AuthUser) => readonly SecurityAuditCommand[],
+    audit?: (
+      user: AuthUser,
+      revokedInvitationIds: readonly string[],
+    ) => readonly SecurityAuditCommand[],
   ): Promise<AuthUser | undefined> {
     return this.invitations.redeem(tokenHash, passwordHash, timestamp, audit);
   }
@@ -57,7 +60,11 @@ export class SqliteAccessTokenRepository {
     tokenHash: string,
     passwordHash: string,
     timestamp: string,
-    audit?: (user: AuthUser) => readonly SecurityAuditCommand[],
+    audit?: (
+      user: AuthUser,
+      revokedRecoveryIds: readonly string[],
+      sessionCount: number,
+    ) => readonly SecurityAuditCommand[],
   ): Promise<AuthUser | undefined> {
     return this.recoveries.redeem(tokenHash, passwordHash, timestamp, audit);
   }

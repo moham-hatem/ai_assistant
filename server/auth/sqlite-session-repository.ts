@@ -103,14 +103,16 @@ export class SqliteSessionRepository {
   async revokeAll(
     userId: string,
     revokedAt: string,
-    audit?: SecurityAuditCommand,
+    audit?: (sessionCount: number) => SecurityAuditCommand | undefined,
   ): Promise<number> {
     return withImmediateTransaction(this.database, () => {
       const result = this.database.prepare(`
         UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL
       `).run(revokedAt, userId);
-      if (audit && result.changes > 0) enqueueSecurityAudit(this.database, audit);
-      return Number(result.changes);
+      const sessionCount = Number(result.changes);
+      const event = audit?.(sessionCount);
+      if (event) enqueueSecurityAudit(this.database, event);
+      return sessionCount;
     });
   }
 }

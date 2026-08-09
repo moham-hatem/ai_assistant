@@ -16,11 +16,11 @@ const accessCases: Array<{
   metadata: Record<string, boolean | number | string>;
   subjectType: SecurityAuditSubjectType;
 }> = [
-  { action: 'access.user_profile_changed', metadata: { displayNameChanged: true }, subjectType: 'user' },
-  { action: 'access.user_roles_changed', metadata: { nextRoleCount: 2, previousRoleCount: 1 }, subjectType: 'user' },
-  { action: 'access.user_enabled', metadata: {}, subjectType: 'user' },
-  { action: 'access.user_disabled', metadata: {}, subjectType: 'user' },
-  { action: 'access.user_sessions_revoked', metadata: { reason: 'administrative' }, subjectType: 'user' },
+  { action: 'access.user_profile_changed', metadata: { changed: true }, subjectType: 'user' },
+  { action: 'access.user_roles_changed', metadata: { changed: true, nextRoleCount: 2, previousRoleCount: 1 }, subjectType: 'user' },
+  { action: 'access.user_enabled', metadata: { changed: false }, subjectType: 'user' },
+  { action: 'access.user_disabled', metadata: { changed: true }, subjectType: 'user' },
+  { action: 'access.user_sessions_revoked', metadata: { reason: 'administrative', sessionCount: 0 }, subjectType: 'user' },
   { action: 'access.invitation_created', metadata: { roleCount: 1 }, subjectType: 'invitation' },
   { action: 'access.invitation_revoked', metadata: {}, subjectType: 'invitation' },
   { action: 'access.invitation_redeemed', metadata: { roleCount: 1 }, subjectType: 'user' },

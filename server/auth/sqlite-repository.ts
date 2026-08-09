@@ -129,7 +129,11 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
     return await this.sessions.revoke(tokenHash, revokedAt, audit);
   }
 
-  async revokeAllUserSessions(userId: string, revokedAt: string, audit?: SecurityAuditCommand): Promise<number> {
+  async revokeAllUserSessions(
+    userId: string,
+    revokedAt: string,
+    audit?: (sessionCount: number) => SecurityAuditCommand | undefined,
+  ): Promise<number> {
     return await this.sessions.revokeAll(userId, revokedAt, audit);
   }
 
@@ -174,7 +178,7 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
     roles: AuthRole[];
     timestamp: string;
     userId: string;
-  }, audit?: readonly SecurityAuditCommand[]): Promise<AuthUser> {
+  }, audit?: (sessionCount: number) => readonly SecurityAuditCommand[]): Promise<AuthUser> {
     return this.accessUsers.update(command, audit);
   }
 
@@ -183,7 +187,7 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
     userId: string,
     enabled: boolean,
     timestamp: string,
-    audit?: readonly SecurityAuditCommand[],
+    audit?: (changed: boolean, sessionCount: number) => readonly SecurityAuditCommand[],
   ): Promise<AuthUser> {
     return this.accessUsers.setEnabled(actorId, userId, enabled, timestamp, audit);
   }
@@ -203,7 +207,10 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
     tokenHash: string,
     passwordHash: string,
     timestamp: string,
-    audit?: (user: AuthUser) => readonly SecurityAuditCommand[],
+    audit?: (
+      user: AuthUser,
+      revokedInvitationIds: readonly string[],
+    ) => readonly SecurityAuditCommand[],
   ): Promise<AuthUser | undefined> {
     return this.accessTokens.redeemInvitation(tokenHash, passwordHash, timestamp, audit);
   }
@@ -224,7 +231,11 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
     tokenHash: string,
     passwordHash: string,
     timestamp: string,
-    audit?: (user: AuthUser) => readonly SecurityAuditCommand[],
+    audit?: (
+      user: AuthUser,
+      revokedRecoveryIds: readonly string[],
+      sessionCount: number,
+    ) => readonly SecurityAuditCommand[],
   ): Promise<AuthUser | undefined> {
     return this.accessTokens.redeemRecovery(tokenHash, passwordHash, timestamp, audit);
   }

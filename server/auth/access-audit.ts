@@ -8,6 +8,7 @@ import type {
 import type { SecurityAuditCommand } from '../modules/security-audit/domain.ts';
 import type { SecurityAuditSink } from '../modules/security-audit/repository.ts';
 import type { SecurityAuditService } from '../modules/security-audit/service.ts';
+import { AppError } from '../errors.ts';
 
 export type AccessAuditAction = Extract<SecurityAuditAction, `access.${string}`>;
 
@@ -105,6 +106,42 @@ export class AccessAuditEmitter {
     }
   }
 
+  async durableDenied(
+    action: AccessAuditAction,
+    requestId: string,
+    actorUserId: string,
+    subject: AccessAuditSubject | null,
+    metadata: Record<string, SecurityAuditMetadataValue> = {},
+  ): Promise<void> {
+    if (!this.audit) return;
+    const command: SecurityAuditCommand = {
+      action,
+      actorUserId,
+      category: 'access',
+      id: this.createId(),
+      metadata,
+      outcome: 'denied',
+      requestId,
+      subjectId: subject?.id ?? null,
+      subjectType: subject?.type ?? null,
+      timestamp: this.now().toISOString(),
+    };
+    if (!this.outbox?.enqueueSecurityAudit) {
+      await this.audit.record(command);
+      return;
+    }
+    try {
+      await this.outbox.enqueueSecurityAudit(command);
+    } catch (error) {
+      throw auditUnavailable(error);
+    }
+    try {
+      await this.flush(this.outbox);
+    } catch {
+      // The durable outbox owns retry; do not append directly and duplicate the event.
+    }
+  }
+
   async flush(repository: {
     flushSecurityAuditOutbox?(sink: SecurityAuditSink): Promise<number>;
   }): Promise<void> {
@@ -112,4 +149,14 @@ export class AccessAuditEmitter {
       await repository.flushSecurityAuditOutbox(this.audit);
     }
   }
+}
+
+function auditUnavailable(error: unknown): AppError {
+  if (error instanceof AppError && error.code === 'SECURITY_AUDIT_UNAVAILABLE') return error;
+  return new AppError(
+    'SECURITY_AUDIT_UNAVAILABLE',
+    'Security audit is temporarily unavailable.',
+    503,
+    { cause: error },
+  );
 }

@@ -96,7 +96,7 @@ export class AuthService {
         await this.repository.revokeAllUserSessions(
           user.id,
           now.toISOString(),
-          this.audit ? withIdentity(
+          this.audit ? () => withIdentity(
             authEvent(
               'auth.session_revoked', 'success', requestId, null, user.id,
               { reason: 'disabled_user' },
@@ -174,7 +174,11 @@ export class AuthService {
         now.toISOString(),
       ) : undefined;
       if (user) {
-        await this.repository.revokeAllUserSessions(user.id, now.toISOString(), audit);
+        await this.repository.revokeAllUserSessions(
+          user.id,
+          now.toISOString(),
+          audit ? () => audit : undefined,
+        );
       } else {
         await this.repository.revokeSession(tokenHash, now.toISOString(), audit);
       }
@@ -199,7 +203,7 @@ export class AuthService {
   async revokeAll(userId: string): Promise<void> {
     const requestId = randomUUID();
     const at = this.now().toISOString();
-    await this.repository.revokeAllUserSessions(userId, at, this.audit ? withIdentity(
+    await this.repository.revokeAllUserSessions(userId, at, this.audit ? () => withIdentity(
       authEvent('auth.session_revoked', 'success', requestId, null, userId, { reason: 'administrative' }),
       at,
     ) : undefined);

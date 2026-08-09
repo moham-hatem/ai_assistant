@@ -8,6 +8,7 @@ import { AccessTokenRejectedError, InvalidAccessInputError } from './access-erro
 import type { AccessRedemptionService } from './access-redemption-service.ts';
 import {
   type AccessTokenServiceOptions,
+  isAccessId,
   requireAccessId,
   requireFactoryToken,
   secretLink,
@@ -52,7 +53,13 @@ export class InvitationService {
     const displayName = normalizeDisplayName(input.displayName);
     const email = normalizeEmail(input.email);
     const roles = parseRoles(input.roles);
-    if (!displayName || !email || !roles) throw new InvalidAccessInputError();
+    if (!displayName || !email || !roles) {
+      await this.audit.durableDenied(
+        'access.invitation_created', requestId, actorId, null,
+        { reason: 'invalid_request' },
+      );
+      throw new InvalidAccessInputError();
+    }
     const token = requireFactoryToken(this.tokenFactory);
     const now = this.now();
     const timestamp = now.toISOString();
@@ -101,17 +108,30 @@ export class InvitationService {
         tokenHash,
         passwordHash,
         timestamp,
-        this.audit.enabled ? (user) => [this.audit.success(
-          'access.invitation_redeemed', requestId, timestamp, null,
-          { id: user.id, type: 'user' }, { roleCount: user.roles.length },
-        )!] : undefined,
+        this.audit.enabled ? (user, revokedInvitationIds) => {
+          const events = [this.audit.success(
+            'access.invitation_redeemed', requestId, timestamp, null,
+            { id: user.id, type: 'user' }, { roleCount: user.roles.length },
+          )!];
+          for (const id of revokedInvitationIds) events.push(this.audit.success(
+            'access.invitation_revoked', requestId, timestamp, null,
+            { id, type: 'invitation' }, { reason: 'sibling_redeemed' },
+          )!);
+          return events;
+        } : undefined,
       ),
     );
   }
 
   async revoke(actorId: string, id: string, requestId: string): Promise<void> {
     requireAccessId(actorId);
-    requireAccessId(id);
+    if (!isAccessId(id)) {
+      await this.audit.durableDenied(
+        'access.invitation_revoked', requestId, actorId, null,
+        { reason: 'invalid_request' },
+      );
+      throw new InvalidAccessInputError();
+    }
     const timestamp = this.now().toISOString();
     try {
       const revoked = await this.repository.revokeInvitation(

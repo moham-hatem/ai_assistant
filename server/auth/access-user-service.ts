@@ -58,14 +58,22 @@ export class AccessUserService {
     requestId: string = randomUUID(),
   ): Promise<AccessUserDetails> {
     requireId(actorId);
-    requireId(userId);
-    if (input.displayName === undefined && input.roles === undefined) {
-      throw new InvalidAccessInputError();
-    }
+    const subject = isValidId(userId) ? { id: userId, type: 'user' } as const : null;
     const attemptedAction = input.roles !== undefined
       ? 'access.user_roles_changed'
       : 'access.user_profile_changed';
-    const subject = { id: userId, type: 'user' } as const;
+    if (!subject) {
+      await this.audit.durableDenied(
+        attemptedAction, requestId, actorId, null, { reason: 'invalid_request' },
+      );
+      throw new InvalidAccessInputError();
+    }
+    if (input.displayName === undefined && input.roles === undefined) {
+      await this.audit.durableDenied(
+        attemptedAction, requestId, actorId, subject, { reason: 'invalid_request' },
+      );
+      throw new InvalidAccessInputError();
+    }
     let current: AuthUser | undefined;
     try {
       current = await this.repository.findUserById(userId);
@@ -86,32 +94,39 @@ export class AccessUserService {
       ? current.displayName
       : normalizeDisplayName(input.displayName);
     const roles = input.roles === undefined ? current.roles : parseRoles(input.roles);
-    if (!displayName || !roles) throw new InvalidAccessInputError();
+    if (!displayName || !roles) {
+      await this.audit.durableDenied(
+        attemptedAction, requestId, actorId, subject, { reason: 'invalid_request' },
+      );
+      throw new InvalidAccessInputError();
+    }
     const displayNameChanged = displayName !== current.displayName;
     const rolesChanged = !sameRoles(roles, current.roles);
-    if (!displayNameChanged && !rolesChanged) return safeUser(current);
     const timestamp = this.now().toISOString();
-    const events: SecurityAuditCommand[] = [];
-    const profileEvent = displayNameChanged ? this.audit.success(
-      'access.user_profile_changed', requestId, timestamp, actorId, subject,
-      { displayNameChanged: true },
-    ) : undefined;
-    const rolesEvent = rolesChanged ? this.audit.success(
-      'access.user_roles_changed', requestId, timestamp, actorId, subject,
-      { nextRoleCount: roles.length, previousRoleCount: current.roles.length },
-    ) : undefined;
-    const sessionsEvent = this.audit.success(
-      'access.user_sessions_revoked', requestId, timestamp, actorId, subject,
-      { reason: 'user_access_changed' },
-    );
-    if (profileEvent) events.push(profileEvent);
-    if (rolesEvent) events.push(rolesEvent);
-    if (sessionsEvent) events.push(sessionsEvent);
     let user: AuthUser;
     try {
       user = await this.repository.updateUserAccess({
         actorId, displayName, roles, timestamp, userId,
-      }, events);
+      }, (sessionCount) => {
+        const events: SecurityAuditCommand[] = [];
+        if (input.displayName !== undefined) pushEvent(events, this.audit.success(
+          'access.user_profile_changed', requestId, timestamp, actorId, subject,
+          { changed: displayNameChanged },
+        ));
+        if (input.roles !== undefined) pushEvent(events, this.audit.success(
+          'access.user_roles_changed', requestId, timestamp, actorId, subject,
+          {
+            changed: rolesChanged,
+            nextRoleCount: roles.length,
+            previousRoleCount: current.roles.length,
+          },
+        ));
+        if (displayNameChanged || rolesChanged) pushEvent(events, this.audit.success(
+          'access.user_sessions_revoked', requestId, timestamp, actorId, subject,
+          { reason: 'user_access_changed', sessionCount },
+        ));
+        return events;
+      });
     } catch (error) {
       const action = rolesChanged ? 'access.user_roles_changed' : 'access.user_profile_changed';
       const expected = error instanceof AccessLockoutError
@@ -135,23 +150,34 @@ export class AccessUserService {
     requestId: string = randomUUID(),
   ): Promise<AccessUserDetails> {
     requireId(actorId);
-    requireId(userId);
-    const timestamp = this.now().toISOString();
-    const subject = { id: userId, type: 'user' } as const;
     const action = enabled ? 'access.user_enabled' : 'access.user_disabled';
-    const events: SecurityAuditCommand[] = [];
-    const stateEvent = this.audit.success(action, requestId, timestamp, actorId, subject);
-    if (stateEvent) events.push(stateEvent);
-    if (!enabled) {
-      const sessionsEvent = this.audit.success(
-        'access.user_sessions_revoked', requestId, timestamp, actorId, subject,
-        { reason: 'user_disabled' },
+    const subject = isValidId(userId) ? { id: userId, type: 'user' } as const : null;
+    if (!subject || typeof enabled !== 'boolean') {
+      await this.audit.durableDenied(
+        action, requestId, actorId, subject, { reason: 'invalid_request' },
       );
-      if (sessionsEvent) events.push(sessionsEvent);
+      throw new InvalidAccessInputError();
     }
+    const timestamp = this.now().toISOString();
     let user: AuthUser;
     try {
-      user = await this.repository.setUserEnabled(actorId, userId, enabled, timestamp, events);
+      user = await this.repository.setUserEnabled(
+        actorId,
+        userId,
+        enabled,
+        timestamp,
+        (changed, sessionCount) => {
+          const events: SecurityAuditCommand[] = [];
+          pushEvent(events, this.audit.success(
+            action, requestId, timestamp, actorId, subject, { changed },
+          ));
+          if (!enabled && changed) pushEvent(events, this.audit.success(
+            'access.user_sessions_revoked', requestId, timestamp, actorId, subject,
+            { reason: 'user_disabled', sessionCount },
+          ));
+          return events;
+        },
+      );
     } catch (error) {
       const expected = error instanceof AccessLockoutError
         || error instanceof AccessUserNotFoundError;
@@ -173,14 +199,22 @@ export class AccessUserService {
     requestId: string = randomUUID(),
   ): Promise<void> {
     requireId(actorId);
-    requireId(userId);
+    const subject = isValidId(userId) ? { id: userId, type: 'user' } as const : null;
+    if (!subject) {
+      await this.audit.durableDenied(
+        'access.user_sessions_revoked', requestId, actorId, null,
+        { reason: 'invalid_request' },
+      );
+      throw new InvalidAccessInputError();
+    }
     const timestamp = this.now().toISOString();
-    const subject = { id: userId, type: 'user' } as const;
     try {
       if (!await this.repository.findUserById(userId)) throw new AccessUserNotFoundError();
-      await this.repository.revokeAllUserSessions(userId, timestamp, this.audit.success(
-        'access.user_sessions_revoked', requestId, timestamp, actorId,
-        subject, { reason: 'administrative' },
+      await this.repository.revokeAllUserSessions(userId, timestamp, (sessionCount) => (
+        this.audit.success(
+          'access.user_sessions_revoked', requestId, timestamp, actorId,
+          subject, { reason: 'administrative', sessionCount },
+        )
       ));
     } catch (error) {
       const expected = error instanceof AccessUserNotFoundError;
@@ -239,7 +273,16 @@ function parseLimit(value: unknown): number {
 }
 
 function requireId(value: string): void {
-  if (!value || value.length > 128 || /[\p{Cc}\p{Cf}]/u.test(value)) {
+  if (!isValidId(value)) {
     throw new InvalidAccessInputError();
   }
+}
+
+function isValidId(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 128
+    && !/[\p{Cc}\p{Cf}]/u.test(value);
+}
+
+function pushEvent(events: SecurityAuditCommand[], event: SecurityAuditCommand | undefined): void {
+  if (event) events.push(event);
 }

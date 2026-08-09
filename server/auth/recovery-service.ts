@@ -4,10 +4,11 @@ import {
   AccessUserNotFoundError,
   type AccessRepository,
 } from './access-repository.ts';
-import { AccessTokenRejectedError } from './access-errors.ts';
+import { AccessTokenRejectedError, InvalidAccessInputError } from './access-errors.ts';
 import type { AccessRedemptionService } from './access-redemption-service.ts';
 import {
   type AccessTokenServiceOptions,
+  isAccessId,
   requireAccessId,
   requireFactoryToken,
   secretLink,
@@ -43,7 +44,13 @@ export class RecoveryService {
 
   async create(actorId: string, userId: string, requestId: string): Promise<SecretLinkResponse> {
     requireAccessId(actorId);
-    requireAccessId(userId);
+    if (!isAccessId(userId)) {
+      await this.audit.durableDenied(
+        'access.recovery_created', requestId, actorId, null,
+        { reason: 'invalid_request' },
+      );
+      throw new InvalidAccessInputError();
+    }
     const token = requireFactoryToken(this.tokenFactory);
     const now = this.now();
     const timestamp = now.toISOString();
@@ -90,23 +97,35 @@ export class RecoveryService {
         tokenHash,
         passwordHash,
         timestamp,
-        this.audit.enabled ? (user) => [
-          this.audit.success(
+        this.audit.enabled ? (user, revokedRecoveryIds, sessionCount) => {
+          const events = [this.audit.success(
             'access.recovery_redeemed', requestId, timestamp, null,
             { id: user.id, type: 'user' },
           )!,
           this.audit.success(
             'access.user_sessions_revoked', requestId, timestamp, null,
-            { id: user.id, type: 'user' }, { reason: 'recovery_redeemed' },
+            { id: user.id, type: 'user' }, { reason: 'recovery_redeemed', sessionCount },
           )!,
-        ] : undefined,
+          ];
+          for (const id of revokedRecoveryIds) events.push(this.audit.success(
+            'access.recovery_revoked', requestId, timestamp, null,
+            { id, type: 'recovery' }, { reason: 'sibling_redeemed' },
+          )!);
+          return events;
+        } : undefined,
       ),
     );
   }
 
   async revoke(actorId: string, id: string, requestId: string): Promise<void> {
     requireAccessId(actorId);
-    requireAccessId(id);
+    if (!isAccessId(id)) {
+      await this.audit.durableDenied(
+        'access.recovery_revoked', requestId, actorId, null,
+        { reason: 'invalid_request' },
+      );
+      throw new InvalidAccessInputError();
+    }
     const timestamp = this.now().toISOString();
     try {
       const revoked = await this.repository.revokeRecovery(

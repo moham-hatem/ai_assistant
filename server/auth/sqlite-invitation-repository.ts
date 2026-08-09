@@ -45,6 +45,12 @@ export class SqliteInvitationRepository {
         if (this.database.prepare('SELECT 1 FROM auth_users WHERE email = ?').get(record.email)) {
           throw new AccessConflictError();
         }
+        if (this.database.prepare(`
+          SELECT 1 FROM auth_invitations
+          WHERE email = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?
+        `).get(record.email, record.createdAt)) {
+          throw new AccessConflictError();
+        }
         this.database.prepare(`
           INSERT INTO auth_invitations (
             id, token_hash, email, display_name, created_by_user_id, created_at, expires_at
@@ -91,7 +97,10 @@ export class SqliteInvitationRepository {
     tokenHash: string,
     passwordHash: string,
     timestamp: string,
-    audit?: (user: AuthUser) => readonly SecurityAuditCommand[],
+    audit?: (
+      user: AuthUser,
+      revokedInvitationIds: readonly string[],
+    ) => readonly SecurityAuditCommand[],
   ): Promise<AuthUser | undefined> {
     return withImmediateTransaction(this.database, () => {
       const row = this.database.prepare(`
@@ -104,6 +113,13 @@ export class SqliteInvitationRepository {
           .run(timestamp, row.id);
         return undefined;
       }
+      const revokedInvitationIds = (this.database.prepare(`
+        SELECT id FROM auth_invitations
+        WHERE email = ? AND id <> ? AND used_at IS NULL AND revoked_at IS NULL
+          AND expires_at > ?
+        ORDER BY id
+      `).all(row.email, row.id, timestamp) as unknown as Array<{ id: string }>)
+        .map((item) => item.id);
       const userId = crypto.randomUUID();
       this.database.prepare(`
         INSERT INTO auth_users (
@@ -116,8 +132,17 @@ export class SqliteInvitationRepository {
       for (const role of normalizeRoles(this.roles(row.id))) insertRole.run(userId, role);
       this.database.prepare('UPDATE auth_invitations SET used_at = ? WHERE id = ?')
         .run(timestamp, row.id);
+      this.database.prepare(`
+        UPDATE auth_invitations SET revoked_at = ?
+        WHERE email = ? AND id <> ? AND used_at IS NULL AND revoked_at IS NULL
+          AND expires_at > ?
+      `).run(timestamp, row.email, row.id, timestamp);
       const user = this.users.require(userId);
-      if (audit) for (const event of audit(user)) enqueueSecurityAudit(this.database, event);
+      if (audit) {
+        for (const event of audit(user, revokedInvitationIds)) {
+          enqueueSecurityAudit(this.database, event);
+        }
+      }
       return user;
     });
   }

@@ -11,9 +11,14 @@ export interface AccessTokenServiceOptions {
 }
 
 export function requireAccessId(value: string): void {
-  if (!value || value.length > 128 || /[\p{Cc}\p{Cf}]/u.test(value)) {
+  if (!isAccessId(value)) {
     throw new InvalidAccessInputError();
   }
+}
+
+export function isAccessId(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 128
+    && !/[\p{Cc}\p{Cf}]/u.test(value);
 }
 
 export function requireFactoryToken(factory: () => string): string {

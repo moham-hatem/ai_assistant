@@ -18,6 +18,11 @@ Before using authenticated administration locally, run `npm run audit:init`. It 
 empty placeholder but refuses to overwrite an existing key. Keep the key secret and backed up: it
 is required to verify the audit chain. Public answer and version endpoints remain available when
 the audit configuration is absent, while sensitive operations and successful login fail closed.
+The file is replaced atomically from a synced sibling temporary file. A lock younger than ten
+minutes is treated as an active initializer; an older lock is recovered automatically. Before
+removing a lock manually, verify that no `audit:init` process is running. On Windows the command
+prints a fixed warning because POSIX mode bits do not verify NTFS ACLs; inspect the `.env.local`
+Security properties and ensure only the intended account and trusted administrators can read it.
 
 Sensitive changes in the auth, books, and reviews SQLite databases enqueue their audit command in
 `security_audit_outbox` in the same transaction as the business change. Delivery to the separate
@@ -34,10 +39,13 @@ corrupt audit database leaves those routes available, but login success, audit r
 administrative writes fail with `503` until audit delivery recovers. Use `npm run audit:init`; it
 updates `.env.local` directly and never exposes the generated key in terminal output.
 
-The access lifecycle records profile and role changes, enable/disable operations, session
+The access lifecycle records profile and role update attempts, enable/disable operations, session
 revocation, and invitation/recovery creation, revocation, and redemption. Administrative events
 take their actor from the authenticated principal. Public redemption uses a null actor and records a
-user subject only after the transactional redemption succeeds.
+user subject only after the transactional redemption succeeds. Successful no-op updates use
+`changed=false`, and session revocation records the actual `sessionCount`, including zero; these
+values distinguish a successful API attempt from a state transition. Redeeming a token also
+transactionally revokes active sibling tokens and emits one minimized revocation event per sibling.
 
 Never add arbitrary metadata. The domain allowlist deliberately excludes emails, passwords, session
 tokens, links, raw hashes, cookies, full questions or answers, book/document text, and other content.

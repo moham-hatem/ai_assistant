@@ -10,9 +10,11 @@ import { SecurityAuditService } from '../modules/security-audit/service.ts';
 import { SqliteSecurityAuditRepository } from '../modules/security-audit/sqlite-repository.ts';
 import { UnavailableSecurityAuditRepository } from '../modules/security-audit/unavailable-repository.ts';
 import {
+  AccessConflictError,
   AccessLockoutError,
   AccessService,
   AccessUserNotFoundError,
+  InvalidAccessInputError,
 } from './access-service.ts';
 import { ScryptPasswordHasher } from './password.ts';
 import { InMemoryLoginRateLimiter } from './rate-limit.ts';
@@ -285,6 +287,24 @@ test('access state rolls back when its transactional audit outbox insert fails',
   );
   try {
     await assert.rejects(
+      access.updateUser(
+        'admin-1', 'user-1', { displayName: '   ', roles: undefined },
+        'request-invalid-outbox',
+      ),
+      (error: unknown) => error instanceof AppError
+        && error.code === 'SECURITY_AUDIT_UNAVAILABLE'
+        && error.status === 503,
+    );
+    assert.equal((await auth.findUserById('user-1'))?.displayName, 'user-1');
+    await assert.rejects(
+      access.createInvitation('admin-1', {
+        displayName: 'Invalid Invite', email: 'not-an-email', roles: ['reviewer'],
+      }, 'request-invalid-create-outbox'),
+      (error: unknown) => error instanceof AppError
+        && error.code === 'SECURITY_AUDIT_UNAVAILABLE'
+        && error.status === 503,
+    );
+    await assert.rejects(
       access.setEnabled('admin-1', 'user-1', false, 'request-rollback'),
       /injected audit outbox failure/u,
     );
@@ -299,6 +319,212 @@ test('access state rolls back when its transactional audit outbox insert fails',
     auth.close();
     auditRepository.close();
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('no-op sensitive successes are transactional, count zero work, and do not duplicate after sink recovery', async () => {
+  const auth = new SqliteAuthRepository(':memory:');
+  const passwords = new ScryptPasswordHasher(fastScrypt);
+  await createUser(auth, passwords, 'admin-1', 'admin@example.test', ['admin']);
+  await createUser(auth, passwords, 'user-1', 'user@example.test', ['reviewer']);
+  const access = new AccessService(
+    auth,
+    passwords,
+    new InMemoryLoginRateLimiter(),
+    { invitationTtlMs: 60_000, publicOrigin, recoveryTtlMs: 60_000 },
+    undefined,
+    undefined,
+    undefined,
+    new SecurityAuditService(new UnavailableSecurityAuditRepository()),
+  );
+  try {
+    for (const operation of [
+      () => access.updateUser(
+        'admin-1', 'user-1', { displayName: 'user-1', roles: undefined }, 'noop-profile',
+      ),
+      () => access.setEnabled('admin-1', 'user-1', true, 'noop-enabled'),
+      () => access.revokeAllSessions('admin-1', 'user-1', 'empty-sessions'),
+    ]) {
+      await assert.rejects(operation(), (error: unknown) => error instanceof AppError
+        && error.code === 'SECURITY_AUDIT_UNAVAILABLE'
+        && error.status === 503);
+    }
+
+    const recoveredRepository = new SqliteSecurityAuditRepository(
+      ':memory:', new Map([['v1', randomBytes(32)]]), 'v1',
+    );
+    try {
+      const recovered = new SecurityAuditService(recoveredRepository);
+      assert.equal(await auth.flushSecurityAuditOutbox(recovered), 3);
+      assert.equal(await auth.flushSecurityAuditOutbox(recovered), 0);
+      const events = await recovered.list({ category: 'access', limit: 10, offset: 0 });
+      assert.equal(events.total, 3);
+      assert.deepEqual(
+        events.items.find((event) => event.requestId === 'noop-profile')?.metadata,
+        { changed: false },
+      );
+      assert.deepEqual(
+        events.items.find((event) => event.requestId === 'noop-enabled')?.metadata,
+        { changed: false },
+      );
+      assert.deepEqual(
+        events.items.find((event) => event.requestId === 'empty-sessions')?.metadata,
+        { reason: 'administrative', sessionCount: 0 },
+      );
+    } finally {
+      recoveredRepository.close();
+    }
+  } finally {
+    auth.close();
+  }
+});
+
+test('successful redemption transactionally revokes every active sibling with one event per id', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'access-audit-siblings-'));
+  const databasePath = join(directory, 'auth.sqlite');
+  const auth = new SqliteAuthRepository(databasePath);
+  const auditRepository = new SqliteSecurityAuditRepository(
+    ':memory:', new Map([['v1', randomBytes(32)]]), 'v1',
+  );
+  const passwords = new ScryptPasswordHasher(fastScrypt);
+  await createUser(auth, passwords, 'admin-1', 'admin@example.test', ['admin']);
+  await createUser(auth, passwords, 'user-1', 'user@example.test', ['reviewer']);
+  const tokens = ['i', 'r', 's'].map((value) => value.repeat(43));
+  let nextId = 0;
+  const access = new AccessService(
+    auth,
+    passwords,
+    new InMemoryLoginRateLimiter(20, 60_000),
+    { invitationTtlMs: 60_000, publicOrigin, recoveryTtlMs: 60_000 },
+    () => new Date('2026-08-10T00:00:00.000Z'),
+    () => tokens.shift()!,
+    () => `token-${++nextId}`,
+    new SecurityAuditService(auditRepository),
+  );
+  try {
+    const invitation = await access.createInvitation('admin-1', {
+      displayName: 'Sibling Invite', email: 'sibling@example.test', roles: ['reviewer'],
+    }, 'create-current-invitation');
+    const control = new DatabaseSync(databasePath);
+    try {
+      control.prepare(`
+        INSERT INTO auth_invitations (
+          id, token_hash, email, display_name, created_by_user_id, created_at, expires_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        'legacy-sibling-invitation', hashSessionToken('l'.repeat(43)),
+        'sibling@example.test', 'Legacy Sibling', 'admin-1',
+        '2026-08-10T00:00:00.000Z', '2026-08-10T01:00:00.000Z',
+      );
+      control.prepare(`
+        INSERT INTO auth_invitation_roles(invitation_id, role) VALUES (?, ?)
+      `).run('legacy-sibling-invitation', 'reviewer');
+    } finally {
+      control.close();
+    }
+    await access.redeemInvitation(
+      secret(invitation.link, 'invitation'), 'invited secure password', 'public',
+      'redeem-invitation-siblings',
+    );
+    assert.equal(
+      (await auth.findInvitationByTokenHash(hashSessionToken('l'.repeat(43))))?.revokedAt,
+      '2026-08-10T00:00:00.000Z',
+    );
+
+    const firstRecovery = await access.createRecovery('admin-1', 'user-1', 'create-recovery-1');
+    const secondRecovery = await access.createRecovery('admin-1', 'user-1', 'create-recovery-2');
+    await access.redeemRecovery(
+      secret(secondRecovery.link, 'recovery'), 'replacement secure password', 'public-2',
+      'redeem-recovery-siblings',
+    );
+    assert.equal(
+      (await auth.findRecoveryByTokenHash(hashSessionToken(secret(firstRecovery.link, 'recovery'))))?.revokedAt,
+      '2026-08-10T00:00:00.000Z',
+    );
+
+    const events = await new SecurityAuditService(auditRepository).list({
+      category: 'access', limit: 50, offset: 0,
+    });
+    const invitationSibling = events.items.find((event) =>
+      event.requestId === 'redeem-invitation-siblings'
+      && event.action === 'access.invitation_revoked');
+    assert.equal(invitationSibling?.subjectId, 'legacy-sibling-invitation');
+    assert.equal(invitationSibling?.actorUserId, null);
+    assert.deepEqual(invitationSibling?.metadata, { reason: 'sibling_redeemed' });
+    const recoverySibling = events.items.find((event) =>
+      event.requestId === 'redeem-recovery-siblings'
+      && event.action === 'access.recovery_revoked');
+    assert.equal(recoverySibling?.subjectId, firstRecovery.id);
+    assert.equal(recoverySibling?.actorUserId, null);
+    assert.deepEqual(recoverySibling?.metadata, { reason: 'sibling_redeemed' });
+  } finally {
+    auth.close();
+    auditRepository.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('invalid and duplicate create/update attempts enqueue minimized denied events', async () => {
+  const auth = new SqliteAuthRepository(':memory:');
+  const auditRepository = new SqliteSecurityAuditRepository(
+    ':memory:', new Map([['v1', randomBytes(32)]]), 'v1',
+  );
+  const passwords = new ScryptPasswordHasher(fastScrypt);
+  await createUser(auth, passwords, 'admin-1', 'admin@example.test', ['admin']);
+  await createUser(auth, passwords, 'user-1', 'user@example.test', ['reviewer']);
+  const access = new AccessService(
+    auth,
+    passwords,
+    new InMemoryLoginRateLimiter(),
+    { invitationTtlMs: 60_000, publicOrigin, recoveryTtlMs: 60_000 },
+    undefined,
+    () => 'q'.repeat(43),
+    () => crypto.randomUUID(),
+    new SecurityAuditService(auditRepository),
+  );
+  const invalidName = 'raw-invalid-name-should-not-appear';
+  const invalidEmail = 'raw-invalid-email-should-not-appear';
+  try {
+    await assert.rejects(access.updateUser(
+      'admin-1', 'user-1', { displayName: ` ${invalidName} `.repeat(20), roles: undefined },
+      'invalid-update',
+    ), InvalidAccessInputError);
+    await assert.rejects(access.createInvitation('admin-1', {
+      displayName: 'Invite', email: invalidEmail, roles: ['reviewer'],
+    }, 'invalid-create'), InvalidAccessInputError);
+    await access.createInvitation('admin-1', {
+      displayName: 'Invite', email: 'active@example.test', roles: ['reviewer'],
+    }, 'active-create');
+    await assert.rejects(access.createInvitation('admin-1', {
+      displayName: 'Retry', email: 'ACTIVE@example.test', roles: ['operator'],
+    }, 'active-retry'), AccessConflictError);
+
+    const events = await new SecurityAuditService(auditRepository).list({
+      category: 'access', limit: 20, offset: 0,
+    });
+    for (const requestId of ['invalid-update', 'invalid-create', 'active-retry']) {
+      const event = events.items.find((item) => item.requestId === requestId);
+      assert.equal(event?.outcome, 'denied');
+      assert.equal(event?.actorUserId, 'admin-1');
+    }
+    assert.deepEqual(
+      events.items.find((item) => item.requestId === 'invalid-update')?.metadata,
+      { reason: 'invalid_request' },
+    );
+    assert.deepEqual(
+      events.items.find((item) => item.requestId === 'invalid-create')?.metadata,
+      { reason: 'invalid_request' },
+    );
+    const retry = events.items.find((item) => item.requestId === 'active-retry');
+    assert.equal(retry?.action, 'access.invitation_created');
+    assert.deepEqual(retry?.metadata, { reason: 'conflict', roleCount: 1 });
+    const serialized = JSON.stringify(events);
+    assert.equal(serialized.includes(invalidName), false);
+    assert.equal(serialized.includes(invalidEmail), false);
+    assert.equal(serialized.includes('active@example.test'), false);
+  } finally {
+    auth.close();
+    auditRepository.close();
   }
 });
 

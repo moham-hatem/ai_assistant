@@ -60,6 +60,9 @@ links expire after 24 hours; recovery links expire after one hour. They are 256-
 secrets, stored only as SHA-256 hashes, single-use, and revocable. No email is sent: the creating
 administrator receives the secret link exactly once in the creation response and must handle it
 as a password-equivalent secret. The server does not log it.
+Creating another active invitation for the same normalized email returns
+`409 ACCESS_OPERATION_REJECTED`, including concurrent or ambiguous retries. The API never returns
+an earlier one-time secret; revoke the active invitation or let it expire before creating another.
 
 Existing users migrate to `enabled`. Disabled users cannot log in or refresh a session, and all
 their active sessions are revoked. Role and enablement changes are transactional: the last

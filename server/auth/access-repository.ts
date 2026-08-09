@@ -36,13 +36,20 @@ export interface AccessRepository {
     tokenHash: string,
     passwordHash: string,
     timestamp: string,
-    audit?: (user: AuthUser) => readonly SecurityAuditCommand[],
+    audit?: (
+      user: AuthUser,
+      revokedInvitationIds: readonly string[],
+    ) => readonly SecurityAuditCommand[],
   ): Promise<AuthUser | undefined>;
   redeemRecovery(
     tokenHash: string,
     passwordHash: string,
     timestamp: string,
-    audit?: (user: AuthUser) => readonly SecurityAuditCommand[],
+    audit?: (
+      user: AuthUser,
+      revokedRecoveryIds: readonly string[],
+      sessionCount: number,
+    ) => readonly SecurityAuditCommand[],
   ): Promise<AuthUser | undefined>;
   revokeInvitation(id: string, timestamp: string, audit?: SecurityAuditCommand): Promise<boolean>;
   revokeRecovery(id: string, timestamp: string, audit?: SecurityAuditCommand): Promise<boolean>;
@@ -51,7 +58,10 @@ export interface AccessRepository {
     userId: string,
     enabled: boolean,
     timestamp: string,
-    audit?: readonly SecurityAuditCommand[],
+    audit?: (
+      changed: boolean,
+      sessionCount: number,
+    ) => readonly SecurityAuditCommand[],
   ): Promise<AuthUser>;
   updateUserAccess(command: {
     actorId: string;
@@ -59,7 +69,7 @@ export interface AccessRepository {
     roles: AuthRole[];
     timestamp: string;
     userId: string;
-  }, audit?: readonly SecurityAuditCommand[]): Promise<AuthUser>;
+  }, audit?: (sessionCount: number) => readonly SecurityAuditCommand[]): Promise<AuthUser>;
 }
 
 export class AccessUserNotFoundError extends Error {}

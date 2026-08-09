@@ -50,7 +50,7 @@ export class SqliteAccessUserRepository {
     roles: AuthRole[];
     timestamp: string;
     userId: string;
-  }, audit: readonly SecurityAuditCommand[] = []): Promise<AuthUser> {
+  }, audit?: (sessionCount: number) => readonly SecurityAuditCommand[]): Promise<AuthUser> {
     if (normalizeDisplayName(command.displayName) !== command.displayName) {
       throw new Error('Display name is not normalized.');
     }
@@ -62,12 +62,17 @@ export class SqliteAccessUserRepository {
         throw new AccessLockoutError('Administrators cannot remove their own settings access.');
       }
       this.assertLastAdminRemains(current, current.enabled === 1, roles);
-      this.database.prepare(`
-        UPDATE auth_users SET display_name = ?, updated_at = ? WHERE id = ?
-      `).run(command.displayName, command.timestamp, command.userId);
-      this.replaceRoles(command.userId, roles);
-      this.revokeSessions(command.userId, command.timestamp);
-      for (const event of audit) enqueueSecurityAudit(this.database, event);
+      const changed = command.displayName !== current.display_name
+        || !sameRoles(roles, this.rolesFor(command.userId));
+      let sessionCount = 0;
+      if (changed) {
+        this.database.prepare(`
+          UPDATE auth_users SET display_name = ?, updated_at = ? WHERE id = ?
+        `).run(command.displayName, command.timestamp, command.userId);
+        this.replaceRoles(command.userId, roles);
+        sessionCount = this.revokeSessions(command.userId, command.timestamp);
+      }
+      for (const event of audit?.(sessionCount) ?? []) enqueueSecurityAudit(this.database, event);
       return this.requireUser(command.userId);
     });
   }
@@ -77,7 +82,7 @@ export class SqliteAccessUserRepository {
     userId: string,
     enabled: boolean,
     timestamp: string,
-    audit: readonly SecurityAuditCommand[] = [],
+    audit?: (changed: boolean, sessionCount: number) => readonly SecurityAuditCommand[],
   ): Promise<AuthUser> {
     return withImmediateTransaction(this.database, () => {
       const current = this.findRow(userId);
@@ -87,11 +92,17 @@ export class SqliteAccessUserRepository {
       }
       const roles = this.rolesFor(userId);
       this.assertLastAdminRemains(current, enabled, roles);
-      this.database.prepare(`
-        UPDATE auth_users SET enabled = ?, updated_at = ? WHERE id = ?
-      `).run(enabled ? 1 : 0, timestamp, userId);
-      if (!enabled) this.revokeSessions(userId, timestamp);
-      for (const event of audit) enqueueSecurityAudit(this.database, event);
+      const changed = (current.enabled === 1) !== enabled;
+      let sessionCount = 0;
+      if (changed) {
+        this.database.prepare(`
+          UPDATE auth_users SET enabled = ?, updated_at = ? WHERE id = ?
+        `).run(enabled ? 1 : 0, timestamp, userId);
+        if (!enabled) sessionCount = this.revokeSessions(userId, timestamp);
+      }
+      for (const event of audit?.(changed, sessionCount) ?? []) {
+        enqueueSecurityAudit(this.database, event);
+      }
       return this.requireUser(userId);
     });
   }
@@ -113,10 +124,11 @@ export class SqliteAccessUserRepository {
     if (row.count <= 1) throw new AccessLockoutError('The last enabled administrator is required.');
   }
 
-  private revokeSessions(userId: string, timestamp: string): void {
-    this.database.prepare(`
+  private revokeSessions(userId: string, timestamp: string): number {
+    const result = this.database.prepare(`
       UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL
     `).run(timestamp, userId);
+    return Number(result.changes);
   }
 
   private replaceRoles(userId: string, roles: readonly AuthRole[]): void {
@@ -157,4 +169,11 @@ export class SqliteAccessUserRepository {
       updatedAt: row.updated_at,
     };
   }
+}
+
+function sameRoles(left: readonly AuthRole[], right: readonly AuthRole[]): boolean {
+  const normalizedLeft = normalizeRoles(left);
+  const normalizedRight = normalizeRoles(right);
+  return normalizedLeft.length === normalizedRight.length
+    && normalizedLeft.every((role, index) => role === normalizedRight[index]);
 }

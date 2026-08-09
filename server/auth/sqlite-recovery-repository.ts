@@ -65,7 +65,11 @@ export class SqliteRecoveryRepository {
     tokenHash: string,
     passwordHash: string,
     timestamp: string,
-    audit?: (user: AuthUser) => readonly SecurityAuditCommand[],
+    audit?: (
+      user: AuthUser,
+      revokedRecoveryIds: readonly string[],
+      sessionCount: number,
+    ) => readonly SecurityAuditCommand[],
   ): Promise<AuthUser | undefined> {
     return Promise.resolve(withImmediateTransaction(this.database, () => {
       const row = this.database.prepare(`
@@ -77,17 +81,29 @@ export class SqliteRecoveryRepository {
         UPDATE auth_users SET password_hash = ?, updated_at = ? WHERE id = ?
       `).run(passwordHash, timestamp, row.user_id);
       if (updated.changes !== 1) return undefined;
+      const revokedRecoveryIds = (this.database.prepare(`
+        SELECT id FROM auth_recovery_tokens
+        WHERE user_id = ? AND id <> ? AND used_at IS NULL AND revoked_at IS NULL
+          AND expires_at > ?
+        ORDER BY id
+      `).all(row.user_id, row.id, timestamp) as unknown as Array<{ id: string }>)
+        .map((item) => item.id);
       this.database.prepare('UPDATE auth_recovery_tokens SET used_at = ? WHERE id = ?')
         .run(timestamp, row.id);
       this.database.prepare(`
         UPDATE auth_recovery_tokens SET revoked_at = ?
         WHERE user_id = ? AND id <> ? AND used_at IS NULL AND revoked_at IS NULL
-      `).run(timestamp, row.user_id, row.id);
-      this.database.prepare(`
+          AND expires_at > ?
+      `).run(timestamp, row.user_id, row.id, timestamp);
+      const sessions = this.database.prepare(`
         UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL
       `).run(timestamp, row.user_id);
       const user = this.users.require(row.user_id);
-      if (audit) for (const event of audit(user)) enqueueSecurityAudit(this.database, event);
+      if (audit) {
+        for (const event of audit(user, revokedRecoveryIds, Number(sessions.changes))) {
+          enqueueSecurityAudit(this.database, event);
+        }
+      }
       return user;
     }));
   }

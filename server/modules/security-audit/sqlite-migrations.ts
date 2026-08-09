@@ -6,18 +6,21 @@ export interface SecurityAuditHeadInitializer {
   validateHistory(database: DatabaseSync): void;
 }
 
+export function validateSecurityAuditMigrationHistory(database: DatabaseSync): number {
+  return readStrictMigrationVersion(database);
+}
+
 export function migrateSecurityAuditDatabase(
   database: DatabaseSync,
   head: SecurityAuditHeadInitializer,
 ): void {
+  const version = validateSecurityAuditMigrationHistory(database);
   database.exec(`
     CREATE TABLE IF NOT EXISTS security_audit_schema_migrations (
       version INTEGER PRIMARY KEY CHECK (version > 0), applied_at TEXT NOT NULL
     ) STRICT;
   `);
-  const version = database.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM security_audit_schema_migrations').get() as unknown as { version: number };
-  if (version.version > 3) throw new Error('Security audit database schema is newer than supported.');
-  if (version.version < 1) transaction(database, () => {
+  if (version < 1) transaction(database, () => {
     database.exec(`
       CREATE TABLE security_audit_events (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,7 +55,7 @@ export function migrateSecurityAuditDatabase(
     `);
     database.prepare("INSERT INTO security_audit_schema_migrations VALUES (1, strftime('%Y-%m-%dT%H:%M:%fZ','now'))").run();
   });
-  if (version.version < 2) transaction(database, () => {
+  if (version < 2) transaction(database, () => {
     head.validateHistory(database);
     database.exec(`
       CREATE TABLE security_audit_head (
@@ -87,7 +90,7 @@ export function migrateSecurityAuditDatabase(
     );
     database.prepare("INSERT INTO security_audit_schema_migrations VALUES (2, strftime('%Y-%m-%dT%H:%M:%fZ','now'))").run();
   });
-  if (version.version < 3) transaction(database, () => {
+  if (version < 3) transaction(database, () => {
     head.validateHistory(database);
     database.exec(`
       CREATE TABLE security_audit_events_v3 (
@@ -133,6 +136,25 @@ export function migrateSecurityAuditDatabase(
     `);
     database.prepare("INSERT INTO security_audit_schema_migrations VALUES (3, strftime('%Y-%m-%dT%H:%M:%fZ','now'))").run();
   });
+}
+
+function readStrictMigrationVersion(database: DatabaseSync): number {
+  const exists = database.prepare(`
+    SELECT 1 AS present FROM sqlite_master
+    WHERE type = 'table' AND name = 'security_audit_schema_migrations'
+  `).get() as unknown as { present: number } | undefined;
+  if (!exists) return 0;
+  const rows = database.prepare(`
+    SELECT version FROM security_audit_schema_migrations ORDER BY version
+  `).all() as unknown as Array<{ version: number }>;
+  for (const [index, row] of rows.entries()) {
+    if (row.version !== index + 1) {
+      throw new Error('Security audit migration history must be contiguous from version 1.');
+    }
+  }
+  const version = rows.at(-1)?.version ?? 0;
+  if (version > 3) throw new Error('Security audit database schema is newer than supported.');
+  return version;
 }
 
 function transaction(database: DatabaseSync, operation: () => void): void {

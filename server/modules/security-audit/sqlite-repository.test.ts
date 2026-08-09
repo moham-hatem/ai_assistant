@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -11,6 +11,51 @@ import { SecurityAuditService } from './service.ts';
 import { SqliteSecurityAuditRepository } from './sqlite-repository.ts';
 
 const key = randomBytes(32);
+
+for (const scenario of [
+  { name: 'row 3 only', versions: [3], message: /contiguous from version 1/u },
+  { name: 'a version gap', versions: [1, 3], message: /contiguous from version 1/u },
+  { name: 'a too-new version', versions: [1, 2, 3, 4], message: /newer than supported/u },
+] as const) {
+  test(`migration history rejects ${scenario.name} before schema mutation`, async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'security-audit-migrations-'));
+    const path = join(directory, 'audit.sqlite');
+    const control = new DatabaseSync(path);
+    control.exec(`
+      CREATE TABLE security_audit_schema_migrations (
+        version INTEGER PRIMARY KEY CHECK (version > 0), applied_at TEXT NOT NULL
+      ) STRICT;
+    `);
+    const insert = control.prepare(
+      'INSERT INTO security_audit_schema_migrations(version, applied_at) VALUES (?, ?)',
+    );
+    for (const version of scenario.versions) insert.run(version, '2026-08-10T00:00:00.000Z');
+    control.close();
+    const before = await readFile(path);
+    try {
+      assert.throws(
+        () => new SqliteSecurityAuditRepository(path, new Map([['v1', key]]), 'v1'),
+        scenario.message,
+      );
+      assert.deepEqual(await readFile(path), before);
+      const reopened = new DatabaseSync(path);
+      try {
+        const tables = reopened.prepare(`
+          SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name
+        `).all() as unknown as Array<{ name: string }>;
+        assert.deepEqual(tables.map((item) => item.name), ['security_audit_schema_migrations']);
+        const versions = reopened.prepare(`
+          SELECT version FROM security_audit_schema_migrations ORDER BY version
+        `).all() as unknown as Array<{ version: number }>;
+        assert.deepEqual(versions.map((item) => item.version), [...scenario.versions]);
+      } finally {
+        reopened.close();
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+}
 
 test('appends an HMAC chain, filters minimized events, and rejects content metadata', async () => {
   const repository = new SqliteSecurityAuditRepository(':memory:', new Map([['v1', key]]), 'v1');

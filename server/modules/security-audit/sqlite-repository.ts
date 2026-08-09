@@ -9,7 +9,10 @@ import type {
 } from '../../../shared/contracts/security-audit.ts';
 import { canonicalAuditPayload, validateSecurityAuditCommand, type SecurityAuditCommand } from './domain.ts';
 import type { SecurityAuditQuery, SecurityAuditRepository } from './repository.ts';
-import { migrateSecurityAuditDatabase } from './sqlite-migrations.ts';
+import {
+  migrateSecurityAuditDatabase,
+  validateSecurityAuditMigrationHistory,
+} from './sqlite-migrations.ts';
 
 const genesisHash = '0'.repeat(64);
 
@@ -51,6 +54,7 @@ export class SqliteSecurityAuditRepository implements SecurityAuditRepository {
     this.database = new DatabaseSync(path);
     try {
       this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
+      validateSecurityAuditMigrationHistory(this.database);
       if (path !== ':memory:') this.database.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
       migrateSecurityAuditDatabase(this.database, {
         keyVersion: currentKeyVersion,
