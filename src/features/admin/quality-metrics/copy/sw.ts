@@ -1,0 +1,40 @@
+import type { QualityMetricsCopy } from './types';
+
+export const swQualityMetricsCopy: QualityMetricsCopy = {
+  apply: 'Tumia vichujio',
+  breakdown: {
+    approved: 'Matumizi yaliyoidhinishwa', attempts: 'Majaribio', channel: 'Kwa kituo',
+    coverage: 'Ufikaji wa maoni', empty: 'Hakuna data ya mgawanyo kwa chaguo hili.',
+    language: 'Kwa lugha ya jibu', medianClosure: 'Wastani wa kati wa kufungwa',
+    openReviews: 'Mapitio wazi', satisfaction: 'Kuridhika',
+  },
+  cards: {
+    approvedUsage: 'Matumizi ya jibu lililoidhinishwa', attempts: 'Majaribio ya kujibu',
+    escalation: 'Maoni yaliyopelekwa kwa mapitio', feedbackCoverage: 'Ufikaji wa maoni',
+    medianClosure: 'Wastani wa kati wa kufunga mapitio', openReviews: 'Mapitio wazi sasa',
+    satisfaction: 'Kuridhika',
+  },
+  definitions: [
+    { title: 'Majaribio ya kujibu', body: 'Kila kumbukumbu ya swali iliyoanza ndani ya kipindi.' },
+    { title: 'Matokeo', body: 'Yaliyojibiwa, yaliyokataliwa, na yaliyoshindwa hutoka moja kwa moja kwenye hali ya kumbukumbu.' },
+    { title: 'Kuridhika', body: 'Maoni yenye msaada yakigawanywa kwa maoni yote ya msaada na yasiyo ya msaada katika kipindi.' },
+    { title: 'Ufikaji wa maoni', body: 'Majaribio tofauti ndani ya kipindi yenye tathmini moja au zaidi, yakigawanywa kwa majaribio yote.' },
+    { title: 'Kupelekwa kwa mapitio', body: 'Maoni yaliyounganishwa na mapitio yakigawanywa kwa maoni yote ya kipindi.' },
+    { title: 'Mapitio wazi', body: 'Mapitio yanayosubiri na yaliyochukuliwa (in_review) wakati wa kusoma; tarehe hazibadili picha hii.' },
+    { title: 'Muda wa kufunga', body: 'Wastani wa kati wa decided_at ukiondoa created_at kwa mapitio yaliyofungwa katika kipindi.' },
+    { title: 'Matumizi yaliyoidhinishwa', body: 'Kumbukumbu zenye mtoa huduma approved-answer zilizoanza katika kipindi.' },
+  ],
+  definitionsTitle: 'Ufafanuzi wa vipimo',
+  empty: 'Hakuna shughuli ya jumla inayolingana na vichujio hivi.',
+  error: 'Vipimo vya ubora havipatikani. Hifadhidata ya ndani huenda haiko tayari.',
+  filters: { all: 'Zote', channel: 'Kituo', from: 'Kuanzia', language: 'Lugha ya jibu', title: 'Vichujio', to: 'Hadi', utc: 'Nyakati ni UTC; kuanzia kunajumuishwa na hadi hakujumuishwi.' },
+  generatedAt: 'Imetengenezwa',
+  intro: 'Ishara za jumla za ubora na uendeshaji kutoka data ya ndani ya maswali, maoni, mapitio na majibu yaliyoidhinishwa.',
+  invalidRange: 'Muda wa kuanzia lazima uwe kabla ya muda wa mwisho.',
+  invalidTime: 'Weka tarehe na saa sahihi za UTC.',
+  labels: { answered: 'yaliyojibiwa', declined: 'yaliyokataliwa', failed: 'yaliyoshindwa', helpful: 'yenye msaada', ofAttempts: 'ya majaribio', ofFeedback: 'ya maoni', unhelpful: 'yasiyo na msaada' },
+  loading: 'Inapakia vipimo vya ubora…',
+  privacy: 'Mwonekano wa jumla pekee. Maswali, majibu, maoni, ushahidi, data binafsi, na vitambulisho vya rekodi havionyeshwi.',
+  retry: 'Jaribu tena',
+  title: 'Vipimo vya ubora',
+};

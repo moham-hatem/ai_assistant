@@ -1,0 +1,40 @@
+import type { QualityMetricsCopy } from './types';
+
+export const enQualityMetricsCopy: QualityMetricsCopy = {
+  apply: 'Apply filters',
+  breakdown: {
+    approved: 'Approved usage', attempts: 'Attempts', channel: 'By channel',
+    coverage: 'Feedback coverage', empty: 'No breakdown data for this selection.',
+    language: 'By answer language', medianClosure: 'Median closure',
+    openReviews: 'Open reviews', satisfaction: 'Satisfaction',
+  },
+  cards: {
+    approvedUsage: 'Approved-answer usage', attempts: 'Answer attempts',
+    escalation: 'Feedback escalated', feedbackCoverage: 'Feedback coverage',
+    medianClosure: 'Median review closure', openReviews: 'Open reviews now',
+    satisfaction: 'Satisfaction',
+  },
+  definitions: [
+    { title: 'Answer attempts', body: 'Every question log whose start time is in the selected period.' },
+    { title: 'Outcomes', body: 'Answered, declined, and failed come directly from the question-log status.' },
+    { title: 'Satisfaction', body: 'Helpful divided by helpful plus unhelpful feedback created in the period; unavailable with no feedback.' },
+    { title: 'Feedback coverage', body: 'Distinct in-period answer attempts with at least one in-period rating, divided by answer attempts.' },
+    { title: 'Escalation', body: 'Feedback linked to a review divided by all feedback created in the period.' },
+    { title: 'Open reviews', body: 'Pending and claimed (stored as in_review) review items at read time; date filters do not change this snapshot.' },
+    { title: 'Median closure', body: 'Median of decided_at minus created_at for reviews closed in the selected period.' },
+    { title: 'Approved usage', body: 'Question logs whose provider is approved-answer and whose start time is in the period.' },
+  ],
+  definitionsTitle: 'Metric definitions',
+  empty: 'No aggregate activity matches these filters.',
+  error: 'Quality metrics are unavailable. The local database may not be ready.',
+  filters: { all: 'All', channel: 'Channel', from: 'From', language: 'Answer language', title: 'Filters', to: 'To', utc: 'Times are UTC; from is inclusive and to is exclusive.' },
+  generatedAt: 'Generated at',
+  intro: 'Aggregate quality and operating signals from local question, feedback, review, and approved-answer data.',
+  invalidRange: 'From must be earlier than to.',
+  invalidTime: 'Enter valid UTC dates and times.',
+  labels: { answered: 'answered', declined: 'declined', failed: 'failed', helpful: 'helpful', ofAttempts: 'of attempts', ofFeedback: 'of feedback', unhelpful: 'unhelpful' },
+  loading: 'Loading quality metrics…',
+  privacy: 'Aggregate-only view. Questions, answers, comments, evidence, personal data, and individual record IDs are never displayed.',
+  retry: 'Retry',
+  title: 'Quality metrics',
+};

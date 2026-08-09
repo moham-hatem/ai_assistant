@@ -3,6 +3,7 @@ export const ADMIN_PAGES = [
   'books',
   'reviews',
   'question-logs',
+  'quality',
   'settings',
 ] as const;
 

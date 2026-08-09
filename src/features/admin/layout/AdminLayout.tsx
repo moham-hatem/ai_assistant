@@ -27,7 +27,7 @@ export function AdminLayout({
           <span><BookOpen size={21} /></span>
           <div><strong>Daleel</strong><small>{copy.adminLabel}</small></div>
         </a>
-        <AdminNavigation activePage={activePage} copy={copy} />
+        <AdminNavigation activePage={activePage} copy={copy} language={languageDetails.code} />
         <a className="back-to-assistant" href="#/chat">
           <ArrowLeft aria-hidden="true" size={18} />
           <span>{copy.backToAssistant}</span>

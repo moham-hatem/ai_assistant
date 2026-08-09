@@ -7,6 +7,7 @@ import { createQuestionLogHandler } from '../modules/question-log/question-log-h
 import { createBooksHandler } from '../modules/books/books-handler.ts';
 import { createReviewsHandler } from '../modules/reviews/reviews-handler.ts';
 import { createFeedbackHandler } from '../modules/feedback/feedback-handler.ts';
+import { createQualityMetricsHandler } from '../modules/quality-metrics/quality-metrics-handler.ts';
 
 export function localAnswerApi(config: LocalRuntimeConfig): Plugin {
   return {
@@ -25,6 +26,7 @@ export function localAnswerApi(config: LocalRuntimeConfig): Plugin {
       const questionLogs = createQuestionLogHandler(runtime.questionLogRepository, logError);
       const reviews = createReviewsHandler(runtime.reviewService, logError);
       const feedback = createFeedbackHandler(runtime.feedbackService, logError);
+      const qualityMetrics = createQualityMetricsHandler(runtime.qualityMetricsService, logError);
 
       server.middlewares.use((request, response, next) => {
         const url = new URL(request.url ?? '/', 'http://localhost');
@@ -37,6 +39,9 @@ export function localAnswerApi(config: LocalRuntimeConfig): Plugin {
         }
         else if (url.pathname.startsWith('/api/internal/question-logs')) {
           void questionLogs(request, response, url);
+        }
+        else if (url.pathname.startsWith('/api/internal/quality-metrics')) {
+          void qualityMetrics(request, response, url);
         }
         else if (url.pathname.startsWith('/api/internal/reviews')) {
           void reviews(request, response, url);

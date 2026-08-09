@@ -34,6 +34,10 @@ import type { FeedbackRepository } from './modules/feedback/feedback-repository.
 import { FeedbackService } from './modules/feedback/feedback-service.ts';
 import { SqliteFeedbackRepository } from './modules/feedback/sqlite-feedback-repository.ts';
 import { UnavailableFeedbackRepository } from './modules/feedback/unavailable-feedback-repository.ts';
+import type { QualityMetricsRepository } from './modules/quality-metrics/quality-metrics-repository.ts';
+import { QualityMetricsService } from './modules/quality-metrics/quality-metrics-service.ts';
+import { SqliteQualityMetricsRepository } from './modules/quality-metrics/sqlite-quality-metrics-repository.ts';
+import { UnavailableQualityMetricsRepository } from './modules/quality-metrics/unavailable-quality-metrics-repository.ts';
 
 export function createRuntime(config: LocalRuntimeConfig) {
   const documentStore = new DocumentStore(config.documentDirectory, config.knowledgeDirectory);
@@ -81,6 +85,7 @@ export function createRuntime(config: LocalRuntimeConfig) {
   const questionLogRepository = createQuestionLogRepository(config.questionLogDatabaseFile);
   const reviewRepository = createReviewRepository(config.questionLogDatabaseFile);
   const feedbackRepository = createFeedbackRepository(config.questionLogDatabaseFile);
+  const qualityMetricsRepository = createQualityMetricsRepository(config.questionLogDatabaseFile);
   return {
     answerService: new AnswerService(
       knowledge,
@@ -101,9 +106,20 @@ export function createRuntime(config: LocalRuntimeConfig) {
     knowledge,
     questionLogRepository,
     questionLogService: new QuestionLogService(questionLogRepository),
+    qualityMetricsRepository,
+    qualityMetricsService: new QualityMetricsService(qualityMetricsRepository),
     reviewRepository,
     reviewService: new ReviewService(reviewRepository, questionLogRepository),
   };
+}
+
+function createQualityMetricsRepository(path: string): QualityMetricsRepository {
+  try {
+    return new SqliteQualityMetricsRepository(path);
+  } catch (error) {
+    console.warn('Local quality metrics could not be initialized; the dashboard is unavailable.');
+    return new UnavailableQualityMetricsRepository(error);
+  }
 }
 
 function createFeedbackRepository(path: string): FeedbackRepository {
