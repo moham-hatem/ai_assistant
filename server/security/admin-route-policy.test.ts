@@ -3,6 +3,16 @@ import test from 'node:test';
 import { adminRoutePolicy } from './admin-route-policy.ts';
 
 const protectedRoutes = [
+  ['GET', '/api/internal/access/users', 'settings:manage'],
+  ['GET', '/api/internal/access/users/user-id', 'settings:manage'],
+  ['PATCH', '/api/internal/access/users/user-id', 'settings:manage'],
+  ['POST', '/api/internal/access/users/user-id/enable', 'settings:manage'],
+  ['POST', '/api/internal/access/users/user-id/disable', 'settings:manage'],
+  ['POST', '/api/internal/access/users/user-id/revoke-sessions', 'settings:manage'],
+  ['POST', '/api/internal/access/users/user-id/recovery', 'settings:manage'],
+  ['POST', '/api/internal/access/invitations', 'settings:manage'],
+  ['POST', '/api/internal/access/invitations/invite-id/revoke', 'settings:manage'],
+  ['POST', '/api/internal/access/recoveries/recovery-id/revoke', 'settings:manage'],
   ['GET', '/api/internal/books', 'books:read'],
   ['POST', '/api/internal/books', 'books:write'],
   ['GET', '/api/internal/books/book-id', 'books:read'],
@@ -47,6 +57,9 @@ test('admin route policy rejects unknown and method-mismatched admin operations'
   const denied = [
     ['GET', '/api/internal'],
     ['GET', '/api/internal/new-admin-api'],
+    ['DELETE', '/api/internal/access/users/user-id'],
+    ['GET', '/api/internal/access/invitations'],
+    ['POST', '/api/internal/access/users/user-id/unknown'],
     ['PUT', '/api/internal/books'],
     ['DELETE', '/api/internal/reviews/review-id'],
     ['POST', '/api/internal/question-logs'],
@@ -67,6 +80,8 @@ test('public and auth APIs are outside the admin policy', () => {
     ['GET', '/api/version'],
     ['GET', '/api/meta/version'],
     ['POST', '/api/auth/session'],
+    ['POST', '/api/auth/invitations/redeem'],
+    ['POST', '/api/auth/recovery/redeem'],
     ['POST', '/api/feedback'],
     ['GET', '/api/knowledge/documents-public'],
   ] as const;

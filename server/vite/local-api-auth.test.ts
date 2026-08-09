@@ -103,6 +103,7 @@ function createHandlers(seenPrincipals: Array<AuthPrincipal | null>): LocalApiHa
     response.end();
   };
   return {
+    access: empty,
     answer: empty,
     books: empty,
     documents: empty,

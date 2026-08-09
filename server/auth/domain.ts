@@ -10,10 +10,32 @@ export interface AuthUser {
   createdAt: string;
   displayName: string;
   email: string;
+  enabled: boolean;
   id: string;
   passwordHash: string;
   roles: AuthRole[];
   updatedAt: string;
+}
+
+export interface AccessTokenRecord {
+  createdAt: string;
+  expiresAt: string;
+  id: string;
+  revokedAt: string | null;
+  tokenHash: string;
+  usedAt: string | null;
+}
+
+export interface AuthInvitation extends AccessTokenRecord {
+  createdByUserId: string;
+  displayName: string;
+  email: string;
+  roles: AuthRole[];
+}
+
+export interface AuthRecovery extends AccessTokenRecord {
+  createdByUserId: string;
+  userId: string;
 }
 
 export interface AuthSession {

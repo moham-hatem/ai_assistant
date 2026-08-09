@@ -31,6 +31,7 @@ type ApiHandler = (
 type AuthHandler = ReturnType<typeof createAuthHandler>;
 
 export interface LocalApiHandlers {
+  access: ApiHandler;
   answer: ApiHandler;
   books: ApiHandler;
   documents: ApiHandler;
@@ -58,6 +59,7 @@ export function createLocalApiPlugin(
       const auth = await createLocalAuthRuntime(authConfig, logError);
       const security = createRuntimeAdminSecurity(auth.service, auth.cookie, auth.origin);
       const handler = createLocalApiRequestHandler({
+        access: auth.accessHandler,
         answer: createAnswerHandler(runtime.answerRequestService, logError),
         books: createBooksHandler(runtime.bookService, logError, runtime.bookDocuments),
         documents: createDocumentsHandler(runtime.bookDocuments, logError),
@@ -99,6 +101,10 @@ export function createLocalApiRequestHandler(
 }
 
 function selectHandler(pathname: string, handlers: LocalApiHandlers): ApiHandler | undefined {
+  if (pathname === '/api/auth/invitations/redeem' || pathname === '/api/auth/recovery/redeem' ||
+      pathname === '/api/internal/access' || pathname.startsWith('/api/internal/access/')) {
+    return handlers.access;
+  }
   if (pathname === '/api/meta/version') return handlers.version;
   if (pathname === '/api/answer-question') return handlers.answer;
   if (pathname === '/api/feedback' || pathname.startsWith('/api/internal/feedback')) {

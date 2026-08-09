@@ -6,6 +6,8 @@ import { ScryptPasswordHasher } from './password.ts';
 import { InMemoryLoginRateLimiter } from './rate-limit.ts';
 import { createAuthService } from './service.ts';
 import { SqliteAuthRepository } from './sqlite-repository.ts';
+import { AccessService } from './access-service.ts';
+import { createAccessHandler } from './access-http-handler.ts';
 
 export async function createLocalAuthRuntime(
   config: AuthConfig,
@@ -21,7 +23,19 @@ export async function createLocalAuthRuntime(
     );
     const cookie = createAuthCookiePolicy(config);
     const origin = new SameOriginAuthPolicy(config.publicOrigin);
+    const accessService = new AccessService(
+      repository,
+      new ScryptPasswordHasher(),
+      new InMemoryLoginRateLimiter(10, 15 * 60_000),
+      {
+        invitationTtlMs: 24 * 60 * 60_000,
+        publicOrigin: config.publicOrigin,
+        recoveryTtlMs: 60 * 60_000,
+      },
+    );
     return {
+      accessHandler: createAccessHandler(accessService, origin, logError),
+      accessService,
       cookie,
       handler: createAuthHandler(service, cookie, origin, config.absoluteTtlMs, logError),
       origin,

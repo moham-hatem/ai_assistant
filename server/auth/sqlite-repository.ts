@@ -1,11 +1,19 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import type { AccessUserSummary } from '../../shared/contracts/access-management.ts';
 import type { AuthRole } from '../../shared/contracts/auth.ts';
+import type {
+  AccessRepository,
+  CreateInvitationRecord,
+  CreateRecoveryRecord,
+} from './access-repository.ts';
 import {
   isAuthRole,
   normalizeDisplayName,
   normalizeRoles,
+  type AuthInvitation,
+  type AuthRecovery,
   type AuthSession,
   type AuthUser,
 } from './domain.ts';
@@ -15,29 +23,26 @@ import {
   type AuthRepository,
   type SaveUserCommand,
 } from './repository.ts';
+import { SqliteAccessTokenRepository } from './sqlite-access-token-repository.ts';
+import { SqliteAccessUserRepository } from './sqlite-access-user-repository.ts';
 import { migrateAuthDatabase } from './sqlite-migrations.ts';
+import { SqliteSessionRepository } from './sqlite-session-repository.ts';
 
 interface UserRow {
   created_at: string;
   display_name: string;
   email: string;
+  enabled: number;
   id: string;
   password_hash: string;
   updated_at: string;
 }
 
-interface SessionRow {
-  absolute_expires_at: string;
-  created_at: string;
-  idle_expires_at: string;
-  last_seen_at: string;
-  revoked_at: string | null;
-  token_hash: string;
-  user_id: string;
-}
-
-export class SqliteAuthRepository implements AuthRepository {
+export class SqliteAuthRepository implements AuthRepository, AccessRepository {
+  private readonly accessTokens: SqliteAccessTokenRepository;
+  private readonly accessUsers: SqliteAccessUserRepository;
   private readonly database: DatabaseSync;
+  private readonly sessions: SqliteSessionRepository;
 
   constructor(path: string) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
@@ -45,6 +50,9 @@ export class SqliteAuthRepository implements AuthRepository {
     this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
     if (path !== ':memory:') this.database.exec('PRAGMA journal_mode = WAL;');
     migrateAuthDatabase(this.database);
+    this.accessTokens = new SqliteAccessTokenRepository(this.database);
+    this.accessUsers = new SqliteAccessUserRepository(this.database);
+    this.sessions = new SqliteSessionRepository(this.database);
   }
 
   async createUser(command: SaveUserCommand): Promise<AuthUser> {
@@ -53,8 +61,8 @@ export class SqliteAuthRepository implements AuthRepository {
       transaction(this.database, () => {
         this.database.prepare(`
           INSERT INTO auth_users (
-            id, email, password_hash, created_at, updated_at, display_name
-          ) VALUES (?, ?, ?, ?, ?, ?)
+            id, email, password_hash, created_at, updated_at, display_name, enabled
+          ) VALUES (?, ?, ?, ?, ?, ?, 1)
         `).run(
           command.id,
           command.email,
@@ -89,48 +97,23 @@ export class SqliteAuthRepository implements AuthRepository {
   }
 
   async saveSession(session: AuthSession): Promise<void> {
-    this.database.prepare(`
-      INSERT INTO auth_sessions (
-        token_hash, user_id, created_at, last_seen_at, idle_expires_at,
-        absolute_expires_at, revoked_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      session.tokenHash,
-      session.userId,
-      session.createdAt,
-      session.lastSeenAt,
-      session.idleExpiresAt,
-      session.absoluteExpiresAt,
-      session.revokedAt,
-    );
+    await this.sessions.save(session);
   }
 
   async findSession(tokenHash: string): Promise<AuthSession | undefined> {
-    const row = this.database.prepare(
-      'SELECT * FROM auth_sessions WHERE token_hash = ?',
-    ).get(tokenHash) as unknown as SessionRow | undefined;
-    return row ? toSession(row) : undefined;
+    return await this.sessions.find(tokenHash);
   }
 
   async touchSession(tokenHash: string, lastSeenAt: string, idleExpiresAt: string): Promise<boolean> {
-    const result = this.database.prepare(`
-      UPDATE auth_sessions SET last_seen_at = ?, idle_expires_at = ?
-      WHERE token_hash = ? AND revoked_at IS NULL
-        AND idle_expires_at > ? AND absolute_expires_at > ?
-    `).run(lastSeenAt, idleExpiresAt, tokenHash, lastSeenAt, lastSeenAt);
-    return result.changes === 1;
+    return await this.sessions.touch(tokenHash, lastSeenAt, idleExpiresAt);
   }
 
   async revokeSession(tokenHash: string, revokedAt: string): Promise<void> {
-    this.database.prepare(`
-      UPDATE auth_sessions SET revoked_at = COALESCE(revoked_at, ?) WHERE token_hash = ?
-    `).run(revokedAt, tokenHash);
+    await this.sessions.revoke(tokenHash, revokedAt);
   }
 
   async revokeAllUserSessions(userId: string, revokedAt: string): Promise<void> {
-    this.database.prepare(`
-      UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL
-    `).run(revokedAt, userId);
+    await this.sessions.revokeAll(userId, revokedAt);
   }
 
   async updateUserSecurity(command: SaveUserCommand): Promise<AuthUser> {
@@ -156,6 +139,65 @@ export class SqliteAuthRepository implements AuthRepository {
     return this.requireUser(command.id);
   }
 
+  listUsers(afterId: string | undefined, limit: number): Promise<AccessUserSummary[]> {
+    return this.accessUsers.list(afterId, limit);
+  }
+
+  updateUserAccess(command: {
+    actorId: string;
+    displayName: string;
+    roles: AuthRole[];
+    timestamp: string;
+    userId: string;
+  }): Promise<AuthUser> {
+    return this.accessUsers.update(command);
+  }
+
+  setUserEnabled(
+    actorId: string,
+    userId: string,
+    enabled: boolean,
+    timestamp: string,
+  ): Promise<AuthUser> {
+    return this.accessUsers.setEnabled(actorId, userId, enabled, timestamp);
+  }
+
+  createInvitation(record: CreateInvitationRecord): Promise<AuthInvitation> {
+    return this.accessTokens.createInvitation(record);
+  }
+
+  findInvitationByTokenHash(tokenHash: string): Promise<AuthInvitation | undefined> {
+    return this.accessTokens.findInvitation(tokenHash);
+  }
+
+  redeemInvitation(
+    tokenHash: string,
+    passwordHash: string,
+    timestamp: string,
+  ): Promise<AuthUser | undefined> {
+    return this.accessTokens.redeemInvitation(tokenHash, passwordHash, timestamp);
+  }
+
+  revokeInvitation(id: string, timestamp: string): Promise<boolean> {
+    return this.accessTokens.revokeInvitation(id, timestamp);
+  }
+
+  createRecovery(record: CreateRecoveryRecord): Promise<AuthRecovery> {
+    return this.accessTokens.createRecovery(record);
+  }
+
+  findRecoveryByTokenHash(tokenHash: string): Promise<AuthRecovery | undefined> {
+    return this.accessTokens.findRecovery(tokenHash);
+  }
+
+  redeemRecovery(tokenHash: string, passwordHash: string, timestamp: string): Promise<boolean> {
+    return this.accessTokens.redeemRecovery(tokenHash, passwordHash, timestamp);
+  }
+
+  revokeRecovery(id: string, timestamp: string): Promise<boolean> {
+    return this.accessTokens.revokeRecovery(id, timestamp);
+  }
+
   close(): void {
     this.database.close();
   }
@@ -168,6 +210,13 @@ export class SqliteAuthRepository implements AuthRepository {
     for (const role of normalizeRoles(roles)) insert.run(userId, role);
   }
 
+  private rolesFor(userId: string): AuthRole[] {
+    const rows = this.database.prepare(`
+      SELECT role FROM auth_user_roles WHERE user_id = ? ORDER BY role
+    `).all(userId) as unknown as Array<{ role: string }>;
+    return rows.map((item) => item.role).filter(isAuthRole);
+  }
+
   private requireUser(id: string): AuthUser {
     const row = this.database.prepare('SELECT * FROM auth_users WHERE id = ?').get(id) as
       unknown as UserRow | undefined;
@@ -176,31 +225,17 @@ export class SqliteAuthRepository implements AuthRepository {
   }
 
   private toUser(row: UserRow): AuthUser {
-    const roles = this.database.prepare(`
-      SELECT role FROM auth_user_roles WHERE user_id = ? ORDER BY role
-    `).all(row.id) as unknown as Array<{ role: string }>;
     return {
       createdAt: row.created_at,
       displayName: row.display_name,
       email: row.email,
+      enabled: row.enabled === 1,
       id: row.id,
       passwordHash: row.password_hash,
-      roles: roles.map((item) => item.role).filter(isAuthRole),
+      roles: this.rolesFor(row.id),
       updatedAt: row.updated_at,
     };
   }
-}
-
-function toSession(row: SessionRow): AuthSession {
-  return {
-    absoluteExpiresAt: row.absolute_expires_at,
-    createdAt: row.created_at,
-    idleExpiresAt: row.idle_expires_at,
-    lastSeenAt: row.last_seen_at,
-    revokedAt: row.revoked_at,
-    tokenHash: row.token_hash,
-    userId: row.user_id,
-  };
 }
 
 function transaction<T>(database: DatabaseSync, operation: () => T): T {
