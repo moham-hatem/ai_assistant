@@ -9,6 +9,7 @@
     "prepare:semantic": "node server/scripts/prepare-semantic.ts",
     "prepare:translation": "node --env-file=.env.local server/scripts/prepare-translation.ts",
     "rebuild:documents": "node server/scripts/rebuild-documents.ts",
+    "audit:init": "node server/scripts/audit-init.ts",
     "auth:user": "node server/auth/cli.ts",
     "telegram:poll": "node --env-file-if-exists=.env.local server/channels/telegram/run.ts",
     "test:local": "node --test \"src/**/*.test.js\" \"tests/admin/*.test.ts\" \"tests/chat/*.test.ts\" \"tests/pwa/*.test.ts\" \"server/**/*.test.ts\"",

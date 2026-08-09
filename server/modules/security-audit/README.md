@@ -9,8 +9,15 @@ supplied only through runtime environment variables and is never stored in SQLit
 external checkpoint: rollback or replacement of both the database events and its local head cannot
 be detected without an independently stored anchor, and an operator who has the key can replace
 history. Upgrading a v1 database verifies every historical event with its recorded key version
-inside the upgrade transaction before creating the authenticated head; missing or mismatched keys
-leave the database at v1.
+inside the upgrade transaction before creating the authenticated head. The v3 access-event schema
+also verifies the full chain and authenticated head before replacing any table. Missing or
+mismatched keys and invalid history leave the previous schema unchanged.
+
+Before using authenticated administration locally, run `npm run audit:init`. It generates a fresh
+256-bit key, writes it to the Git-ignored `.env.local`, and never prints it. The command fills an
+empty placeholder but refuses to overwrite an existing key. Keep the key secret and backed up: it
+is required to verify the audit chain. Public answer and version endpoints remain available when
+the audit configuration is absent, while sensitive operations and successful login fail closed.
 
 Sensitive changes in the auth, books, and reviews SQLite databases enqueue their audit command in
 `security_audit_outbox` in the same transaction as the business change. Delivery to the separate
@@ -23,15 +30,16 @@ atomically changes the edition plus enqueues its audit event. The HTTP operation
 audit delivery is unavailable, while the durable intent/outbox preserves recovery.
 
 Public answers and the public version endpoint do not depend on audit readiness. Missing key or a
-corrupt audit database leaves those routes available, but login success and sensitive administrative
-writes fail with `503` until audit delivery recovers. Generate a key locally, then copy its output to
-an untracked `.env.local` as `SECURITY_AUDIT_HMAC_KEY`:
+corrupt audit database leaves those routes available, but login success, audit reads, and sensitive
+administrative writes fail with `503` until audit delivery recovers. Use `npm run audit:init`; it
+updates `.env.local` directly and never exposes the generated key in terminal output.
 
-```text
-node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
-```
+The access lifecycle records profile and role changes, enable/disable operations, session
+revocation, and invitation/recovery creation, revocation, and redemption. Administrative events
+take their actor from the authenticated principal. Public redemption uses a null actor and records a
+user subject only after the transactional redemption succeeds.
 
-Never add arbitrary metadata. The domain allowlist deliberately excludes passwords, session tokens,
-cookies, full questions or answers, book/document text, and other content.
+Never add arbitrary metadata. The domain allowlist deliberately excludes emails, passwords, session
+tokens, links, raw hashes, cookies, full questions or answers, book/document text, and other content.
 `actorUserId = null` represents an unauthenticated or server-initiated event; user-triggered actions
 take the actor only from the authenticated principal, never from request content.

@@ -5,7 +5,7 @@
 ## التشغيل المحلي
 
 1. انسخ `.env.example` إلى `.env.local`.
-2. ضع مفتاح OpenCode في `OPENCODE_API_KEY` ومفتاح HMAC عشوائيًا مستقلًا (32 بايت على الأقل بترميز base64url) في `SECURITY_AUDIT_HMAC_KEY` داخل `.env.local`، ولا ترسل أيًا منهما إلى الشات أو تضعه في متغير يبدأ بـ`VITE_`.
+2. ضع مفتاح OpenCode في `OPENCODE_API_KEY`، ثم شغّل `npm run audit:init` لتوليد مفتاح HMAC عشوائي مستقل (32 بايت) داخل `.env.local` من دون طباعته. يرفض الأمر استبدال مفتاح موجود. لا ترسل أيًا من المفتاحين إلى الشات أو تضعه في متغير يبدأ بـ`VITE_`.
 3. افتح تبويب «الكتب» وارفع ملفات TXT أو Markdown أو PDF أو Word حتى 100 ميجابايت.
 4. شغّل المشروع:
 
@@ -72,13 +72,15 @@ AUTH_PUBLIC_ORIGIN=http://127.0.0.1:5173
 AUTH_IDLE_TTL_MS=1800000
 AUTH_ABSOLUTE_TTL_MS=43200000
 SECURITY_AUDIT_DATABASE_FILE=data/security-audit.sqlite
-SECURITY_AUDIT_HMAC_KEY=ضع-هنا-32-بايت-عشوائية-بترميز-base64url
+SECURITY_AUDIT_HMAC_KEY=
 SECURITY_AUDIT_HMAC_KEY_VERSION=v1
 ```
 
 ملف `.env.local` مستبعد من Git. مفتاح OpenCode يُقرأ داخل خادم Vite المحلي فقط ولا يُضمّن في ملفات React.
 
 يحفظ سجل الأمان المحلي أحداث الدخول والخروج ورفض الصلاحيات وتغييرات/نشر/استعادة إصدارات الكتب واعتماد OCR وقرارات المراجعة، ببيانات وصفية محدودة لا تحتوي الأسرار أو نصوص المحتوى. السجل append-only في الاستخدام العادي ومترابط بـHMAC لاكتشاف العبث؛ هو **tamper-evident وليس tamper-proof**. قراءة السجل وملخص integrity متاحان فقط لصلاحية `settings:manage` عبر `/api/internal/security-audit` و`/api/internal/security-audit/integrity`. تفاصيل حدود المعاملات وoutbox وتدوير المفاتيح في [توثيق سجل الأمان](server/modules/security-audit/README.md).
+
+مفتاح التدقيق مطلوب لتشغيل الإدارة والعمليات الحساسة وتسجيل الدخول الناجح بأمان. إذا كان إعداد التدقيق غير متاح، تبقى واجهات الإجابة والإصدار العامة متاحة، بينما تفشل تلك العمليات الحساسة بحالة `503` بدل تنفيذ تغيير غير مدقّق.
 
 ## تدفق الإجابة
 
