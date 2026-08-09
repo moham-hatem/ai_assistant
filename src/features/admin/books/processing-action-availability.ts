@@ -6,7 +6,8 @@ export function availableProcessingActions(
   processingStatus: DocumentProcessingStatus,
 ): readonly EditionProcessingAction[] {
   if (editionStatus === 'published' || processingStatus === 'processing') return [];
-  return processingStatus === 'review_required'
+  if (editionStatus !== 'ready' && editionStatus !== 'processing') return [];
+  return editionStatus === 'processing' && processingStatus === 'review_required'
     ? ['approve', 'reprocess']
     : ['reprocess'];
 }

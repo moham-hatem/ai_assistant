@@ -30,6 +30,11 @@ export interface EditionProcessingEntry {
 
 export type EditionProcessingEntries = Record<string, EditionProcessingEntry>;
 
+export interface EditionProcessingApprovalResult {
+  edition: BookEdition;
+  processing: DocumentProcessingState;
+}
+
 export interface BookEditionUploadResult {
   book: Book;
   document: BookDocumentMetadata;
@@ -48,6 +53,7 @@ export type BookEditionUploadError =
 
 export interface BookEditionUploadState {
   error: BookEditionUploadError | null;
+  processingStatus: DocumentProcessingSummary['status'] | null;
   progress: number;
   status: 'idle' | 'uploading' | 'success' | 'error';
   version: string | null;

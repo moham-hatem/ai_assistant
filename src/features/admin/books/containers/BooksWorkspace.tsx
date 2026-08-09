@@ -17,7 +17,11 @@ export function BooksWorkspace({ language }: BooksWorkspaceProps) {
   const books = useBooks();
   const copy = booksCopies[language];
   const upload = useBookEditionUpload(books.selectedId, books.synchronizeUpload);
-  const processing = useEditionProcessing(books.selectedId, books.editions?.items ?? []);
+  const processing = useEditionProcessing(
+    books.selectedId,
+    books.editions?.items ?? [],
+    books.synchronizeProcessingApproval,
+  );
   const [pending, setPending] = useState<PendingTransition | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const errorMessage = books.transitionError === 'refresh'

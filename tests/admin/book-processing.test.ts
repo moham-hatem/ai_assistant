@@ -5,9 +5,13 @@ import {
   fetchEditionProcessing,
   reprocessEdition,
 } from '../../src/features/admin/books/api/book-processing.ts';
-import { parseEditionProcessingResponse } from '../../src/features/admin/books/api/book-processing-parser.ts';
+import {
+  parseEditionProcessingApprovalResponse,
+  parseEditionProcessingResponse,
+} from '../../src/features/admin/books/api/book-processing-parser.ts';
 import { BooksApiError } from '../../src/features/admin/books/api/book-parser.ts';
 import { availableProcessingActions } from '../../src/features/admin/books/processing-action-availability.ts';
+import { localBookProcessingActorId } from '../../src/features/admin/books/processing-operator.ts';
 import {
   documentIdFromReference,
   isCurrentEditionProcessingRequest,
@@ -34,6 +38,22 @@ const state = {
     status: 'review_required',
   },
 } as const;
+const approvedState = {
+  ...state,
+  summary: { ...state.summary, status: 'ready' },
+} as const;
+const approvedEdition = {
+  archivedAt: null,
+  bookId,
+  contentHash: 'a'.repeat(64),
+  createdAt: '2026-08-09T18:00:00.000Z',
+  id: editionId,
+  originalDocumentReference: 'document:d4444444-4444-4444-8444-444444444444',
+  publishedAt: null,
+  status: 'ready',
+  version: 'scan-v1',
+} as const;
+const requestId = 'c3333333-3333-4333-8333-333333333333';
 
 test('processing parser accepts a coherent shared summary and matching envelope identity', () => {
   assert.deepEqual(parseEditionProcessingResponse({ bookId, editionId, processing: state }, bookId, editionId), state);
@@ -70,10 +90,34 @@ test('processing parser rejects malformed, contradictory, and cross-edition resp
   }
 });
 
+test('approval parser requires the real ready edition, processing, identity, and request contract', () => {
+  const payload = { bookId, editionId, edition: approvedEdition, processing: approvedState, requestId };
+  assert.deepEqual(parseEditionProcessingApprovalResponse(payload, bookId, editionId), {
+    edition: approvedEdition,
+    processing: approvedState,
+  });
+
+  const invalidResponses = [
+    { ...payload, requestId: 'not-a-uuid' },
+    { ...payload, edition: undefined },
+    { ...payload, edition: { ...approvedEdition, bookId: 'another-book' } },
+    { ...payload, edition: { ...approvedEdition, id: 'another-edition' } },
+    { ...payload, edition: { ...approvedEdition, status: 'processing' } },
+    { ...payload, processing: state },
+  ];
+  for (const response of invalidResponses) {
+    assert.throws(
+      () => parseEditionProcessingApprovalResponse(response, bookId, editionId),
+      BooksApiError,
+    );
+  }
+});
+
 test('processing actions are deny-by-default while busy and lock published editions', () => {
-  assert.deepEqual(availableProcessingActions('ready', 'review_required'), ['approve', 'reprocess']);
-  assert.deepEqual(availableProcessingActions('draft', 'failed'), ['reprocess']);
-  assert.deepEqual(availableProcessingActions('archived', 'ready'), ['reprocess']);
+  assert.deepEqual(availableProcessingActions('processing', 'review_required'), ['approve', 'reprocess']);
+  assert.deepEqual(availableProcessingActions('ready', 'review_required'), ['reprocess']);
+  assert.deepEqual(availableProcessingActions('draft', 'failed'), []);
+  assert.deepEqual(availableProcessingActions('archived', 'ready'), []);
   assert.deepEqual(availableProcessingActions('ready', 'processing'), []);
   for (const status of ['ready', 'ocr_required', 'processing', 'review_required', 'failed'] as const) {
     assert.deepEqual(availableProcessingActions('published', status), []);
@@ -112,24 +156,72 @@ test('document references and displayed failure codes are constrained to safe fo
 });
 
 test('processing client uses canonical encoded load, reprocess, and approve routes', async () => {
-  const calls: Array<{ method: string; url: string }> = [];
+  const actorId = 'e5555555-5555-4555-8555-555555555555';
+  const calls: Array<{ body: string | null; contentType: string | null; method: string; url: string }> = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
-    calls.push({ method: init?.method ?? 'GET', url: String(input) });
-    return Response.json({ bookId: 'book/id', editionId: 'edition/id', processing: state });
+    calls.push({
+      body: typeof init?.body === 'string' ? init.body : null,
+      contentType: new Headers(init?.headers).get('Content-Type'),
+      method: init?.method ?? 'GET',
+      url: String(input),
+    });
+    const approval = String(input).endsWith('/approve');
+    return Response.json({
+      bookId: 'book/id',
+      editionId: 'edition/id',
+      ...(approval ? {
+        edition: { ...approvedEdition, bookId: 'book/id', id: 'edition/id' },
+        processing: approvedState,
+        requestId,
+      } : { processing: state }),
+    });
   };
   try {
     await fetchEditionProcessing('book/id', 'edition/id');
     await reprocessEdition('book/id', 'edition/id');
-    await approveEditionProcessing('book/id', 'edition/id');
+    const approved = await approveEditionProcessing('book/id', 'edition/id', { actorId });
+    assert.equal(approved.edition.status, 'ready');
+    assert.equal(approved.processing.summary.status, 'ready');
   } finally {
     globalThis.fetch = originalFetch;
   }
   assert.deepEqual(calls, [
-    { method: 'GET', url: '/api/internal/books/book%2Fid/editions/edition%2Fid/processing' },
-    { method: 'POST', url: '/api/internal/books/book%2Fid/editions/edition%2Fid/processing' },
-    { method: 'POST', url: '/api/internal/books/book%2Fid/editions/edition%2Fid/processing/approve' },
+    { body: null, contentType: null, method: 'GET', url: '/api/internal/books/book%2Fid/editions/edition%2Fid/processing' },
+    { body: null, contentType: null, method: 'POST', url: '/api/internal/books/book%2Fid/editions/edition%2Fid/processing' },
+    {
+      body: JSON.stringify({ actorId }),
+      contentType: 'application/json',
+      method: 'POST',
+      url: '/api/internal/books/book%2Fid/editions/edition%2Fid/processing/approve',
+    },
   ]);
+});
+
+test('approval uses a constrained local audit actor without claiming authentication', async () => {
+  assert.match(localBookProcessingActorId, /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu);
+  const originalFetch = globalThis.fetch;
+  let body: unknown;
+  globalThis.fetch = async (_input, init) => {
+    body = JSON.parse(String(init?.body));
+    return Response.json({
+      bookId,
+      edition: approvedEdition,
+      editionId,
+      processing: approvedState,
+      requestId,
+    });
+  };
+  try {
+    await approveEditionProcessing(bookId, editionId);
+    assert.deepEqual(body, { actorId: localBookProcessingActorId });
+    await assert.rejects(
+      () => approveEditionProcessing(bookId, editionId, { actorId: 'local-user' }),
+      (error: unknown) => error instanceof BooksApiError && error.code === 'INVALID_ACTOR_ID',
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('processing client preserves stable backend errors without exposing response messages', async () => {

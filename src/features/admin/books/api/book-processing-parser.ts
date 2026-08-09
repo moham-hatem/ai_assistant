@@ -2,7 +2,10 @@ import {
   parseDocumentProcessingSummary,
   type DocumentProcessingState,
 } from '../../../../../shared/contracts/document-processing.ts';
-import { BooksApiError } from './book-parser.ts';
+import type { EditionProcessingApprovalResult } from '../types.ts';
+import { BooksApiError, parseEdition } from './book-parser.ts';
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 export function parseEditionProcessingResponse(
   value: unknown,
@@ -24,6 +27,24 @@ export function parseEditionProcessingResponse(
   } catch {
     return invalid();
   }
+}
+
+export function parseEditionProcessingApprovalResponse(
+  value: unknown,
+  expectedBookId: string,
+  expectedEditionId: string,
+): EditionProcessingApprovalResult {
+  const payload = asObject(value);
+  if (typeof payload.requestId !== 'string' || !uuidPattern.test(payload.requestId)) invalid();
+  const processing = parseEditionProcessingResponse(payload, expectedBookId, expectedEditionId);
+  const edition = parseEdition(payload.edition);
+  if (edition.bookId !== expectedBookId
+    || edition.id !== expectedEditionId
+    || edition.status !== 'ready'
+    || processing.summary.status !== 'ready') {
+    invalid();
+  }
+  return { edition, processing };
 }
 
 function asObject(value: unknown): Record<string, unknown> {

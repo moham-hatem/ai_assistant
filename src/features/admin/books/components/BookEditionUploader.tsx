@@ -73,10 +73,10 @@ export function BookEditionUploader(props: BookEditionUploaderProps) {
           {props.copy.uploadErrors[props.error as BookEditionUploadError]}
         </p>
       )}
-      {props.status === 'success' && props.version && (
+      {props.status === 'success' && props.version && props.processingStatus && (
         <p className="book-upload-message is-success" role="status">
           <CheckCircle2 aria-hidden="true" size={17} />
-          {props.copy.uploadSuccess(props.version)}
+          {props.copy.uploadSuccess(props.version, props.processingStatus)}
         </p>
       )}
     </form>

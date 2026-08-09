@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { DocumentProcessingState } from '../../../../../shared/contracts/document-processing.ts';
 import {
   approveEditionProcessing,
   fetchEditionProcessing,
@@ -30,6 +31,7 @@ export interface EditionProcessingController {
 export function useEditionProcessing(
   bookId: string | null,
   editions: readonly BookEdition[],
+  onEditionApproved: (edition: BookEdition) => void,
 ): EditionProcessingController {
   const editionKey = editions
     .map(({ id, originalDocumentReference, status }) => `${id}:${status}:${originalDocumentReference}`)
@@ -41,6 +43,8 @@ export function useEditionProcessing(
   const requestCounterRef = useRef(0);
   const controllersRef = useRef(new Map<string, AbortController>());
   const actionLocksRef = useRef(new Set<string>());
+  const onEditionApprovedRef = useRef(onEditionApproved);
+  onEditionApprovedRef.current = onEditionApproved;
 
   const isCurrent = useCallback((requestedBookId: string, editionId: string, token: number) => (
     isCurrentEditionProcessingRequest(
@@ -113,10 +117,22 @@ export function useEditionProcessing(
     requestTokensRef.current.set(editionId, token);
     setEntries((current) => processingActionStarted(current, editionId, action));
     try {
-      const processing = action === 'approve'
-        ? await approveEditionProcessing(requestedBookId, editionId, controller.signal)
-        : await reprocessEdition(requestedBookId, editionId, controller.signal);
+      let processing: DocumentProcessingState;
+      let approvedEdition: BookEdition | null = null;
+      if (action === 'approve') {
+        const approved = await approveEditionProcessing(requestedBookId, editionId, {
+          signal: controller.signal,
+        });
+        processing = approved.processing;
+        approvedEdition = approved.edition;
+      } else {
+        processing = await reprocessEdition(requestedBookId, editionId, controller.signal);
+      }
       if (!isCurrent(requestedBookId, editionId, token)) return false;
+      if (approvedEdition) {
+        visibleEditionsRef.current.set(editionId, approvedEdition);
+        onEditionApprovedRef.current(approvedEdition);
+      }
       setEntries((current) => processingLoadSucceeded(current, editionId, processing));
       return true;
     } catch (error) {
