@@ -9,7 +9,7 @@ const transitions: Readonly<Record<DocumentProcessingStatus, readonly DocumentPr
   ocr_required: ['processing'],
   processing: ['ready', 'ocr_required', 'review_required', 'failed'],
   ready: ['processing'],
-  review_required: ['processing'],
+  review_required: ['processing', 'ready'],
 };
 
 export function allowedDocumentProcessingTransitions(

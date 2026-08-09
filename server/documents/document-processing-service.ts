@@ -31,6 +31,39 @@ export class DocumentProcessingService {
     return this.documents.processingState(documentId);
   }
 
+  async approveReview(documentId: string): Promise<DocumentProcessingState> {
+    const state = await this.documents.processingState(documentId);
+    if (state.summary.status !== 'review_required') {
+      throw new AppError(
+        'DOCUMENT_REVIEW_NOT_REQUIRED',
+        'Only a document awaiting OCR review can be approved.',
+        409,
+      );
+    }
+    const text = await this.documents.readText(documentId);
+    if (!hasSufficientDocumentText(text)) {
+      throw new AppError(
+        'DOCUMENT_REVIEW_TEXT_INSUFFICIENT',
+        'OCR review cannot be approved without sufficient extracted text.',
+        422,
+      );
+    }
+    return this.documents.updateProcessing(documentId, (current) => {
+      if (current.summary.status !== 'review_required') {
+        throw new AppError(
+          'DOCUMENT_REVIEW_NOT_REQUIRED',
+          'Only a document awaiting OCR review can be approved.',
+          409,
+        );
+      }
+      assertDocumentProcessingTransition(current.summary.status, 'ready');
+      return {
+        ...current,
+        summary: { ...current.summary, failureCode: null, status: 'ready' },
+      };
+    });
+  }
+
   async reprocess(documentId: string): Promise<DocumentProcessingState> {
     const started = await this.beginAttempt(documentId);
     try {

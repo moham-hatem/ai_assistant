@@ -14,6 +14,11 @@ interface EditionTransitioner {
   ): Promise<unknown>;
   editionProcessing?(bookId: string, editionId: string): Promise<DocumentProcessingState>;
   reprocessEdition?(bookId: string, editionId: string): Promise<DocumentProcessingState>;
+  approveEditionProcessing?(
+    bookId: string,
+    editionId: string,
+    actorId: string,
+  ): Promise<{ edition: unknown; processing: DocumentProcessingState }>;
 }
 
 const defaultLimit = 25;
@@ -91,6 +96,30 @@ export function createBooksHandler(
         url.pathname,
         /^\/api\/internal\/books\/([^/]+)\/editions\/([^/]+)\/processing$/u,
       );
+
+      const approval = matchPath(
+        url.pathname,
+        /^\/api\/internal\/books\/([^/]+)\/editions\/([^/]+)\/processing\/approve$/u,
+      );
+      if (approval) {
+        if (request.method !== 'POST') return methodNotAllowed(response, requestId);
+        if (!transitions.approveEditionProcessing) throw processingUnavailable();
+        const actorId = validId(requiredString(
+          objectBody(await readJson(request)).actorId,
+          'actorId',
+          36,
+        ));
+        const bookId = validId(approval[0]);
+        const editionId = validId(approval[1]);
+        sendJson(response, 200, {
+          bookId,
+          editionId,
+          ...(await transitions.approveEditionProcessing(bookId, editionId, actorId)),
+          requestId,
+        });
+        return;
+      }
+
       if (processing) {
         const bookId = validId(processing[0]);
         const editionId = validId(processing[1]);

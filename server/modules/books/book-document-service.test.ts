@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { DocumentStore } from '../../documents/document-store.ts';
+import type { DocumentProcessorPort } from '../../documents/document-processor-port.ts';
+import { PdfDocumentProcessor } from '../../documents/pdf-document-processor.ts';
 import { AppError } from '../../errors.ts';
 import { LocalKnowledgeSource } from '../../knowledge/local-knowledge.ts';
 import { BookDocumentEvidenceSource } from './book-document-evidence.ts';
@@ -54,6 +56,77 @@ test('extraction failure rejects the edition without leaving document metadata',
     assert.equal(editions.items[0]?.status, 'rejected');
     assert.deepEqual(await application.listDocuments(), []);
   });
+});
+
+test('scanned PDF upload preserves source and metadata when local OCR tools are unavailable', async () => {
+  const source = Buffer.from('scanned-pdf-source');
+  const processor = new PdfDocumentProcessor({
+    async extractDetailed() {
+      return {
+        averageConfidence: 0,
+        pages: [{
+          confidence: 0,
+          ocrReasons: ['too_few_characters'],
+          pageNumber: 1,
+          source: 'native',
+          status: 'needs_ocr',
+          text: '',
+        }],
+        reason: 'tool_unavailable',
+        status: 'needs_ocr',
+      };
+    },
+  });
+
+  await withApplication(async ({ application, books, documents }) => {
+    const book = await books.createBook({ language: 'ar', title: 'Scanned source' });
+    const uploaded = await application.upload({
+      bookId: book.id,
+      buffer: source,
+      name: 'scan.pdf',
+      version: 'v1',
+    });
+
+    assert.equal(uploaded.document.processing.status, 'ocr_required');
+    assert.equal(uploaded.document.processing.failureCode, 'PDF_OCR_TOOL_UNAVAILABLE');
+    assert.equal(uploaded.edition.status, 'processing');
+    assert.deepEqual((await documents.readSource(uploaded.document.id)).source, source);
+    assert.equal((await application.listDocuments()).length, 1);
+  }, processor);
+});
+
+test('reprocessing that requires OCR review keeps the edition processing', async () => {
+  const processor: DocumentProcessorPort = {
+    async process() {
+      return {
+        text: 'Low confidence OCR output with enough content for manual review.',
+        summary: {
+          averageConfidence: 0.65,
+          failureCode: null,
+          lowConfidencePageCount: 1,
+          method: 'ocr',
+          ocrPageCount: 1,
+          pageCount: 1,
+          processedAt: null,
+          status: 'review_required',
+        },
+      };
+    },
+  };
+
+  await withApplication(async ({ application, books }) => {
+    const book = await books.createBook({ language: 'en', title: 'Review lifecycle' });
+    const uploaded = await application.upload({
+      bookId: book.id,
+      buffer: lesson('review-reprocess-marker'),
+      name: 'lesson.txt',
+    });
+    assert.equal(uploaded.edition.status, 'ready');
+
+    const processing = await application.reprocessEdition(book.id, uploaded.edition.id);
+    assert.equal(processing.summary.status, 'review_required');
+    assert.equal((await books.getEdition(book.id, uploaded.edition.id)).status, 'processing');
+  }, processor);
 });
 
 test('publishing atomically selects the edition for knowledge search', async () => {
@@ -135,14 +208,18 @@ interface TestContext {
   books: BookService;
   knowledge: LocalKnowledgeSource;
   repository: SqliteBookRepository;
+  documents: DocumentStore;
 }
 
-async function withApplication(run: (context: TestContext) => Promise<void>): Promise<void> {
+async function withApplication(
+  run: (context: TestContext) => Promise<void>,
+  processor?: DocumentProcessorPort,
+): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'book-document-lifecycle-test-'));
   const repository = new SqliteBookRepository(join(root, 'books.sqlite'));
   const documents = new DocumentStore(join(root, 'documents'), join(root, 'knowledge'));
   const books = new BookService(repository);
-  const application = new BookDocumentService(books, repository, documents);
+  const application = new BookDocumentService(books, repository, documents, undefined, processor);
   const knowledge = new LocalKnowledgeSource(
     join(root, 'knowledge'),
     undefined,
@@ -150,7 +227,7 @@ async function withApplication(run: (context: TestContext) => Promise<void>): Pr
   );
 
   try {
-    await run({ application, books, knowledge, repository });
+    await run({ application, books, documents, knowledge, repository });
   } finally {
     repository.close();
     await rm(root, { recursive: true, force: true });

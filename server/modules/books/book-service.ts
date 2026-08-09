@@ -126,6 +126,24 @@ export class BookService {
       : this.repository.transitionEdition(command));
   }
 
+  async reopenEditionProcessing(bookId: string, editionId: string): Promise<BookEdition> {
+    const edition = await this.getEdition(bookId, editionId);
+    if (edition.status !== 'ready') {
+      throw new AppError(
+        'EDITION_REPROCESS_FORBIDDEN',
+        'Only a ready edition can enter system-owned reprocessing.',
+        409,
+      );
+    }
+    return this.call(() => this.repository.transitionEdition({
+      at: this.now().toISOString(),
+      bookId,
+      editionId,
+      expectedStatus: 'ready',
+      targetStatus: 'processing',
+    }));
+  }
+
   private async call<T>(operation: () => Promise<T>): Promise<T> {
     try {
       return await operation();

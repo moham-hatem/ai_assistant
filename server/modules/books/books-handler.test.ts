@@ -165,12 +165,81 @@ test('processing API reports state, reprocesses drafts, and refuses published ed
           status: 'ready',
         },
       });
+      assert.equal((await service.getEdition(book.id, uploaded.edition.id)).status, 'ready');
 
       await operations.transitionEdition(book.id, uploaded.edition.id, 'published');
       const forbidden = await jsonRequest(endpoint, 'POST');
       assert.equal(forbidden.response.status, 409);
       assert.equal(forbidden.body.code, 'PUBLISHED_EDITION_REPROCESS_FORBIDDEN');
       assert.equal(calls, 1);
+      assert.equal((await service.getEdition(book.id, uploaded.edition.id)).status, 'published');
+    });
+  } finally {
+    repository.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('OCR review approval readies the document and edition without publishing', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'books-approval-handler-test-'));
+  const repository = new SqliteBookRepository(join(root, 'books.sqlite'));
+  const service = new BookService(repository);
+  const processor: DocumentProcessorPort = {
+    async process() {
+      return {
+        text: 'Reviewed OCR text with enough useful content to approve safely.',
+        summary: {
+          averageConfidence: 0.68,
+          failureCode: null,
+          lowConfidencePageCount: 1,
+          method: 'ocr',
+          ocrPageCount: 1,
+          pageCount: 1,
+          processedAt: '2026-08-09T10:00:00.000Z',
+          status: 'review_required',
+        },
+      };
+    },
+  };
+  const operations = new BookDocumentService(
+    service,
+    repository,
+    new DocumentStore(join(root, 'documents'), join(root, 'knowledge')),
+    undefined,
+    processor,
+  );
+  const handler = createBooksHandler(service, () => undefined, operations);
+
+  try {
+    const book = await service.createBook({ language: 'ar', title: 'OCR review' });
+    const uploaded = await operations.upload({
+      bookId: book.id,
+      buffer: Buffer.from('pdf source'),
+      name: 'review.pdf',
+    });
+    assert.equal(uploaded.document.processing.status, 'review_required');
+    assert.equal(uploaded.edition.status, 'processing');
+
+    await withServer((request, response) => {
+      void handler(request, response, new URL(request.url ?? '/', 'http://localhost'));
+    }, async (baseUrl) => {
+      const endpoint = `${baseUrl}/api/internal/books/${book.id}/editions/${uploaded.edition.id}/processing/approve`;
+      const invalidActor = await jsonRequest(endpoint, 'POST', { actorId: 'local-user' });
+      assert.equal(invalidActor.response.status, 400);
+
+      const approved = await jsonRequest(endpoint, 'POST', { actorId: crypto.randomUUID() });
+      assert.equal(approved.response.status, 200);
+      assert.equal(
+        ((approved.body.processing as { summary: { status: string } }).summary.status),
+        'ready',
+      );
+      assert.equal((approved.body.edition as { status: string }).status, 'ready');
+      assert.equal((await service.getEdition(book.id, uploaded.edition.id)).status, 'ready');
+
+      await operations.transitionEdition(book.id, uploaded.edition.id, 'published');
+      const published = await jsonRequest(endpoint, 'POST', { actorId: crypto.randomUUID() });
+      assert.equal(published.response.status, 409);
+      assert.equal(published.body.code, 'PUBLISHED_EDITION_REVIEW_FORBIDDEN');
       assert.equal((await service.getEdition(book.id, uploaded.edition.id)).status, 'published');
     });
   } finally {
