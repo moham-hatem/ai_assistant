@@ -20,7 +20,7 @@ export function localAnswerApi(config: LocalRuntimeConfig): Plugin {
           `Local API request failed (${requestId}): ${loggedError.name}`,
         );
       };
-      const answer = createAnswerHandler(runtime.answerService, runtime.questionLogService, logError);
+      const answer = createAnswerHandler(runtime.answerRequestService, logError);
       const books = createBooksHandler(runtime.bookService, logError, runtime.bookDocuments);
       const documents = createDocumentsHandler(runtime.bookDocuments, logError);
       const questionLogs = createQuestionLogHandler(runtime.questionLogRepository, logError);

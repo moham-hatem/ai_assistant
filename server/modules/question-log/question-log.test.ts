@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import type { QuestionLogRecord } from '../../../shared/contracts/question-log.ts';
+import { AnswerRequestService } from '../../answer-request-service.ts';
 import { AnswerService } from '../../answer-service.ts';
 import { createAnswerHandler } from '../../http/answer-handler.ts';
 import { createQuestionLogHandler } from './question-log-handler.ts';
@@ -62,15 +63,16 @@ test('question log service reports persistence failures without throwing', async
   assert.equal(reported, failure);
 });
 
-test('answer API records execution evidence and model metadata without logging history', async () => {
+test('answer API preserves the web response contract and records execution metadata', async () => {
   const answerService = testAnswerService();
   let recorded: QuestionLogRecord | undefined;
-  const handler = createAnswerHandler(answerService, {
+  let responseBody: Record<string, unknown> | undefined;
+  const handler = createAnswerHandler(new AnswerRequestService(answerService, {
     record: async (record) => {
       recorded = record;
       return true;
     },
-  }, () => undefined);
+  }), () => undefined);
 
   await withServer((request, response) => void handler(request, response), async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/answer-question`, {
@@ -83,9 +85,15 @@ test('answer API records execution evidence and model metadata without logging h
       }),
     });
     assert.equal(response.status, 200);
+    responseBody = await response.json() as Record<string, unknown>;
+    assert.deepEqual(Object.keys(responseBody).sort(), ['answer', 'grounded', 'requestId']);
+    assert.equal(responseBody.answer, 'A grounded answer.');
+    assert.equal(responseBody.grounded, true);
   });
 
   assert.ok(recorded);
+  assert.equal(recorded.id, responseBody?.requestId);
+  assert.equal(recorded.channel, 'web');
   assert.equal(recorded.status, 'answered');
   assert.equal(recorded.answer, 'A grounded answer.');
   assert.deepEqual(recorded.evidenceReferences, ['lesson:7']);
@@ -97,11 +105,11 @@ test('answer API records execution evidence and model metadata without logging h
 
 test('answer API returns the answer even when the audit writer throws', async () => {
   const answerService = testAnswerService();
-  const handler = createAnswerHandler(answerService, {
+  const handler = createAnswerHandler(new AnswerRequestService(answerService, {
     record: async () => {
       throw new Error('audit failed');
     },
-  }, () => undefined);
+  }), () => undefined);
 
   await withServer((request, response) => void handler(request, response), async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/answer-question`, {

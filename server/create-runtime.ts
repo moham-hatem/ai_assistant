@@ -1,4 +1,5 @@
 import { AnswerService } from './answer-service.ts';
+import { AnswerRequestService } from './answer-request-service.ts';
 import type { LocalRuntimeConfig } from './config.ts';
 import { DocumentStore } from './documents/document-store.ts';
 import { LocalKnowledgeSource } from './knowledge/local-knowledge.ts';
@@ -83,20 +84,23 @@ export function createRuntime(config: LocalRuntimeConfig) {
     )
     : undefined;
   const questionLogRepository = createQuestionLogRepository(config.questionLogDatabaseFile);
+  const questionLogService = new QuestionLogService(questionLogRepository);
   const reviewRepository = createReviewRepository(config.questionLogDatabaseFile);
   const feedbackRepository = createFeedbackRepository(config.questionLogDatabaseFile);
   const qualityMetricsRepository = createQualityMetricsRepository(config.questionLogDatabaseFile);
-  return {
-    answerService: new AnswerService(
-      knowledge,
-      config.matchCount,
-      model,
-      questionExpander,
-      reviewRepository,
-      new PublishedApprovedAnswerEvidenceValidator(
-        new LocalPublishedEvidenceSource(config.knowledgeDirectory, publishedEvidence),
-      ),
+  const answerService = new AnswerService(
+    knowledge,
+    config.matchCount,
+    model,
+    questionExpander,
+    reviewRepository,
+    new PublishedApprovedAnswerEvidenceValidator(
+      new LocalPublishedEvidenceSource(config.knowledgeDirectory, publishedEvidence),
     ),
+  );
+  return {
+    answerRequestService: new AnswerRequestService(answerService, questionLogService),
+    answerService,
     bookDocuments,
     documentStore,
     bookRepository,
@@ -105,7 +109,7 @@ export function createRuntime(config: LocalRuntimeConfig) {
     feedbackService: new FeedbackService(feedbackRepository),
     knowledge,
     questionLogRepository,
-    questionLogService: new QuestionLogService(questionLogRepository),
+    questionLogService,
     qualityMetricsRepository,
     qualityMetricsService: new QualityMetricsService(qualityMetricsRepository),
     reviewRepository,

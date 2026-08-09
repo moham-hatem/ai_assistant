@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import test from 'node:test';
+import { AnswerRequestService } from '../../answer-request-service.ts';
 import { AnswerService } from '../../answer-service.ts';
 import { createAnswerHandler } from '../../http/answer-handler.ts';
 import type { FeedbackRepository } from './feedback-repository.ts';
@@ -86,13 +87,13 @@ test('feedback persistence failure is an API error without leaked internals', as
 test('answer response exposes requestId only after its question log accepts immediate feedback', async () => {
   await withFeedbackFixture(async ({ questionLogs, service }) => {
     const feedbackHandler = createFeedbackHandler(service, () => undefined);
-    const answerHandler = createAnswerHandler(answerService(), {
+    const answerHandler = createAnswerHandler(new AnswerRequestService(answerService(), {
       record: async (record) => {
         await new Promise((resolve) => setTimeout(resolve, 30));
         await questionLogs.save(record);
         return true;
       },
-    }, () => undefined);
+    }), () => undefined);
 
     await withServer((request, response) => {
       const url = new URL(request.url ?? '/', 'http://localhost');
