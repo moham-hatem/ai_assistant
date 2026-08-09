@@ -1,4 +1,4 @@
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { getDocument, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { extractLayoutAwarePage } from './pdf-layout.ts';
 
 interface PdfTextContentItem {
@@ -7,6 +7,7 @@ interface PdfTextContentItem {
 }
 
 interface PdfPageHandle {
+  getOperatorList(): Promise<{ fnArray: number[] }>;
   getTextContent(): Promise<{ items: unknown[] }>;
   getViewport(options: { scale: number }): { height: number; width: number };
 }
@@ -24,6 +25,7 @@ interface PdfLoadingTask {
 export type PdfLoadingTaskFactory = (buffer: Buffer) => PdfLoadingTask;
 
 export interface NativePdfPage {
+  hasRasterContent: boolean;
   pageNumber: number;
   text: string;
 }
@@ -47,9 +49,13 @@ export class PdfJsPageReader implements PdfPageReader {
       const document = await loadingTask.promise;
       for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
         const page = await document.getPage(pageNumber);
-        const content = await page.getTextContent();
+        const [content, operators] = await Promise.all([
+          page.getTextContent(),
+          page.getOperatorList(),
+        ]);
         const viewport = page.getViewport({ scale: 1 });
         pages.push({
+          hasRasterContent: operators.fnArray.some((operator) => RASTER_OPERATORS.has(operator)),
           pageNumber,
           text: extractLayoutAwarePage(content.items.filter(isPdfTextContentItem), {
             height: viewport.height,
@@ -65,6 +71,16 @@ export class PdfJsPageReader implements PdfPageReader {
     return pages;
   }
 }
+
+const RASTER_OPERATORS = new Set<number>([
+  OPS.paintImageMaskXObject,
+  OPS.paintImageMaskXObjectGroup,
+  OPS.paintImageMaskXObjectRepeat,
+  OPS.paintImageXObject,
+  OPS.paintImageXObjectRepeat,
+  OPS.paintInlineImageXObject,
+  OPS.paintInlineImageXObjectGroup,
+]);
 
 function loadPdf(buffer: Buffer): PdfLoadingTask {
   const task = getDocument({ data: new Uint8Array(buffer) });

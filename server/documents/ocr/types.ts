@@ -55,6 +55,10 @@ export interface PageOcrDecision {
   reasons: string[];
 }
 
+export interface PageOcrDecisionContext {
+  hasRasterContent: boolean;
+}
+
 export interface PageOcrDecisionPolicy {
-  evaluate(text: string): PageOcrDecision;
+  evaluate(text: string, context: PageOcrDecisionContext): PageOcrDecision;
 }

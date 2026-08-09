@@ -1,4 +1,8 @@
-import type { PageOcrDecision, PageOcrDecisionPolicy } from './types.ts';
+import type {
+  PageOcrDecision,
+  PageOcrDecisionContext,
+  PageOcrDecisionPolicy,
+} from './types.ts';
 
 export interface TextQualityPolicyOptions {
   maxSuspiciousCharacterRatio?: number;
@@ -17,19 +21,28 @@ export class TextQualityOcrPolicy implements PageOcrDecisionPolicy {
     this.minWords = options.minWords ?? 12;
   }
 
-  evaluate(text: string): PageOcrDecision {
+  evaluate(
+    text: string,
+    context: PageOcrDecisionContext = { hasRasterContent: false },
+  ): PageOcrDecision {
     const content = text.replace(/^\[PDF page \d+\]\s*/u, '').trim();
     const characters = [...content].filter((character) => !/\s/u.test(character));
     const words = content.split(/\s+/u).filter(Boolean);
     const suspicious = characters.filter((character) => /[\u0000-\u001F\uFFFD]/u.test(character)).length;
     const suspiciousRatio = suspicious / Math.max(characters.length, 1);
     const reasons: string[] = [];
-    if (characters.length < this.minCharacters) reasons.push('too_few_characters');
-    if (words.length < this.minWords) reasons.push('too_few_words');
+    if (context.hasRasterContent && characters.length < this.minCharacters) {
+      reasons.push('too_few_characters');
+    }
+    if (context.hasRasterContent && words.length < this.minWords) reasons.push('too_few_words');
     if (suspiciousRatio > this.maxSuspiciousCharacterRatio) reasons.push('suspicious_characters');
 
-    const characterScore = Math.min(1, characters.length / Math.max(this.minCharacters, 1));
-    const wordScore = Math.min(1, words.length / Math.max(this.minWords, 1));
+    const characterScore = context.hasRasterContent
+      ? Math.min(1, characters.length / Math.max(this.minCharacters, 1))
+      : 1;
+    const wordScore = context.hasRasterContent
+      ? Math.min(1, words.length / Math.max(this.minWords, 1))
+      : 1;
     const cleanScore = 1 - Math.min(1, suspiciousRatio / Math.max(this.maxSuspiciousCharacterRatio, 0.001));
     return {
       confidence: (characterScore + wordScore + cleanScore) / 3,

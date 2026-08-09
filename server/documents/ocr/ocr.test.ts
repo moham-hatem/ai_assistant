@@ -10,11 +10,14 @@ import { PdftoppmRasterizer } from './pdftoppm-rasterizer.ts';
 import { TesseractOcrEngine } from './tesseract-engine.ts';
 import type { OcrEngine, PageRasterizer } from './types.ts';
 
-test('text quality policy identifies short and corrupted pages while accepting sufficient multilingual text', () => {
+test('text quality policy requires raster content before treating short pages as OCR candidates', () => {
   const policy = new TextQualityOcrPolicy({ minCharacters: 20, minWords: 4 });
 
   const healthy = policy.evaluate('[PDF page 1]\nتعلم الصلاة الصحيحة with clear instructions kwa wanafunzi');
-  const short = policy.evaluate('[PDF page 2]\nTitle');
+  const blank = policy.evaluate('', { hasRasterContent: false });
+  const cover = policy.evaluate('[PDF page 2]\nTitle', { hasRasterContent: false });
+  const scanned = policy.evaluate('', { hasRasterContent: true });
+  const infographic = policy.evaluate('[PDF page 3]\nTiny caption', { hasRasterContent: true });
   const corrupted = new TextQualityOcrPolicy({
     maxSuspiciousCharacterRatio: 0.1,
     minCharacters: 1,
@@ -23,7 +26,12 @@ test('text quality policy identifies short and corrupted pages while accepting s
 
   assert.equal(healthy.needsOcr, false);
   assert.ok(healthy.confidence > 0.9);
-  assert.deepEqual(short.reasons, ['too_few_characters', 'too_few_words']);
+  assert.equal(blank.needsOcr, false);
+  assert.deepEqual(blank.reasons, []);
+  assert.equal(cover.needsOcr, false);
+  assert.deepEqual(cover.reasons, []);
+  assert.deepEqual(scanned.reasons, ['too_few_characters', 'too_few_words']);
+  assert.deepEqual(infographic.reasons, ['too_few_characters', 'too_few_words']);
   assert.match(corrupted.reasons.join(','), /suspicious_characters/u);
 });
 

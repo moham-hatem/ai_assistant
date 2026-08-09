@@ -35,7 +35,9 @@ export class HybridPdfPageProcessor {
   }
 
   private classify(page: NativePdfPage): PdfPageExtractionResult {
-    const decision = this.policy.evaluate(page.text);
+    const decision = this.policy.evaluate(page.text, {
+      hasRasterContent: page.hasRasterContent,
+    });
     return {
       confidence: clampConfidence(decision.confidence),
       ocrReasons: decision.reasons,
