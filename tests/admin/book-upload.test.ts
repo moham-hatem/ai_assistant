@@ -25,6 +25,16 @@ const document = {
   id: 'd4444444-4444-4444-8444-444444444444',
   importedAt: '2026-08-06T09:00:00.000Z',
   name: 'lesson copy.txt',
+  processing: {
+    averageConfidence: null,
+    failureCode: null,
+    lowConfidencePageCount: 0,
+    method: 'native',
+    ocrPageCount: 0,
+    pageCount: 1,
+    processedAt: '2026-08-06T09:00:00.000Z',
+    status: 'ready',
+  },
   size: 84,
 };
 const edition = {
@@ -48,6 +58,20 @@ test('linked upload parser accepts only a coherent ready edition result', () => 
   assert.throws(
     () => parseBookEditionUpload(
       { ...payload, edition: { ...edition, status: 'published' } },
+      book.id,
+      edition.version,
+    ),
+    BooksApiError,
+  );
+  assert.throws(
+    () => parseBookEditionUpload(
+      {
+        ...payload,
+        document: {
+          ...document,
+          processing: { ...document.processing, method: 'native', ocrPageCount: 1 },
+        },
+      },
       book.id,
       edition.version,
     ),

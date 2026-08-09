@@ -2,6 +2,7 @@ import type {
   BookDocumentMetadata,
   BookEditionUploadResult,
 } from '../types';
+import { parseDocumentProcessingSummary } from '../../../../../shared/contracts/document-processing.ts';
 import { BooksApiError, parseBook, parseEdition } from './book-parser.ts';
 
 const documentFormats = ['docx', 'markdown', 'pdf', 'text'] as const;
@@ -32,12 +33,19 @@ function parseDocument(value: unknown): BookDocumentMetadata {
   if (!documentFormats.includes(format as BookDocumentMetadata['format'])) {
     invalid('document format');
   }
+  let processing: BookDocumentMetadata['processing'];
+  try {
+    processing = parseDocumentProcessingSummary(item.processing);
+  } catch {
+    invalid('document processing');
+  }
   return {
     characterCount: readInteger(item.characterCount, 'document characterCount'),
     format: format as BookDocumentMetadata['format'],
     id: readString(item.id, 'document id'),
     importedAt: readDate(item.importedAt, 'document importedAt'),
     name: readString(item.name, 'document name'),
+    processing,
     size: readInteger(item.size, 'document size'),
   };
 }

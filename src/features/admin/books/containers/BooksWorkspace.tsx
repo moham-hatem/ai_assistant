@@ -8,6 +8,7 @@ import { TransitionDialog } from '../components/TransitionDialog';
 import { booksCopies } from '../copy';
 import { useBookEditionUpload } from '../hooks/useBookEditionUpload';
 import { useBooks } from '../hooks/useBooks';
+import { useEditionProcessing } from '../hooks/useEditionProcessing';
 import type { PendingTransition } from '../types';
 
 interface BooksWorkspaceProps { language: AppLanguage }
@@ -16,6 +17,7 @@ export function BooksWorkspace({ language }: BooksWorkspaceProps) {
   const books = useBooks();
   const copy = booksCopies[language];
   const upload = useBookEditionUpload(books.selectedId, books.synchronizeUpload);
+  const processing = useEditionProcessing(books.selectedId, books.editions?.items ?? []);
   const [pending, setPending] = useState<PendingTransition | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const errorMessage = books.transitionError === 'refresh'
@@ -75,6 +77,7 @@ export function BooksWorkspace({ language }: BooksWorkspaceProps) {
           onRetry={books.retryDetail}
           onTransition={requestTransition}
           onUpload={upload.upload}
+          processing={processing}
           selectedId={books.selectedId}
           status={books.detailStatus}
           transitioningId={books.transitioningId}
