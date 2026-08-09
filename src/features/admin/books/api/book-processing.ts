@@ -1,4 +1,5 @@
 import type { DocumentProcessingState } from '../../../../../shared/contracts/document-processing.ts';
+import { adminFetch } from '../../api/admin-fetch.ts';
 import type { EditionProcessingApprovalResult } from '../types.ts';
 import { localBookProcessingActorId } from '../processing-operator.ts';
 import { BooksApiError } from './book-parser.ts';
@@ -71,7 +72,7 @@ function processingPath(bookId: string, editionId: string, suffix: string): stri
 async function request(path: string, init: RequestInit): Promise<unknown> {
   let response: Response;
   try {
-    response = await fetch(path, init);
+    response = await adminFetch(path, init);
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
     throw new BooksApiError('Books processing API could not be reached.', null, 'NETWORK_ERROR');

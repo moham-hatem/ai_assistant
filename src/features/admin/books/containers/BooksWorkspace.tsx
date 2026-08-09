@@ -11,9 +11,9 @@ import { useBooks } from '../hooks/useBooks';
 import { useEditionProcessing } from '../hooks/useEditionProcessing';
 import type { PendingTransition } from '../types';
 
-interface BooksWorkspaceProps { language: AppLanguage }
+interface BooksWorkspaceProps { canReview: boolean; canWrite: boolean; language: AppLanguage }
 
-export function BooksWorkspace({ language }: BooksWorkspaceProps) {
+export function BooksWorkspace({ canReview, canWrite, language }: BooksWorkspaceProps) {
   const books = useBooks();
   const copy = booksCopies[language];
   const upload = useBookEditionUpload(books.selectedId, books.synchronizeUpload);
@@ -71,6 +71,8 @@ export function BooksWorkspace({ language }: BooksWorkspaceProps) {
         />
         <BookDetails
           book={books.book}
+          canWrite={canWrite}
+          canReview={canReview}
           canGoNext={books.canEditionsGoNext}
           canGoPrevious={books.canEditionsGoPrevious}
           copy={copy}
@@ -90,7 +92,7 @@ export function BooksWorkspace({ language }: BooksWorkspaceProps) {
       </div>
       <section className="legacy-files-panel">
         <header><div><span>{copy.legacyBadge}</span><h2>{copy.legacyTitle}</h2></div><p>{copy.legacyBody}</p></header>
-        <KnowledgeManager language={language} />
+        <KnowledgeManager canWrite={canWrite} language={language} />
       </section>
       {pending && <TransitionDialog busy={books.transitioningId === pending.edition.id} copy={copy} onCancel={() => setPending(null)} onConfirm={() => void confirmTransition()} pending={pending} />}
     </>

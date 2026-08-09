@@ -1,5 +1,6 @@
 import type { QualityMetricsFilters, QualityMetricsResponse } from '../types';
 import { parseQualityMetricsResponse, QualityMetricsApiError } from './quality-metrics-parser';
+import { adminFetch } from '../../api/admin-fetch.ts';
 
 export async function fetchQualityMetrics(
   filters: QualityMetricsFilters,
@@ -9,7 +10,7 @@ export async function fetchQualityMetrics(
   for (const [key, value] of Object.entries(filters)) {
     if (value !== null) query.set(key, value);
   }
-  const response = await fetch(`/api/internal/quality-metrics?${query}`, { signal });
+  const response = await adminFetch(`/api/internal/quality-metrics?${query}`, { signal });
   let payload: unknown;
   try {
     payload = await response.json();

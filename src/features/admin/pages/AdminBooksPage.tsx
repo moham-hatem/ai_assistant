@@ -2,10 +2,12 @@ import type { AppLanguage } from '../../../i18n/language';
 import type { AdminCopy } from '../adminCopy';
 import { BooksWorkspace } from '../books/containers/BooksWorkspace';
 import { AdminPageHeader } from '../components/AdminPageHeader';
+import type { AuthPrincipal } from '../../../../shared/contracts/auth';
+import { canApproveContentReview, canWriteBooks } from '../../auth/permissions';
 
-interface AdminBooksPageProps { copy: AdminCopy; language: AppLanguage }
+interface AdminBooksPageProps { copy: AdminCopy; language: AppLanguage; principal: AuthPrincipal }
 
-export function AdminBooksPage({ copy, language }: AdminBooksPageProps) {
+export function AdminBooksPage({ copy, language, principal }: AdminBooksPageProps) {
   return (
     <>
       <AdminPageHeader
@@ -13,7 +15,7 @@ export function AdminBooksPage({ copy, language }: AdminBooksPageProps) {
         eyebrow={copy.navigation.books}
         title={copy.pageTitle.books}
       />
-      <BooksWorkspace language={language} />
+      <BooksWorkspace canReview={canApproveContentReview(principal)} canWrite={canWriteBooks(principal)} language={language} />
     </>
   );
 }

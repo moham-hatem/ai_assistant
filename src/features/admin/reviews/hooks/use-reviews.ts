@@ -1,18 +1,11 @@
-import { useCallback, useState } from 'react';
-import { readReviewerId, saveReviewerId } from '../reviewer-session';
+import { useCallback } from 'react';
 import type { ReviewFilters } from '../types';
 import { useReviewActions } from './use-review-actions';
 import { useReviewData } from './use-review-data';
 
-export function useReviews() {
+export function useReviews(reviewerId: string) {
   const data = useReviewData();
   const actions = useReviewActions({ dispatch: data.dispatch, refreshAll: data.refreshAll });
-  const [reviewerId, setReviewerIdState] = useState(readReviewerId);
-
-  const setReviewerId = useCallback((value: string) => {
-    setReviewerIdState(value);
-    saveReviewerId(value);
-  }, []);
 
   const setFilters = useCallback((filters: ReviewFilters) => {
     data.changeFilters(filters);
@@ -30,7 +23,6 @@ export function useReviews() {
     reviewerId,
     select: data.select,
     setFilters,
-    setReviewerId,
     state: data.state,
   };
 }

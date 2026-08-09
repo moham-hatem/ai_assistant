@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { BookOpen, Globe2, ShieldCheck } from 'lucide-react';
-import { AdminApp } from '../features/admin/AdminApp';
+import { AuthProvider } from '../features/auth/AuthProvider';
+import { AdminGate } from '../features/auth/components/AdminGate';
+import { useAuth } from '../features/auth/useAuth';
 import { LanguageGate } from '../features/language/LanguageGate';
 import { PwaStatusProvider } from '../features/pwa/PwaStatusProvider';
 import { getLanguage, isAppLanguage, type AppLanguage } from '../i18n/language';
@@ -9,7 +11,12 @@ import { ChatPage } from '../pages/ChatPage';
 import { useHashRoute } from './useHashRoute';
 
 export function App() {
+  return <AuthProvider><AppContent /></AuthProvider>;
+}
+
+function AppContent() {
   const route = useHashRoute();
+  const auth = useAuth();
   const [language, setLanguage] = useState<AppLanguage | null>(readSavedLanguage);
   const [isChoosingLanguage, setIsChoosingLanguage] = useState(language === null);
   const activeLanguage = language ?? 'ar';
@@ -19,9 +26,9 @@ export function App() {
   useEffect(() => {
     document.documentElement.lang = activeLanguage;
     document.documentElement.dir = languageDetails.dir;
-    const section = route.area === 'admin' ? 'Admin' : copy.assistant;
+    const section = route.area !== 'public' ? 'Admin' : copy.assistant;
     document.title = activeLanguage === 'ar'
-      ? `دليل | ${route.area === 'admin' ? 'لوحة الإدارة' : 'المساعد التعليمي الإسلامي'}`
+      ? `دليل | ${route.area !== 'public' ? 'لوحة الإدارة' : 'المساعد التعليمي الإسلامي'}`
       : `Daleel | ${section}`;
   }, [activeLanguage, copy.assistant, languageDetails.dir, route.area]);
 
@@ -43,12 +50,13 @@ export function App() {
 
   return (
     <PwaStatusProvider language={activeLanguage}>
-      {route.area === 'admin' ? (
-        <AdminApp
+      {route.area !== 'public' ? (
+        <AdminGate
           language={activeLanguage}
           languageDetails={languageDetails}
+          loginRoute={route.area === 'admin-login'}
           onChooseLanguage={() => setIsChoosingLanguage(true)}
-          page={route.page}
+          page={route.area === 'admin-login' ? route.returnTo : route.page}
         />
       ) : (
         <main className="page-shell" dir={languageDetails.dir}>
@@ -59,7 +67,7 @@ export function App() {
             </a>
             <nav className="site-nav" aria-label={copy.assistant}>
               <a aria-current="page" href="#/chat">{copy.assistant}</a>
-              <a href="#/admin/dashboard">{copy.adminPanel}</a>
+              {auth.state.status === 'authenticated' && <a href="#/admin/dashboard">{copy.adminPanel}</a>}
             </nav>
             <div className="header-actions">
               <span className="header-note"><ShieldCheck size={16} /> {copy.localContent}</span>

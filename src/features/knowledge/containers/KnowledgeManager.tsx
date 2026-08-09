@@ -7,9 +7,9 @@ import type { KnowledgeDocument } from '../types';
 import type { AppLanguage } from '../../../i18n/language';
 import { knowledgeCopies } from '../copy';
 
-interface KnowledgeManagerProps { language: AppLanguage }
+interface KnowledgeManagerProps { canWrite: boolean; language: AppLanguage }
 
-export function KnowledgeManager({ language }: KnowledgeManagerProps) {
+export function KnowledgeManager({ canWrite, language }: KnowledgeManagerProps) {
   const copy = knowledgeCopies[language];
   const { add, documents, errorMessage, remove, status } = useDocuments(copy);
   const [preview, setPreview] = useState<KnowledgeDocument | null>(null);
@@ -23,9 +23,10 @@ export function KnowledgeManager({ language }: KnowledgeManagerProps) {
 
   return (
     <section className="knowledge-manager" aria-label={copy.title}>
-      <DocumentUploader busy={busy} copy={copy} errorMessage={errorMessage} onUpload={add} />
+      {canWrite && <DocumentUploader busy={busy} copy={copy} errorMessage={errorMessage} onUpload={add} />}
       <DocumentList
         busy={busy}
+        canDelete={canWrite}
         copy={copy}
         documents={documents}
         language={language}

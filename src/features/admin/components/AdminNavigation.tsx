@@ -3,11 +3,14 @@ import { adminRoute, type AdminPage } from '../../../app/routes';
 import type { AppLanguage } from '../../../i18n/language';
 import type { AdminCopy } from '../adminCopy';
 import { qualityMetricsCopies } from '../quality-metrics/copy';
+import type { AuthPrincipal } from '../../../../shared/contracts/auth';
+import { canOpenAdminPage } from '../../auth/permissions';
 
 interface AdminNavigationProps {
   activePage: AdminPage;
   copy: AdminCopy;
   language: AppLanguage;
+  principal: AuthPrincipal;
 }
 
 const items = [
@@ -19,10 +22,10 @@ const items = [
   { page: 'settings', label: 'settings', Icon: Settings },
 ] as const;
 
-export function AdminNavigation({ activePage, copy, language }: AdminNavigationProps) {
+export function AdminNavigation({ activePage, copy, language, principal }: AdminNavigationProps) {
   return (
     <nav className="admin-navigation" aria-label={copy.adminLabel}>
-      {items.map(({ Icon, label, page }) => (
+      {items.filter(({ page }) => canOpenAdminPage(principal, page)).map(({ Icon, label, page }) => (
         <a
           aria-current={activePage === page ? 'page' : undefined}
           href={adminRoute(page)}

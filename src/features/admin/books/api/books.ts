@@ -1,4 +1,5 @@
 import type { Book, BookEdition, BookPage, EditionPage, EditionStatus } from '../types';
+import { adminFetch } from '../../api/admin-fetch.ts';
 import {
   BooksApiError,
   parseBookDetail,
@@ -50,7 +51,7 @@ export async function transitionEdition(
 async function request(url: string, init?: RequestInit): Promise<unknown> {
   let response: Response;
   try {
-    response = await fetch(url, init);
+    response = await adminFetch(url, init);
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
     throw new BooksApiError('Books API could not be reached.', null, 'NETWORK_ERROR');
