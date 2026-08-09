@@ -17,7 +17,7 @@ test('production and development cookies have isolated secure attributes', () =>
   });
   const development = createAuthCookiePolicy({
     production: false,
-    publicOrigin: 'http://localhost:5173',
+    publicOrigin: 'http://127.0.0.1:5173',
   });
   const token = 'a'.repeat(43);
   const productionCookie = serializeSessionCookie(production, token, 3_600);

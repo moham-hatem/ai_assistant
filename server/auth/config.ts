@@ -9,7 +9,7 @@ export interface AuthConfig {
 export function readAuthConfig(environment: NodeJS.ProcessEnv = process.env): AuthConfig {
   const production = environment.NODE_ENV === 'production';
   const publicOrigin = parseOrigin(
-    environment.AUTH_PUBLIC_ORIGIN ?? (production ? '' : 'http://localhost:5173'),
+    environment.AUTH_PUBLIC_ORIGIN ?? (production ? '' : 'http://127.0.0.1:5173'),
   );
   if (production && !publicOrigin.startsWith('https://')) {
     throw new Error('AUTH_PUBLIC_ORIGIN must use HTTPS in production.');

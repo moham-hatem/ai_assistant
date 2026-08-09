@@ -1,6 +1,11 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { AuthPrincipal, AuthRole } from '../../shared/contracts/auth.ts';
-import { isAuthRole, normalizeRoles, toPrincipal } from './domain.ts';
+import {
+  isAuthRole,
+  normalizeDisplayName,
+  normalizeRoles,
+  toPrincipal,
+} from './domain.ts';
 import type { PasswordHasher } from './password.ts';
 import type { LoginRateLimiter } from './rate-limit.ts';
 import type { AuthRepository } from './repository.ts';
@@ -133,18 +138,21 @@ export class AuthService {
   }
 
   async updateUserSecurity(input: {
+    displayName: unknown;
     email: unknown;
     password: unknown;
     roles: readonly unknown[];
     userId: string;
   }): Promise<AuthPrincipal> {
     const email = normalizeEmail(input.email);
-    if (!email || typeof input.password !== 'string' ||
+    const displayName = normalizeDisplayName(input.displayName);
+    if (!displayName || !email || typeof input.password !== 'string' ||
         !Array.isArray(input.roles) || !input.roles.every(isAuthRole)) {
       throw new InvalidAuthInputError('Invalid user security input.');
     }
     const passwordHash = await this.passwords.hash(input.password);
     const user = await this.repository.updateUserSecurity({
+      displayName,
       email,
       id: input.userId,
       passwordHash,

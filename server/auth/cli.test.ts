@@ -6,15 +6,21 @@ import { SqliteAuthRepository } from './sqlite-repository.ts';
 
 test('CLI accepts only non-secret arguments and normalizes roles', () => {
   assert.deepEqual(parseAuthUserCliOptions([
-    '--email', 'person@example.org', '--roles', 'admin,reviewer,admin',
+    '--email', 'person@example.org', '--display-name', '  Local   Person ',
+    '--roles', 'admin,reviewer,admin',
   ], { AUTH_DATABASE_PATH: ':memory:' }), {
     databasePath: ':memory:',
+    displayName: 'Local Person',
     email: 'person@example.org',
     roles: ['reviewer', 'admin'],
   });
   assert.throws(() => parseAuthUserCliOptions([
-    '--email', 'person@example.org', '--roles', 'admin', '--password', 'secret',
+    '--email', 'person@example.org', '--display-name', 'Local Person',
+    '--roles', 'admin', '--password', 'secret',
   ]), /intentionally unsupported/u);
+  assert.throws(() => parseAuthUserCliOptions([
+    '--email', 'person@example.org', '--display-name', '   ', '--roles', 'admin',
+  ]), /Usage/u);
 });
 
 test('CLI upsert hashes passwords and revokes sessions on updates', async () => {
@@ -25,15 +31,16 @@ test('CLI upsert hashes passwords and revokes sessions on updates', async () => 
     maxMemory: 4 * 1024 * 1024,
   });
   const created = await upsertLocalAuthUser(repository, passwords, {
-    email: 'person@example.org', roles: ['operator'],
+    displayName: 'Local Person', email: 'person@example.org', roles: ['operator'],
   }, 'first strong password', new Date('2026-01-01T00:00:00.000Z'));
   assert.equal(created.action, 'created');
   const user = await repository.findUserByEmail('person@example.org');
   assert.equal(user?.passwordHash.includes('first strong password'), false);
   const updated = await upsertLocalAuthUser(repository, passwords, {
-    email: 'person@example.org', roles: ['reviewer'],
+    displayName: 'Renamed Person', email: 'person@example.org', roles: ['reviewer'],
   }, 'second strong password', new Date('2026-01-02T00:00:00.000Z'));
   assert.equal(updated.action, 'updated');
   assert.deepEqual(updated.principal.roles, ['reviewer']);
+  assert.equal(updated.principal.displayName, 'Renamed Person');
   repository.close();
 });

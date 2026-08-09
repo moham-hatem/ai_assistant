@@ -1,4 +1,5 @@
 import {
+  AUTH_PERMISSIONS,
   AUTH_ROLES,
   type AuthPermission,
   type AuthPrincipal,
@@ -7,6 +8,7 @@ import {
 
 export interface AuthUser {
   createdAt: string;
+  displayName: string;
   email: string;
   id: string;
   passwordHash: string;
@@ -25,11 +27,20 @@ export interface AuthSession {
 }
 
 const permissionsByRole: Record<AuthRole, readonly AuthPermission[]> = {
-  reviewer: ['content:review', 'content:approve'],
-  content_manager: ['content:review', 'content:approve', 'content:manage'],
-  operator: ['operations:run'],
-  admin: ['users:manage', 'system:admin'],
+  reviewer: ['content:review'],
+  content_manager: [
+    'books:read',
+    'books:write',
+    'content:review',
+    'question_logs:read',
+    'quality:read',
+  ],
+  operator: ['books:read', 'question_logs:read', 'quality:read'],
+  admin: ['settings:manage'],
 };
+
+export const DISPLAY_NAME_LIMITS = { maxCharacters: 80, maxUtf8Bytes: 160 } as const;
+export const LEGACY_DISPLAY_NAME = 'Local User';
 
 export function isAuthRole(value: unknown): value is AuthRole {
   return typeof value === 'string' && (AUTH_ROLES as readonly string[]).includes(value);
@@ -44,7 +55,19 @@ export function derivePermissions(roles: readonly AuthRole[]): AuthPermission[] 
   for (const role of normalizeRoles(roles)) {
     for (const permission of permissionsByRole[role]) granted.add(permission);
   }
-  return [...granted];
+  return AUTH_PERMISSIONS.filter((permission) => granted.has(permission));
+}
+
+export function normalizeDisplayName(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.normalize('NFC').replace(/\s+/gu, ' ').trim();
+  const characters = [...normalized].length;
+  const utf8Bytes = new TextEncoder().encode(normalized).length;
+  if (characters < 1 || characters > DISPLAY_NAME_LIMITS.maxCharacters ||
+      utf8Bytes > DISPLAY_NAME_LIMITS.maxUtf8Bytes || /[\p{Cc}\p{Cf}]/u.test(normalized)) {
+    return undefined;
+  }
+  return normalized;
 }
 
 export function hasPermission(
@@ -56,5 +79,11 @@ export function hasPermission(
 
 export function toPrincipal(user: AuthUser): AuthPrincipal {
   const roles = normalizeRoles(user.roles);
-  return { email: user.email, id: user.id, permissions: derivePermissions(roles), roles };
+  return {
+    displayName: user.displayName,
+    email: user.email,
+    id: user.id,
+    permissions: derivePermissions(roles),
+    roles,
+  };
 }

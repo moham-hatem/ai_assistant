@@ -37,6 +37,14 @@ const migrations = [
     CREATE INDEX auth_sessions_user_active_idx
       ON auth_sessions (user_id, revoked_at, absolute_expires_at);
   `,
+  `
+    ALTER TABLE auth_users ADD COLUMN display_name TEXT NOT NULL DEFAULT 'Local User'
+      CHECK (
+        length(display_name) BETWEEN 1 AND 80
+        AND display_name = trim(display_name)
+        AND instr(display_name, char(0)) = 0
+      );
+  `,
 ] as const;
 
 export function migrateAuthDatabase(database: DatabaseSync): void {

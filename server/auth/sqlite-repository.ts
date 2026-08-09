@@ -2,7 +2,13 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { AuthRole } from '../../shared/contracts/auth.ts';
-import { isAuthRole, normalizeRoles, type AuthSession, type AuthUser } from './domain.ts';
+import {
+  isAuthRole,
+  normalizeDisplayName,
+  normalizeRoles,
+  type AuthSession,
+  type AuthUser,
+} from './domain.ts';
 import {
   AuthUserNotFoundError,
   DuplicateAuthUserError,
@@ -13,6 +19,7 @@ import { migrateAuthDatabase } from './sqlite-migrations.ts';
 
 interface UserRow {
   created_at: string;
+  display_name: string;
   email: string;
   id: string;
   password_hash: string;
@@ -41,12 +48,21 @@ export class SqliteAuthRepository implements AuthRepository {
   }
 
   async createUser(command: SaveUserCommand): Promise<AuthUser> {
+    requireNormalizedDisplayName(command.displayName);
     try {
       transaction(this.database, () => {
         this.database.prepare(`
-          INSERT INTO auth_users (id, email, password_hash, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?)
-        `).run(command.id, command.email, command.passwordHash, command.timestamp, command.timestamp);
+          INSERT INTO auth_users (
+            id, email, password_hash, created_at, updated_at, display_name
+          ) VALUES (?, ?, ?, ?, ?, ?)
+        `).run(
+          command.id,
+          command.email,
+          command.passwordHash,
+          command.timestamp,
+          command.timestamp,
+          command.displayName,
+        );
         this.replaceRoles(command.id, command.roles);
       });
       return this.requireUser(command.id);
@@ -118,10 +134,19 @@ export class SqliteAuthRepository implements AuthRepository {
   }
 
   async updateUserSecurity(command: SaveUserCommand): Promise<AuthUser> {
+    requireNormalizedDisplayName(command.displayName);
     transaction(this.database, () => {
       const result = this.database.prepare(`
-        UPDATE auth_users SET email = ?, password_hash = ?, updated_at = ? WHERE id = ?
-      `).run(command.email, command.passwordHash, command.timestamp, command.id);
+        UPDATE auth_users
+        SET email = ?, password_hash = ?, display_name = ?, updated_at = ?
+        WHERE id = ?
+      `).run(
+        command.email,
+        command.passwordHash,
+        command.displayName,
+        command.timestamp,
+        command.id,
+      );
       if (result.changes !== 1) throw new AuthUserNotFoundError();
       this.replaceRoles(command.id, command.roles);
       this.database.prepare(`
@@ -156,6 +181,7 @@ export class SqliteAuthRepository implements AuthRepository {
     `).all(row.id) as unknown as Array<{ role: string }>;
     return {
       createdAt: row.created_at,
+      displayName: row.display_name,
       email: row.email,
       id: row.id,
       passwordHash: row.password_hash,
@@ -187,4 +213,8 @@ function transaction<T>(database: DatabaseSync, operation: () => T): T {
     database.exec('ROLLBACK;');
     throw error;
   }
+}
+
+function requireNormalizedDisplayName(value: string): void {
+  if (normalizeDisplayName(value) !== value) throw new Error('Display name is not normalized.');
 }

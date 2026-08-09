@@ -1,7 +1,12 @@
 import { stdin as input, stdout as output } from 'node:process';
 import { pathToFileURL } from 'node:url';
 import type { AuthRole } from '../../shared/contracts/auth.ts';
-import { isAuthRole, normalizeRoles, toPrincipal } from './domain.ts';
+import {
+  isAuthRole,
+  normalizeDisplayName,
+  normalizeRoles,
+  toPrincipal,
+} from './domain.ts';
 import { ScryptPasswordHasher, type PasswordHasher } from './password.ts';
 import type { AuthRepository } from './repository.ts';
 import { newAuthUserId, normalizeEmail } from './service.ts';
@@ -9,6 +14,7 @@ import { SqliteAuthRepository } from './sqlite-repository.ts';
 
 export interface AuthUserCliOptions {
   databasePath: string;
+  displayName: string;
   email: string;
   roles: AuthRole[];
 }
@@ -21,10 +27,13 @@ export async function upsertLocalAuthUser(
   now = new Date(),
 ): Promise<{ action: 'created' | 'updated'; principal: ReturnType<typeof toPrincipal> }> {
   const email = normalizeEmail(options.email);
+  const displayName = normalizeDisplayName(options.displayName);
   if (!email) throw new Error('A valid --email is required.');
+  if (!displayName) throw new Error('A non-empty valid --display-name is required.');
   const passwordHash = await passwords.hash(password);
   const existing = await repository.findUserByEmail(email);
   const command = {
+    displayName,
     email,
     id: existing?.id ?? newAuthUserId(),
     passwordHash,
@@ -42,15 +51,20 @@ export function parseAuthUserCliOptions(
   environment: NodeJS.ProcessEnv = process.env,
 ): AuthUserCliOptions {
   let email: string | undefined;
+  let displayName: string | undefined;
   let rolesValue: string | undefined;
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
     if (argument === '--email') email = arguments_[++index];
+    else if (argument === '--display-name') displayName = arguments_[++index];
     else if (argument === '--roles') rolesValue = arguments_[++index];
     else throw new Error(`Unknown argument: ${argument}. Password arguments are intentionally unsupported.`);
   }
-  if (!email || !rolesValue) {
-    throw new Error('Usage: npm run auth:user -- --email user@example.org --roles reviewer,operator');
+  const normalizedDisplayName = normalizeDisplayName(displayName);
+  if (!email || !normalizedDisplayName || !rolesValue) {
+    throw new Error(
+      'Usage: npm run auth:user -- --email user@example.org --display-name "Local Reviewer" --roles reviewer,operator',
+    );
   }
   const rawRoles = rolesValue.split(',').map((role) => role.trim()).filter(Boolean);
   if (rawRoles.length === 0 || !rawRoles.every(isAuthRole)) {
@@ -58,6 +72,7 @@ export function parseAuthUserCliOptions(
   }
   return {
     databasePath: environment.AUTH_DATABASE_PATH ?? 'data/auth.sqlite',
+    displayName: normalizedDisplayName,
     email,
     roles: normalizeRoles(rawRoles as AuthRole[]),
   };

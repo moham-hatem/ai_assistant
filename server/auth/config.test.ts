@@ -5,7 +5,7 @@ import { readAuthConfig } from './config.ts';
 test('auth config has bounded local defaults and requires production HTTPS', () => {
   const local = readAuthConfig({});
   assert.equal(local.production, false);
-  assert.equal(local.publicOrigin, 'http://localhost:5173');
+  assert.equal(local.publicOrigin, 'http://127.0.0.1:5173');
   assert.equal(local.absoluteTtlMs >= local.idleTtlMs, true);
 
   assert.throws(() => readAuthConfig({
@@ -16,6 +16,9 @@ test('auth config has bounded local defaults and requires production HTTPS', () 
     AUTH_PUBLIC_ORIGIN: 'https://example.org',
     NODE_ENV: 'production',
   }).production, true);
+  assert.equal(readAuthConfig({
+    AUTH_PUBLIC_ORIGIN: 'http://localhost:4173',
+  }).publicOrigin, 'http://localhost:4173');
 });
 
 test('auth config rejects path-bearing origins and contradictory TTLs', () => {

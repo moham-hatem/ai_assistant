@@ -2,6 +2,7 @@ import type { AuthRole } from '../../shared/contracts/auth.ts';
 import type { AuthSession, AuthUser } from './domain.ts';
 
 export interface SaveUserCommand {
+  displayName: string;
   email: string;
   id: string;
   passwordHash: string;

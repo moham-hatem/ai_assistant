@@ -19,6 +19,7 @@ test('auth HTTP contract uses unified login errors, strict origin, and opaque co
     maxMemory: 4 * 1024 * 1024,
   });
   await repository.createUser({
+    displayName: 'Local Reviewer',
     email: 'reviewer@example.org',
     id: 'user-1',
     passwordHash: await passwords.hash('correct secure password'),
@@ -64,8 +65,12 @@ test('auth HTTP contract uses unified login errors, strict origin, and opaque co
     assert.equal(login.status, 200);
     assert.equal(login.headers.get('cache-control'), 'no-store');
     assert.equal(login.headers.get('x-content-type-options'), 'nosniff');
-    const loginBody = await login.json() as { principal: { id: string }; requestId: string };
+    const loginBody = await login.json() as {
+      principal: { displayName: string; id: string };
+      requestId: string;
+    };
     assert.equal(loginBody.principal.id, 'user-1');
+    assert.equal(loginBody.principal.displayName, 'Local Reviewer');
     assert.equal(typeof loginBody.requestId, 'string');
     const setCookie = login.headers.get('set-cookie')!;
     assert.match(setCookie, /^ila_local_session=/u);

@@ -3,17 +3,18 @@ export const AUTH_ROLES = ['reviewer', 'content_manager', 'operator', 'admin'] a
 export type AuthRole = (typeof AUTH_ROLES)[number];
 
 export const AUTH_PERMISSIONS = [
+  'books:read',
+  'books:write',
   'content:review',
-  'content:approve',
-  'content:manage',
-  'operations:run',
-  'users:manage',
-  'system:admin',
+  'question_logs:read',
+  'quality:read',
+  'settings:manage',
 ] as const;
 
 export type AuthPermission = (typeof AUTH_PERMISSIONS)[number];
 
 export interface AuthPrincipal {
+  displayName: string;
   email: string;
   id: string;
   permissions: AuthPermission[];

@@ -14,6 +14,7 @@ test('login is enumeration-resistant, stores only a token hash, and rotates an o
   const at = new Date('2026-01-01T00:00:00.000Z');
   const passwordHash = await passwords.hash('a sufficiently long secret');
   await repository.createUser({
+    displayName: 'Local Reviewer',
     email: 'reviewer@example.org',
     id: 'user-1',
     passwordHash,
@@ -65,6 +66,7 @@ test('sessions enforce idle and absolute expiry and security changes revoke all 
   const passwords = new ScryptPasswordHasher(fastScrypt);
   let time = Date.parse('2026-01-01T00:00:00.000Z');
   await repository.createUser({
+    displayName: 'Local Admin',
     email: 'admin@example.org',
     id: 'user-1',
     passwordHash: await passwords.hash('initial secure password'),
@@ -102,12 +104,15 @@ test('sessions enforce idle and absolute expiry and security changes revoke all 
     rateLimitKey: 'client',
   });
   const principal = await nextService.updateUserSecurity({
+    displayName: 'Content Admin',
     email: 'admin@example.org',
     password: 'replacement secure password',
     roles: ['admin', 'content_manager'],
     userId: 'user-1',
   });
-  assert.equal(principal.permissions.includes('content:approve'), true);
+  assert.equal(principal.permissions.includes('content:review'), true);
+  assert.equal(principal.permissions.includes('settings:manage'), true);
+  assert.equal(principal.displayName, 'Content Admin');
   assert.equal(await nextService.getPrincipal(next.sessionToken), null);
   await assert.rejects(() => nextService.login({
     email: 'admin@example.org',
