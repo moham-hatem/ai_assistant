@@ -48,7 +48,6 @@ export function ReviewActions(props: ReviewActionsProps) {
           mode={mode}
           onClose={() => setMode(null)}
           onConfirm={props.onDecide}
-          reviewerId={props.reviewerId}
         />
       )}
     </section>

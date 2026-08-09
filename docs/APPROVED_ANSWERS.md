@@ -42,7 +42,7 @@ tables/indexes/triggers and backfills existing eligible approved review decision
 order. Existing approvals without a usable answer or evidence references are deliberately skipped;
 they cannot safely become grounded answers.
 
-The current local review API still accepts an operator-supplied `reviewerId`; there is no production
-authentication or authorization yet. There is no UI for browsing approved versions, no fuzzy or
-semantic approved-answer matching, and no automatic review-queue item when evidence later becomes
-invalid. Invalid answers simply stop receiving priority until a later reviewed approval is created.
+The local review API derives reviewer attribution from the authenticated server-side principal.
+There is no UI for browsing approved versions, no fuzzy or semantic approved-answer matching, and
+no automatic review-queue item when evidence later becomes invalid. Invalid answers simply stop
+receiving priority until a later reviewed approval is created.

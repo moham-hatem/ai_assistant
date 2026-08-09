@@ -11,4 +11,5 @@ data/knowledge/*
 data/models/
 data/question-log.sqlite*
 data/books.sqlite*
+data/auth.sqlite*
 data/telegram.sqlite*

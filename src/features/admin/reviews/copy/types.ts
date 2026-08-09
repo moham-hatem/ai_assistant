@@ -74,10 +74,6 @@ export interface ReviewsCopy {
   reject: string;
   release: string;
   reviewerFilterPlaceholder: string;
-  reviewerId: string;
-  reviewerPlaceholder: string;
-  reviewerSession: string;
-  reviewerWarning: string;
   retry: string;
   status: string;
   statuses: Record<ReviewStatus, string>;

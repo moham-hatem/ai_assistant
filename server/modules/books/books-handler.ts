@@ -1,9 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { AuthPrincipal } from '../../../shared/contracts/auth.ts';
 import { editionStatuses, type EditionStatus, type PageQuery } from '../../../shared/contracts/books.ts';
 import type { DocumentProcessingState } from '../../../shared/contracts/document-processing.ts';
 import { AppError } from '../../errors.ts';
 import { sendError, type ErrorLogger } from '../../http/error-response.ts';
-import { readJson, sendJson } from '../../http/json.ts';
+import { discardRequestBody, readJson, sendJson } from '../../http/json.ts';
 import type { BookService } from './book-service.ts';
 
 interface EditionTransitioner {
@@ -32,7 +33,12 @@ export function createBooksHandler(
   logError: ErrorLogger,
   transitions: EditionTransitioner = service,
 ) {
-  return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
+  return async (
+    request: IncomingMessage,
+    response: ServerResponse,
+    url: URL,
+    principal: AuthPrincipal | null,
+  ) => {
     const requestId = crypto.randomUUID();
     try {
       if (url.pathname === '/api/internal/books') {
@@ -104,17 +110,17 @@ export function createBooksHandler(
       if (approval) {
         if (request.method !== 'POST') return methodNotAllowed(response, requestId);
         if (!transitions.approveEditionProcessing) throw processingUnavailable();
-        const actorId = validId(requiredString(
-          objectBody(await readJson(request)).actorId,
-          'actorId',
-          36,
-        ));
+        await discardRequestBody(request);
         const bookId = validId(approval[0]);
         const editionId = validId(approval[1]);
         sendJson(response, 200, {
           bookId,
           editionId,
-          ...(await transitions.approveEditionProcessing(bookId, editionId, actorId)),
+          ...(await transitions.approveEditionProcessing(
+            bookId,
+            editionId,
+            requirePrincipal(principal).id,
+          )),
           requestId,
         });
         return;
@@ -152,6 +158,11 @@ export function createBooksHandler(
       sendError(response, requestId, error, logError);
     }
   };
+}
+
+function requirePrincipal(principal: AuthPrincipal | null): AuthPrincipal {
+  if (!principal) throw new AppError('UNAUTHENTICATED', 'Authentication is required.', 401);
+  return principal;
 }
 
 function parseCreateBook(value: unknown) {

@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { AuthPrincipal } from '../../shared/contracts/auth.ts';
 import { AppError } from '../errors.ts';
 import type { ErrorLogger } from '../http/error-response.ts';
 import { sendJson } from '../http/json.ts';
@@ -13,33 +14,37 @@ export interface AdminApiSecurity {
   originGuard: StateChangingRequestOriginGuard;
 }
 
+export type AdminGuardResult =
+  | { allowed: false; principal: null }
+  | { allowed: true; principal: AuthPrincipal | null };
+
 export async function guardAdminRequest(
   request: IncomingMessage,
   response: ServerResponse,
   url: URL,
   security: AdminApiSecurity,
   logError: ErrorLogger,
-): Promise<boolean> {
+): Promise<AdminGuardResult> {
   const policy = adminRoutePolicy(request.method, url.pathname);
-  if (policy.kind === 'public') return true;
+  if (policy.kind === 'public') return { allowed: true, principal: null };
 
   const requestId = crypto.randomUUID();
   if (policy.kind === 'denied') {
     sendDenied(response, requestId, 403);
-    return false;
+    return { allowed: false, principal: null };
   }
 
   try {
-    await security.authorizer.authorize(request, policy.permission);
+    const principal = await security.authorizer.authorize(request, policy.permission);
     if (isStateChanging(request.method)) await security.originGuard.assertAllowed(request);
-    return true;
+    return { allowed: true, principal };
   } catch (error) {
     if (!(error instanceof AppError)) logError(requestId, error);
     const status = error instanceof AppError && error.status === 401 ? 401
       : error instanceof AppError && error.status === 403 ? 403
       : 503;
     sendDenied(response, requestId, status);
-    return false;
+    return { allowed: false, principal: null };
   }
 }
 

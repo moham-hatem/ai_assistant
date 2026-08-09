@@ -2,7 +2,6 @@ import { useCallback, useRef } from 'react';
 import type { ReviewDetail, ReviewItem } from '../../../../../shared/contracts/reviews';
 import { createActionLock } from '../action-lock';
 import { changeReviewStatus, ReviewsApiError, saveReviewDecision } from '../api/reviews';
-import { validateReviewerId } from '../review-actions';
 import type { ReviewWorkspaceEvent } from '../reviews-state';
 import type { ReviewDecisionRequest } from '../types';
 
@@ -41,33 +40,19 @@ export function useReviewActions({ dispatch, refreshAll }: ReviewActionsOptions)
     });
   }, [dispatch, refreshAll]);
 
-  const claim = useCallback((reviewId: string, reviewerValue: string) => {
-    let reviewerId: string;
-    try {
-      reviewerId = validateReviewerId(reviewerValue);
-    } catch {
-      dispatch({ type: 'mutation_failed', error: 'generic' });
-      return;
-    }
+  const claim = useCallback((reviewId: string) => {
     void runMutation('claim', reviewId, async () => {
-      const item = await changeReviewStatus(reviewId, { reviewerId, status: 'in_review' });
+      const item = await changeReviewStatus(reviewId, { status: 'in_review' });
       return { item };
     });
-  }, [dispatch, runMutation]);
+  }, [runMutation]);
 
-  const release = useCallback((reviewId: string, reviewerValue: string) => {
-    let reviewerId: string;
-    try {
-      reviewerId = validateReviewerId(reviewerValue);
-    } catch {
-      dispatch({ type: 'mutation_failed', error: 'generic' });
-      return;
-    }
+  const release = useCallback((reviewId: string) => {
     void runMutation('release', reviewId, async () => {
-      const item = await changeReviewStatus(reviewId, { reviewerId, status: 'pending' });
+      const item = await changeReviewStatus(reviewId, { status: 'pending' });
       return { item };
     });
-  }, [dispatch, runMutation]);
+  }, [runMutation]);
 
   const decide = useCallback((reviewId: string, request: ReviewDecisionRequest) => {
     void runMutation('decision', reviewId, async () => ({

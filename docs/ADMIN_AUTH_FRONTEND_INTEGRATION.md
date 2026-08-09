@@ -23,7 +23,8 @@ interface AuthPrincipal {
 }
 ```
 
-`principal.id` is mapped to existing review `reviewerId` payloads through `reviewerIdFromPrincipal`, leaving one replacement point if that backend contract changes.
+`principal.id` is used locally for review ownership display and action availability. Mutation
+payloads do not send reviewer identity; the server derives attribution from the authenticated session.
 
 ## Permission names
 

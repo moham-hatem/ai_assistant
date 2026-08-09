@@ -4,6 +4,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import type { AuthPrincipal } from '../../../shared/contracts/auth.ts';
 import type { DocumentProcessorPort } from '../../documents/document-processor-port.ts';
 import { DocumentStore } from '../../documents/document-store.ts';
 import { BookDocumentService } from './book-document-service.ts';
@@ -20,7 +21,7 @@ test('internal book API validates input, paginates, and drives edition publicati
   try {
     await withServer((request, response) => {
       const url = new URL(request.url ?? '/', 'http://localhost');
-      void handler(request, response, url);
+      void handler(request, response, url, principal);
     }, async (baseUrl) => {
       const invalid = await jsonRequest(`${baseUrl}/api/internal/books`, 'POST', { language: 'ar' });
       assert.equal(invalid.response.status, 400);
@@ -91,7 +92,7 @@ test('internal book API reports database initialization failure without exposing
   );
   await withServer((request, response) => {
     const url = new URL(request.url ?? '/', 'http://localhost');
-    void handler(request, response, url);
+    void handler(request, response, url, principal);
   }, async (baseUrl) => {
     const result = await jsonRequest(`${baseUrl}/api/internal/books`);
     assert.equal(result.response.status, 503);
@@ -140,7 +141,7 @@ test('processing API reports state, reprocesses drafts, and refuses published ed
       name: 'edition.txt',
     });
     await withServer((request, response) => {
-      void handler(request, response, new URL(request.url ?? '/', 'http://localhost'));
+      void handler(request, response, new URL(request.url ?? '/', 'http://localhost'), principal);
     }, async (baseUrl) => {
       const endpoint = `${baseUrl}/api/internal/books/${book.id}/editions/${uploaded.edition.id}/processing`;
       const before = await jsonRequest(endpoint);
@@ -208,7 +209,16 @@ test('OCR review approval readies the document and edition without publishing', 
     undefined,
     processor,
   );
-  const handler = createBooksHandler(service, () => undefined, operations);
+  let boundaryActorId: string | undefined;
+  const handler = createBooksHandler(service, () => undefined, {
+    approveEditionProcessing: async (bookId, editionId, actorId) => {
+      boundaryActorId = actorId;
+      return operations.approveEditionProcessing(bookId, editionId, actorId);
+    },
+    editionProcessing: operations.editionProcessing.bind(operations),
+    reprocessEdition: operations.reprocessEdition.bind(operations),
+    transitionEdition: operations.transitionEdition.bind(operations),
+  });
 
   try {
     const book = await service.createBook({ language: 'ar', title: 'OCR review' });
@@ -221,14 +231,12 @@ test('OCR review approval readies the document and edition without publishing', 
     assert.equal(uploaded.edition.status, 'processing');
 
     await withServer((request, response) => {
-      void handler(request, response, new URL(request.url ?? '/', 'http://localhost'));
+      void handler(request, response, new URL(request.url ?? '/', 'http://localhost'), principal);
     }, async (baseUrl) => {
       const endpoint = `${baseUrl}/api/internal/books/${book.id}/editions/${uploaded.edition.id}/processing/approve`;
-      const invalidActor = await jsonRequest(endpoint, 'POST', { actorId: 'local-user' });
-      assert.equal(invalidActor.response.status, 400);
-
       const approved = await jsonRequest(endpoint, 'POST', { actorId: crypto.randomUUID() });
       assert.equal(approved.response.status, 200);
+      assert.equal(boundaryActorId, principal.id);
       assert.equal(
         ((approved.body.processing as { summary: { status: string } }).summary.status),
         'ready',
@@ -247,6 +255,14 @@ test('OCR review approval readies the document and edition without publishing', 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+const principal: AuthPrincipal = {
+  displayName: 'Content Reviewer',
+  email: 'reviewer@example.test',
+  id: 'e5555555-5555-4555-8555-555555555555',
+  permissions: ['books:read', 'books:write', 'content:review'],
+  roles: ['content_manager'],
+};
 
 function transition(baseUrl: string, bookId: string, editionId: string, status: string) {
   return jsonRequest(

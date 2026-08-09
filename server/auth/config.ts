@@ -1,3 +1,5 @@
+import { isAbsolute, resolve } from 'node:path';
+
 export interface AuthConfig {
   absoluteTtlMs: number;
   databasePath: string;
@@ -6,7 +8,10 @@ export interface AuthConfig {
   publicOrigin: string;
 }
 
-export function readAuthConfig(environment: NodeJS.ProcessEnv = process.env): AuthConfig {
+export function readAuthConfig(
+  environment: NodeJS.ProcessEnv = process.env,
+  cwd = process.cwd(),
+): AuthConfig {
   const production = environment.NODE_ENV === 'production';
   const publicOrigin = parseOrigin(
     environment.AUTH_PUBLIC_ORIGIN ?? (production ? '' : 'http://127.0.0.1:5173'),
@@ -22,8 +27,11 @@ export function readAuthConfig(environment: NodeJS.ProcessEnv = process.env): Au
   if (absoluteTtlMs < idleTtlMs) {
     throw new Error('AUTH_ABSOLUTE_TTL_MS must be at least AUTH_IDLE_TTL_MS.');
   }
-  const databasePath = environment.AUTH_DATABASE_PATH ?? 'data/auth.sqlite';
-  if (!databasePath || databasePath.includes('\0')) throw new Error('Invalid AUTH_DATABASE_PATH.');
+  const databaseValue = environment.AUTH_DATABASE_PATH ?? 'data/auth.sqlite';
+  if (!databaseValue || databaseValue.includes('\0')) throw new Error('Invalid AUTH_DATABASE_PATH.');
+  const databasePath = databaseValue === ':memory:' || isAbsolute(databaseValue)
+    ? databaseValue
+    : resolve(cwd, databaseValue);
   return {
     absoluteTtlMs,
     databasePath,

@@ -39,10 +39,11 @@ lifecycle transition. A duplicate content hash returns `DUPLICATE_EDITION`, whil
 return `DOCUMENT_EXTRACTION_FAILED` without exposing extractor internals.
 
 The processing endpoint reports the stored generation and summary and can start a new local attempt.
-The approval endpoint accepts a temporary local `actorId` UUID and changes a `review_required`
-document and its edition to `ready`; it never publishes the edition. This identifier is attribution
-for trusted local development only, not authentication. Published editions are immutable through
-these processing endpoints. Poppler and Tesseract are optional external executables: when unavailable,
+The approval endpoint passes the authenticated `principal.id` into the processing-service boundary
+and changes a `review_required` document and its edition to `ready`; it never publishes the edition.
+The current document schema does not persist an approval actor or audit event, so durable book-action
+auditing remains future work. Published editions are immutable through these processing endpoints.
+Poppler and Tesseract are optional external executables: when unavailable,
 the original PDF remains stored with `ocr_required` so it can be retried after the tools are installed.
 
 The compatibility upload without `bookId` remains available for legacy operators. It creates an

@@ -14,7 +14,6 @@ interface ReviewDecisionDialogProps {
   mode: DecisionMode;
   onClose: () => void;
   onConfirm: (request: ReviewDecisionRequest) => void;
-  reviewerId: string;
 }
 export function ReviewDecisionDialog({
   copy,
@@ -22,7 +21,6 @@ export function ReviewDecisionDialog({
   mode,
   onClose,
   onConfirm,
-  reviewerId,
 }: ReviewDecisionDialogProps) {
   const [correctedAnswer, setCorrectedAnswer] = useState(mode === 'approve_edited' ? initialAnswer : '');
   const [internalNotes, setInternalNotes] = useState('');
@@ -31,7 +29,7 @@ export function ReviewDecisionDialog({
   function submit(event: FormEvent) {
     event.preventDefault();
     try {
-      const request = buildDecisionRequest({ correctedAnswer, internalNotes, mode, reviewerId });
+      const request = buildDecisionRequest({ correctedAnswer, internalNotes, mode });
       onConfirm(request);
       onClose();
     } catch (error) {

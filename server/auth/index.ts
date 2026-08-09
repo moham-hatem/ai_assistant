@@ -6,6 +6,7 @@ export * from './origin.ts';
 export * from './password.ts';
 export * from './rate-limit.ts';
 export * from './repository.ts';
+export * from './runtime.ts';
 export * from './service.ts';
 export * from './sqlite-migrations.ts';
 export * from './sqlite-repository.ts';

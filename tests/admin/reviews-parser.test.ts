@@ -125,7 +125,7 @@ test('typed review client encodes exact filters and omits absent decision fields
       reviewerId: '',
       status: 'pending',
     });
-    await saveReviewDecision(reviewItem.id, { outcome: 'rejected', reviewerId: 'teacher-a' });
+    await saveReviewDecision(reviewItem.id, { outcome: 'rejected' });
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -135,7 +135,7 @@ test('typed review client encodes exact filters and omits absent decision fields
     '/api/internal/reviews?limit=10&offset=20&status=pending&answerLanguage=en-US&channel=future+channel',
   );
   assert.equal(calls[1]?.method, 'POST');
-  assert.deepEqual(JSON.parse(calls[1]?.body ?? '{}'), { outcome: 'rejected', reviewerId: 'teacher-a' });
+  assert.deepEqual(JSON.parse(calls[1]?.body ?? '{}'), { outcome: 'rejected' });
   assert.equal('correctedAnswer' in JSON.parse(calls[1]?.body ?? '{}'), false);
   assert.equal('internalNotes' in JSON.parse(calls[1]?.body ?? '{}'), false);
 });

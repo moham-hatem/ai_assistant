@@ -30,9 +30,9 @@ events reference `decisionId`; events carry only state, reviewer, and timestamp 
 copy the question or answer. Database triggers reject `UPDATE` and `DELETE` against this table so
 history cannot be silently rewritten through another local SQL path.
 
-`reviewerId` is currently an operator-supplied string so the backend can be integrated before an
-authentication system exists. It is not proof of identity or authorization and must be derived from
-the authenticated principal when auth is added. No mock authentication is implemented here.
+Review mutations derive `reviewerId` exclusively from the authenticated server-side principal.
+Legacy mutation bodies may still contain `reviewerId`, but the handler ignores it so it cannot
+change assignment, decision, approved-answer, or event attribution.
 
 Channels, answer-language identifiers, and reviewer identifiers are open strings at storage and
 contract boundaries. Review states and decision outcomes remain closed unions because they drive
@@ -45,8 +45,8 @@ domain invariants.
 - `POST /api/internal/reviews` creates from `{ "questionLogId": "..." }`.
 - `GET /api/internal/reviews/:id` returns the review, linked question log, optional decision, and
   ordered audit events.
-- `POST /api/internal/reviews/:id/status` claims or releases with `{ "status", "reviewerId" }`.
-- `POST /api/internal/reviews/:id/decision` saves `{ "outcome", "reviewerId",
+- `POST /api/internal/reviews/:id/status` claims or releases with `{ "status" }`.
+- `POST /api/internal/reviews/:id/decision` saves `{ "outcome",
   "internalNotes"?, "correctedAnswer"? }`.
 
 All request bodies reject unknown fields. IDs, enum values, pagination, string lengths, transition

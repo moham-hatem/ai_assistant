@@ -34,7 +34,6 @@ export interface ReviewListRequest extends ReviewFilters {
 }
 
 export interface ReviewStatusRequest {
-  reviewerId: string;
   status: 'in_review' | 'pending';
 }
 
@@ -42,7 +41,6 @@ export interface ReviewDecisionRequest {
   correctedAnswer?: string;
   internalNotes?: string;
   outcome: ReviewDecisionOutcome;
-  reviewerId: string;
 }
 
 export interface ReviewWorkspaceState {

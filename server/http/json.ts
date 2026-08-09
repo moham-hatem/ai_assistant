@@ -10,6 +10,16 @@ export function sendJson(response: ServerResponse, status: number, body: unknown
   response.end(JSON.stringify(body));
 }
 
+export async function discardRequestBody(request: IncomingMessage): Promise<void> {
+  let size = 0;
+  for await (const chunk of request) {
+    size += Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(chunk);
+    if (size > maximumBodySize) {
+      throw new AppError('REQUEST_TOO_LARGE', 'Request body is too large.', 413);
+    }
+  }
+}
+
 export async function readJson(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
