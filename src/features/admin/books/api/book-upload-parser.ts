@@ -2,6 +2,7 @@ import type {
   BookDocumentMetadata,
   BookEditionUploadResult,
 } from '../types';
+import { parseDocumentProcessingSummary } from '../../../../../shared/contracts/document-processing.ts';
 import { BooksApiError, parseBook, parseEdition } from './book-parser.ts';
 
 const documentFormats = ['docx', 'markdown', 'pdf', 'text'] as const;
@@ -19,7 +20,7 @@ export function parseBookEditionUpload(
   if (book.id !== expectedBookId
     || edition.bookId !== book.id
     || edition.version !== expectedVersion
-    || edition.status !== 'ready'
+    || !coherentUploadState(edition.status, document.processing.status)
     || edition.originalDocumentReference !== `document:${document.id}`) {
     invalid('edition upload relationship');
   }
@@ -32,14 +33,30 @@ function parseDocument(value: unknown): BookDocumentMetadata {
   if (!documentFormats.includes(format as BookDocumentMetadata['format'])) {
     invalid('document format');
   }
+  let processing: BookDocumentMetadata['processing'];
+  try {
+    processing = parseDocumentProcessingSummary(item.processing);
+  } catch {
+    invalid('document processing');
+  }
   return {
     characterCount: readInteger(item.characterCount, 'document characterCount'),
     format: format as BookDocumentMetadata['format'],
     id: readString(item.id, 'document id'),
     importedAt: readDate(item.importedAt, 'document importedAt'),
     name: readString(item.name, 'document name'),
+    processing,
     size: readInteger(item.size, 'document size'),
   };
+}
+
+function coherentUploadState(
+  editionStatus: BookEditionUploadResult['edition']['status'],
+  processingStatus: BookDocumentMetadata['processing']['status'],
+): boolean {
+  if (editionStatus === 'ready') return processingStatus === 'ready';
+  return editionStatus === 'processing'
+    && ['processing', 'ocr_required', 'review_required'].includes(processingStatus);
 }
 
 function asObject(value: unknown, field: string): Record<string, unknown> {

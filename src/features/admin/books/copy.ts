@@ -1,4 +1,5 @@
 import type { AppLanguage } from '../../../i18n/language';
+import type { DocumentProcessingStatus } from '../../../../shared/contracts/document-processing';
 import type { BookEditionUploadError, EditionStatus } from './types';
 
 export interface BooksCopy {
@@ -55,7 +56,7 @@ export interface BooksCopy {
   uploadLifecycle: string;
   uploadProgress: string;
   uploadProgressValue: (progress: number) => string;
-  uploadSuccess: (version: string) => string;
+  uploadSuccess: (version: string, processingStatus: DocumentProcessingStatus) => string;
   uploadSupported: (size: number) => string;
   uploadTitle: string;
   uploading: string;
@@ -96,9 +97,9 @@ export const booksCopies: Record<AppLanguage, BooksCopy> = {
       'invalid-version': 'أدخل اسم إصدار واضحًا لا يتجاوز 100 حرف.',
       unavailable: 'تعذر الوصول إلى خدمة الكتب الآن. حاول مجددًا بعد قليل.',
     },
-    uploadLifecycle: 'ينتهي الرفع بحالة «جاهز» ولا ينشر الإصدار تلقائيًا.', uploadProgress: 'تقدم رفع الإصدار',
+    uploadLifecycle: 'يحفظ الرفع الإصدار دون نشره؛ وقد يبقى قيد المعالجة إذا احتاج OCR أو مراجعة.', uploadProgress: 'تقدم رفع الإصدار',
     uploadProgressValue: (progress) => `تم رفع ${progress.toLocaleString('ar-EG')}٪`,
-    uploadSuccess: (version) => `أُضيف الإصدار ${version} بحالة «جاهز». يمكنك نشره لاحقًا من إجراءات الإصدار.`,
+    uploadSuccess: uploadSuccessAr,
     uploadSupported: (size) => `ملف TXT أو Markdown أو PDF أو Word، بحد أقصى ${size} ميجابايت.`,
     uploadTitle: 'إضافة إصدار جديد', uploading: 'جارٍ الرفع والاستخراج…', uploadVersion: 'اسم الإصدار (مطلوب)',
     uploadVersionPlaceholder: 'مثال: 2.0 أو طبعة 1448هـ', version: 'الإصدار',
@@ -135,9 +136,9 @@ export const booksCopies: Record<AppLanguage, BooksCopy> = {
       'invalid-version': 'Enter a clear version name no longer than 100 characters.',
       unavailable: 'The book service is unavailable right now. Try again shortly.',
     },
-    uploadLifecycle: 'The upload finishes as Ready and is not published automatically.', uploadProgress: 'Edition upload progress',
+    uploadLifecycle: 'Upload saves without publishing; scanned files may remain Processing for OCR or review.', uploadProgress: 'Edition upload progress',
     uploadProgressValue: (progress) => `${progress}% uploaded`,
-    uploadSuccess: (version) => `Edition ${version} was added as Ready. You can publish it later from its actions.`,
+    uploadSuccess: uploadSuccessEn,
     uploadSupported: (size) => `TXT, Markdown, PDF, or Word, up to ${size} MB.`, uploadTitle: 'Add a new edition',
     uploading: 'Uploading and extracting…', uploadVersion: 'Version name (required)', uploadVersionPlaceholder: 'For example, 2.0 or 2026 edition',
     version: 'Version',
@@ -173,12 +174,33 @@ export const booksCopies: Record<AppLanguage, BooksCopy> = {
       'invalid-version': 'Weka jina wazi la toleo lisilozidi herufi 100.',
       unavailable: 'Huduma ya vitabu haipatikani sasa. Jaribu tena baada ya muda mfupi.',
     },
-    uploadLifecycle: 'Upakiaji huishia katika hali ya Tayari na hauchapishwi moja kwa moja.', uploadProgress: 'Maendeleo ya kupakia toleo',
+    uploadLifecycle: 'Upakiaji huhifadhi bila kuchapisha; faili zilizochanganuliwa zinaweza kubaki zikichakatwa kwa OCR au mapitio.', uploadProgress: 'Maendeleo ya kupakia toleo',
     uploadProgressValue: (progress) => `${progress}% imepakiwa`,
-    uploadSuccess: (version) => `Toleo ${version} limeongezwa kama Tayari. Unaweza kulichapisha baadaye kupitia vitendo vyake.`,
+    uploadSuccess: uploadSuccessSw,
     uploadSupported: (size) => `TXT, Markdown, PDF, au Word, hadi MB ${size}.`, uploadTitle: 'Ongeza toleo jipya',
     uploading: 'Inapakia na kutoa maandishi…', uploadVersion: 'Jina la toleo (linahitajika)', uploadVersionPlaceholder: 'Kwa mfano, 2.0 au toleo la 2026',
     version: 'Toleo',
     range: (start, end, total) => `${start}–${end} kati ya ${total}`,
   },
 };
+
+function uploadSuccessAr(version: string, status: DocumentProcessingStatus): string {
+  if (status === 'ready') return `أُضيف الإصدار ${version} بحالة «جاهز». يمكنك نشره لاحقًا من إجراءات الإصدار.`;
+  if (status === 'ocr_required') return `حُفظ الإصدار ${version} وهو يحتاج إلى OCR. راجع حالة المعالجة وأعد المحاولة عند توفرها.`;
+  if (status === 'review_required') return `حُفظ الإصدار ${version} وهو يحتاج مراجعة نتيجة OCR قبل اعتماده.`;
+  return `حُفظ الإصدار ${version} وهو قيد معالجة المستند.`;
+}
+
+function uploadSuccessEn(version: string, status: DocumentProcessingStatus): string {
+  if (status === 'ready') return `Edition ${version} was added as Ready. You can publish it later from its actions.`;
+  if (status === 'ocr_required') return `Edition ${version} was saved and requires OCR. Review its processing state and retry when available.`;
+  if (status === 'review_required') return `Edition ${version} was saved and its OCR result requires review before approval.`;
+  return `Edition ${version} was saved and document processing is in progress.`;
+}
+
+function uploadSuccessSw(version: string, status: DocumentProcessingStatus): string {
+  if (status === 'ready') return `Toleo ${version} limeongezwa kama Tayari. Unaweza kulichapisha baadaye kupitia vitendo vyake.`;
+  if (status === 'ocr_required') return `Toleo ${version} limehifadhiwa na linahitaji OCR. Kagua hali ya uchakataji kisha ujaribu tena inapopatikana.`;
+  if (status === 'review_required') return `Toleo ${version} limehifadhiwa na matokeo ya OCR yanahitaji mapitio kabla ya kuidhinishwa.`;
+  return `Toleo ${version} limehifadhiwa na hati inaendelea kuchakatwa.`;
+}

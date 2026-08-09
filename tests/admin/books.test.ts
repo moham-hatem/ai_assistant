@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type { BookEdition } from '../../shared/contracts/books.ts';
 import { allowedEditionTransitions } from '../../shared/contracts/books.ts';
 import {
   BooksApiError,
@@ -22,6 +23,7 @@ import {
   operatorEditionTransitions,
   previousOffset,
   replaceBook,
+  replaceEdition,
   transitionFailureState,
   visibleRange,
 } from '../../src/features/admin/books/books-state.ts';
@@ -124,6 +126,9 @@ test('current refresh failure exits loading while stale transition failures are 
 test('book and edition pagination helpers update within independent bounds', () => {
   const updatedBook = { ...book, updatedAt: '2026-08-06T10:00:00.000Z' };
   assert.deepEqual(replaceBook([book], updatedBook), [updatedBook]);
+  assert.deepEqual(replaceEdition([edition as BookEdition], { ...edition, status: 'processing' }), [
+    { ...edition, status: 'processing' as const },
+  ]);
   assert.equal(nextOffset(0, 12, 25), 12);
   assert.equal(nextOffset(24, 12, 25), 24);
   assert.equal(previousOffset(12, 12), 0);

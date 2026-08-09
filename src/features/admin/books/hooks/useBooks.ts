@@ -6,11 +6,13 @@ import {
   nextOffset,
   previousOffset,
   replaceBook,
+  replaceEdition,
   transitionFailureState,
   type TransitionFailure,
 } from '../books-state';
 import type {
   Book,
+  BookEdition,
   BookEditionUploadResult,
   BookPage,
   EditionPage,
@@ -178,6 +180,13 @@ export function useBooks() {
     setDetailReload((value) => value + 1);
   }, []);
 
+  const synchronizeProcessingApproval = useCallback((updated: BookEdition) => {
+    if (selectedIdRef.current !== updated.bookId) return;
+    setEditions((current) => current
+      ? { ...current, items: replaceEdition(current.items, updated) }
+      : current);
+  }, []);
+
   return {
     book, canEditionsGoNext: Boolean(editions && editions.offset + editions.items.length < editions.total),
     canEditionsGoPrevious: editionOffset > 0,
@@ -189,6 +198,7 @@ export function useBooks() {
     goToPreviousPage: () => goToBookPage(previousOffset(offset, page?.limit ?? bookPageSize)),
     listStatus, page, retryDetail: () => setDetailReload((value) => value + 1),
     retryList: () => setListReload((value) => value + 1), runTransition, synchronizeUpload,
-    select: (id: string) => select(id), selectedId, transitionError, transitioningId,
+    select: (id: string) => select(id), selectedId, synchronizeProcessingApproval,
+    transitionError, transitioningId,
   };
 }

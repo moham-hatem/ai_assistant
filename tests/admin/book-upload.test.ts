@@ -8,6 +8,7 @@ import {
   classifyBookEditionUploadError,
   initialBookEditionUploadState,
   isCurrentUploadRequest,
+  successfulBookEditionUploadState,
 } from '../../src/features/admin/books/books-state.ts';
 
 const book = {
@@ -25,6 +26,16 @@ const document = {
   id: 'd4444444-4444-4444-8444-444444444444',
   importedAt: '2026-08-06T09:00:00.000Z',
   name: 'lesson copy.txt',
+  processing: {
+    averageConfidence: null,
+    failureCode: null,
+    lowConfidencePageCount: 0,
+    method: 'native',
+    ocrPageCount: 0,
+    pageCount: 1,
+    processedAt: '2026-08-06T09:00:00.000Z',
+    status: 'ready',
+  },
   size: 84,
 };
 const edition = {
@@ -40,7 +51,26 @@ const edition = {
 };
 const payload = { book, document, edition, requestId: 'ignored' };
 
-test('linked upload parser accepts only a coherent ready edition result', () => {
+const pendingSummaries = {
+  ocr_required: {
+    ...document.processing,
+    averageConfidence: 0.52,
+    failureCode: 'PDF_OCR_TOOL_UNAVAILABLE',
+    method: 'ocr',
+    ocrPageCount: 1,
+    status: 'ocr_required',
+  },
+  processing: { ...document.processing, processedAt: null, status: 'processing' },
+  review_required: {
+    ...document.processing,
+    averageConfidence: 0.64,
+    method: 'ocr',
+    ocrPageCount: 1,
+    status: 'review_required',
+  },
+} as const;
+
+test('linked upload parser accepts coherent ready and persisted OCR processing results', () => {
   assert.deepEqual(
     parseBookEditionUpload(payload, book.id, edition.version),
     payloadWithoutMetadata(),
@@ -48,6 +78,47 @@ test('linked upload parser accepts only a coherent ready edition result', () => 
   assert.throws(
     () => parseBookEditionUpload(
       { ...payload, edition: { ...edition, status: 'published' } },
+      book.id,
+      edition.version,
+    ),
+    BooksApiError,
+  );
+  for (const processingStatus of ['processing', 'ocr_required', 'review_required'] as const) {
+    const pendingPayload = {
+      ...payload,
+      document: { ...document, processing: pendingSummaries[processingStatus] },
+      edition: { ...edition, status: 'processing' },
+    };
+    assert.deepEqual(
+      parseBookEditionUpload(pendingPayload, book.id, edition.version),
+      { book, document: pendingPayload.document, edition: pendingPayload.edition },
+    );
+  }
+
+  const contradictoryPayloads = [
+    { ...payload, document: { ...document, processing: pendingSummaries.review_required } },
+    { ...payload, edition: { ...edition, status: 'processing' } },
+    {
+      ...payload,
+      document: { ...document, processing: { ...document.processing, status: 'failed' } },
+      edition: { ...edition, status: 'processing' },
+    },
+  ];
+  for (const contradictory of contradictoryPayloads) {
+    assert.throws(
+      () => parseBookEditionUpload(contradictory, book.id, edition.version),
+      BooksApiError,
+    );
+  }
+  assert.throws(
+    () => parseBookEditionUpload(
+      {
+        ...payload,
+        document: {
+          ...document,
+          processing: { ...document.processing, method: 'native', ocrPageCount: 1 },
+        },
+      },
       book.id,
       edition.version,
     ),
@@ -102,6 +173,26 @@ test('linked upload client sends encoded identity and reports upload progress', 
   assert.equal(result.edition.status, 'ready');
 });
 
+test('linked upload client treats a persisted scanned PDF needing OCR as success', async () => {
+  const scannedPayload = {
+    ...payload,
+    document: { ...document, format: 'pdf', processing: pendingSummaries.ocr_required },
+    edition: { ...edition, status: 'processing' },
+  };
+  const result = await uploadBookEdition(book.id, edition.version, file('scan.pdf', 80), {
+    createRequest: () => new FakeUploadRequest(scannedPayload, 201),
+  });
+  assert.equal(result.edition.status, 'processing');
+  assert.equal(result.document.processing.status, 'ocr_required');
+  assert.deepEqual(successfulBookEditionUploadState(result), {
+    error: null,
+    processingStatus: 'ocr_required',
+    progress: 100,
+    status: 'success',
+    version: edition.version,
+  });
+});
+
 test('linked upload client validates version, file type, emptiness, and size before transport', async () => {
   let created = false;
   const options = { createRequest: () => { created = true; return new FakeUploadRequest(payload, 201); } };
@@ -142,6 +233,7 @@ test('linked upload client rejects a successful payload for a different version'
 test('upload state classifies operator-facing failures and guards stale book races', () => {
   assert.deepEqual(initialBookEditionUploadState(), {
     error: null,
+    processingStatus: null,
     progress: 0,
     status: 'idle',
     version: null,

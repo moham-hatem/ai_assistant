@@ -1,7 +1,9 @@
 import { allowedEditionTransitions } from '../../../../shared/contracts/books.ts';
 import type {
   Book,
+  BookEdition,
   BookEditionUploadError,
+  BookEditionUploadResult,
   BookEditionUploadState,
   EditionStatus,
 } from './types';
@@ -36,6 +38,13 @@ export function replaceBook(books: readonly Book[], updated: Book): Book[] {
   return books.map((book) => book.id === updated.id ? updated : book);
 }
 
+export function replaceEdition(
+  editions: readonly BookEdition[],
+  updated: BookEdition,
+): BookEdition[] {
+  return editions.map((edition) => edition.id === updated.id ? updated : edition);
+}
+
 export function isCurrentBookRequest(
   activeBookId: string | null,
   requestedBookId: string,
@@ -55,7 +64,19 @@ export function isCurrentUploadRequest(
 }
 
 export function initialBookEditionUploadState(): BookEditionUploadState {
-  return { error: null, progress: 0, status: 'idle', version: null };
+  return { error: null, processingStatus: null, progress: 0, status: 'idle', version: null };
+}
+
+export function successfulBookEditionUploadState(
+  result: BookEditionUploadResult,
+): BookEditionUploadState {
+  return {
+    error: null,
+    processingStatus: result.document.processing.status,
+    progress: 100,
+    status: 'success',
+    version: result.edition.version,
+  };
 }
 
 export function classifyBookEditionUploadError(error: unknown): BookEditionUploadError {

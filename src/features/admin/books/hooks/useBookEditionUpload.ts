@@ -4,6 +4,7 @@ import {
   classifyBookEditionUploadError,
   initialBookEditionUploadState,
   isCurrentUploadRequest,
+  successfulBookEditionUploadState,
 } from '../books-state';
 import type { BookEditionUploadResult, BookEditionUploadState } from '../types';
 
@@ -31,7 +32,13 @@ export function useBookEditionUpload(
     const requestId = activeRequestIdRef.current + 1;
     activeRequestIdRef.current = requestId;
     busyRef.current = true;
-    setState({ error: null, progress: 0, status: 'uploading', version: null });
+    setState({
+      error: null,
+      processingStatus: null,
+      progress: 0,
+      status: 'uploading',
+      version: null,
+    });
 
     const isCurrent = () => isCurrentUploadRequest(
       activeBookIdRef.current,
@@ -47,12 +54,13 @@ export function useBookEditionUpload(
       });
       if (!isCurrent()) return false;
       onUploadedRef.current(result);
-      setState({ error: null, progress: 100, status: 'success', version: result.edition.version });
+      setState(successfulBookEditionUploadState(result));
       return true;
     } catch (error) {
       if (!isCurrent()) return false;
       setState({
         error: classifyBookEditionUploadError(error),
+        processingStatus: null,
         progress: 0,
         status: 'error',
         version: null,
