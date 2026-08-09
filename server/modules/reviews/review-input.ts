@@ -18,19 +18,16 @@ export function parseCreateReview(value: unknown): { questionLogId: string } {
   return { questionLogId: validId(body.questionLogId) };
 }
 
-export function parseStatusChange(value: unknown): { reviewerId: string; status: ReviewStatus } {
+export function parseStatusChange(value: unknown): { status: ReviewStatus } {
   const body = objectBody(value, ['reviewerId', 'status']);
   const status = body.status;
   if (typeof status !== 'string' || !reviewStatuses.includes(status as ReviewStatus)) {
     invalid('status is not a recognized review status.');
   }
-  return {
-    reviewerId: requiredString(body.reviewerId, 'reviewerId', 200),
-    status: status as ReviewStatus,
-  };
+  return { status: status as ReviewStatus };
 }
 
-export function parseDecision(value: unknown): SaveDecisionInput {
+export function parseDecision(value: unknown): Omit<SaveDecisionInput, 'reviewerId'> {
   const body = objectBody(value, [
     'correctedAnswer',
     'internalNotes',
@@ -46,7 +43,6 @@ export function parseDecision(value: unknown): SaveDecisionInput {
     correctedAnswer: optionalString(body.correctedAnswer, 'correctedAnswer', 20_000),
     internalNotes: optionalString(body.internalNotes, 'internalNotes', 4_000),
     outcome: outcome as ReviewDecisionOutcome,
-    reviewerId: requiredString(body.reviewerId, 'reviewerId', 200),
   };
 }
 

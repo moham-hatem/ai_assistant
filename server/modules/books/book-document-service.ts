@@ -105,9 +105,8 @@ export class BookDocumentService {
   async approveEditionProcessing(
     bookId: string,
     editionId: string,
-    actorId: string,
+    _actorId: string,
   ): Promise<ApproveEditionProcessingResult> {
-    void actorId; // Local attribution only; this endpoint does not claim authentication.
     const edition = await this.books.getEdition(bookId, editionId);
     if (edition.status === 'published') {
       throw new AppError(

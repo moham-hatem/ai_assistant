@@ -14,33 +14,31 @@ import { reviewDetail, reviewItem, reviewPage } from './reviews-fixtures.ts';
 
 test('decision builders follow server field invariants and omit empty optional fields', () => {
   assert.deepEqual(buildDecisionRequest({
-    correctedAnswer: 'ignored', internalNotes: '  ', mode: 'approve_as_is', reviewerId: ' teacher-a ',
-  }), { outcome: 'approved', reviewerId: 'teacher-a' });
+    correctedAnswer: 'ignored', internalNotes: '  ', mode: 'approve_as_is',
+  }), { outcome: 'approved' });
 
   assert.deepEqual(buildDecisionRequest({
-    correctedAnswer: ' Corrected wording. ', internalNotes: ' Note. ', mode: 'approve_edited', reviewerId: 'teacher-a',
+    correctedAnswer: ' Corrected wording. ', internalNotes: ' Note. ', mode: 'approve_edited',
   }), {
     correctedAnswer: 'Corrected wording.',
     internalNotes: 'Note.',
     outcome: 'approved',
-    reviewerId: 'teacher-a',
   });
 
   assert.deepEqual(buildDecisionRequest({
-    correctedAnswer: 'ignored', internalNotes: '', mode: 'reject', reviewerId: 'teacher-a',
-  }), { outcome: 'rejected', reviewerId: 'teacher-a' });
+    correctedAnswer: 'ignored', internalNotes: '', mode: 'reject',
+  }), { outcome: 'rejected' });
 
   assert.deepEqual(buildDecisionRequest({
-    correctedAnswer: 'ignored', internalNotes: 'Update the underlying lesson.', mode: 'needs_changes', reviewerId: 'teacher-a',
-  }), { internalNotes: 'Update the underlying lesson.', outcome: 'needs_changes', reviewerId: 'teacher-a' });
+    correctedAnswer: 'ignored', internalNotes: 'Update the underlying lesson.', mode: 'needs_changes',
+  }), { internalNotes: 'Update the underlying lesson.', outcome: 'needs_changes' });
 });
 
 test('decision builders reject missing, oversized, and byte-heavy fields', () => {
-  assertValidation('reviewer_required', () => buildDecisionRequest({ correctedAnswer: '', internalNotes: '', mode: 'reject', reviewerId: ' ' }));
-  assertValidation('correction_required', () => buildDecisionRequest({ correctedAnswer: ' ', internalNotes: '', mode: 'approve_edited', reviewerId: 'teacher-a' }));
-  assertValidation('notes_required', () => buildDecisionRequest({ correctedAnswer: '', internalNotes: ' ', mode: 'needs_changes', reviewerId: 'teacher-a' }));
-  assertValidation('notes_too_long', () => buildDecisionRequest({ correctedAnswer: '', internalNotes: 'x'.repeat(4_001), mode: 'needs_changes', reviewerId: 'teacher-a' }));
-  assertValidation('request_too_large', () => buildDecisionRequest({ correctedAnswer: 'م'.repeat(8_200), internalNotes: '', mode: 'approve_edited', reviewerId: 'teacher-a' }));
+  assertValidation('correction_required', () => buildDecisionRequest({ correctedAnswer: ' ', internalNotes: '', mode: 'approve_edited' }));
+  assertValidation('notes_required', () => buildDecisionRequest({ correctedAnswer: '', internalNotes: ' ', mode: 'needs_changes' }));
+  assertValidation('notes_too_long', () => buildDecisionRequest({ correctedAnswer: '', internalNotes: 'x'.repeat(4_001), mode: 'needs_changes' }));
+  assertValidation('request_too_large', () => buildDecisionRequest({ correctedAnswer: 'م'.repeat(8_200), internalNotes: '', mode: 'approve_edited' }));
 });
 
 test('as-is approval requires an original answer while edited approval remains independent', () => {
@@ -52,7 +50,6 @@ test('as-is approval requires an original answer while edited approval remains i
     correctedAnswer: 'Teacher-supplied corrected answer.',
     internalNotes: '',
     mode: 'approve_edited',
-    reviewerId: 'teacher-a',
   }));
 });
 

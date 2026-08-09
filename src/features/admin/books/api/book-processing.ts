@@ -1,17 +1,13 @@
 import type { DocumentProcessingState } from '../../../../../shared/contracts/document-processing.ts';
 import { adminFetch } from '../../api/admin-fetch.ts';
 import type { EditionProcessingApprovalResult } from '../types.ts';
-import { localBookProcessingActorId } from '../processing-operator.ts';
 import { BooksApiError } from './book-parser.ts';
 import {
   parseEditionProcessingApprovalResponse,
   parseEditionProcessingResponse,
 } from './book-processing-parser.ts';
 
-const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
-
 export interface ApprovalRequestOptions {
-  actorId?: string;
   signal?: AbortSignal;
 }
 
@@ -36,14 +32,8 @@ export function approveEditionProcessing(
   editionId: string,
   options: ApprovalRequestOptions = {},
 ): Promise<EditionProcessingApprovalResult> {
-  const actorId = options.actorId ?? localBookProcessingActorId;
-  if (!uuidPattern.test(actorId)) {
-    return Promise.reject(new BooksApiError('Invalid local processing actor.', null, 'INVALID_ACTOR_ID'));
-  }
   const path = processingPath(bookId, editionId, '/approve');
   return request(path, {
-    body: JSON.stringify({ actorId }),
-    headers: { 'Content-Type': 'application/json' },
     method: 'POST',
     signal: options.signal,
   }).then((payload) => (

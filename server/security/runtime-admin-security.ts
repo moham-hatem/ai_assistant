@@ -1,18 +1,17 @@
-import type { AdminRequestAuthorizer } from './admin-request-authorizer.ts';
-import { unauthenticated } from './admin-request-authorizer.ts';
+import type { AuthCookiePolicy } from '../auth/cookie.ts';
+import type { AuthOriginPolicy } from '../auth/origin.ts';
+import type { AuthService } from '../auth/service.ts';
 import type { AdminApiSecurity } from './admin-authorization-guard.ts';
+import { AuthServiceAdminRequestAuthorizer } from './auth-service-admin-request-authorizer.ts';
 import { SameOriginRequestGuard } from './same-origin-request-guard.ts';
 
-class UnconfiguredAdminRequestAuthorizer implements AdminRequestAuthorizer {
-  async authorize(): Promise<never> {
-    throw unauthenticated();
-  }
-}
-
-/** Secure runtime boundary until the authentication core supplies an adapter. */
-export function createRuntimeAdminSecurity(): AdminApiSecurity {
+export function createRuntimeAdminSecurity(
+  service: AuthService,
+  cookie: AuthCookiePolicy,
+  origin: AuthOriginPolicy,
+): AdminApiSecurity {
   return {
-    authorizer: new UnconfiguredAdminRequestAuthorizer(),
-    originGuard: new SameOriginRequestGuard(),
+    authorizer: new AuthServiceAdminRequestAuthorizer(service, cookie),
+    originGuard: new SameOriginRequestGuard(origin),
   };
 }

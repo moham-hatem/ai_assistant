@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import test from 'node:test';
 import { readAuthConfig } from './config.ts';
 
@@ -28,4 +30,10 @@ test('auth config rejects path-bearing origins and contradictory TTLs', () => {
     AUTH_IDLE_TTL_MS: '2000',
   }));
   assert.throws(() => readAuthConfig({ AUTH_DATABASE_PATH: '' }));
+});
+
+test('local auth database files and SQLite sidecars are ignored by Git', async () => {
+  const gitignore = await readFile(new URL('../../.gitignore', import.meta.url), 'utf8');
+  assert.match(gitignore, /^data\/auth\.sqlite\*$/mu);
+  assert.equal(readAuthConfig({}, 'C:\\workspace').databasePath, join('C:\\workspace', 'data/auth.sqlite'));
 });

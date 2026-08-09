@@ -5,6 +5,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import type { AuthPrincipal } from '../../../shared/contracts/auth.ts';
 import type { QuestionLogRecord } from '../../../shared/contracts/question-log.ts';
 import { SqliteQuestionLogRepository } from '../question-log/sqlite-question-log-repository.ts';
 import { ReviewService } from './review-service.ts';
@@ -24,7 +25,7 @@ test('internal review API validates, creates, claims, decides, lists, and return
   try {
     await withServer((request, response) => {
       const url = new URL(request.url ?? '/', 'http://localhost');
-      void handler(request, response, url);
+      void handler(request, response, url, principal);
     }, async (baseUrl) => {
       const invalid = await requestJson(`${baseUrl}/api/internal/reviews`, 'POST', {
         questionLogId: questionLog.id,
@@ -50,17 +51,13 @@ test('internal review API validates, creates, claims, decides, lists, and return
       const claimed = await requestJson(
         `${baseUrl}/api/internal/reviews/${review.id}/status`,
         'POST',
-        { reviewerId: 'teacher-api', status: 'in_review' },
+        { reviewerId: 'forged-reviewer', status: 'in_review' },
       );
       assert.equal(claimed.response.status, 200);
-
-      const wrongReviewer = await requestJson(
-        `${baseUrl}/api/internal/reviews/${review.id}/decision`,
-        'POST',
-        { outcome: 'approved', reviewerId: 'another-teacher' },
+      assert.equal(
+        (claimed.body.review as { assignedReviewerId: string }).assignedReviewerId,
+        principal.id,
       );
-      assert.equal(wrongReviewer.response.status, 409);
-      assert.equal(wrongReviewer.body.code, 'REVIEW_CONFLICT');
 
       const invalidDecision = await requestJson(
         `${baseUrl}/api/internal/reviews/${review.id}/decision`,
@@ -68,7 +65,7 @@ test('internal review API validates, creates, claims, decides, lists, and return
         {
           correctedAnswer: 'Correction is not valid for a content change request.',
           outcome: 'needs_changes',
-          reviewerId: 'teacher-api',
+          reviewerId: 'forged-reviewer',
         },
       );
       assert.equal(invalidDecision.response.status, 400);
@@ -81,18 +78,19 @@ test('internal review API validates, creates, claims, decides, lists, and return
           correctedAnswer: 'Corrected answer from the teacher.',
           internalNotes: 'Clarify the source scope.',
           outcome: 'approved',
-          reviewerId: 'teacher-api',
+          reviewerId: 'forged-reviewer',
         },
       );
       assert.equal(decided.response.status, 200);
       const detail = decided.body.review as {
-        decision: { correctedAnswer: string };
-        events: Array<{ decisionId: string | null; type: string }>;
+        decision: { correctedAnswer: string; reviewerId: string };
+        events: Array<{ decisionId: string | null; reviewerId: string | null; type: string }>;
         item: { status: string };
         questionLog: { answer: string };
       };
       assert.equal(detail.item.status, 'approved');
       assert.equal(detail.decision.correctedAnswer, 'Corrected answer from the teacher.');
+      assert.equal(detail.decision.reviewerId, principal.id);
       assert.equal(detail.questionLog.answer, questionLog.answer);
       assert.deepEqual(detail.events.map((event) => event.type), [
         'created',
@@ -100,6 +98,10 @@ test('internal review API validates, creates, claims, decides, lists, and return
         'decision_saved',
       ]);
       assert.ok(detail.events.at(-1)?.decisionId);
+      assert.deepEqual(detail.events.slice(1).map((event) => event.reviewerId), [
+        principal.id,
+        principal.id,
+      ]);
 
       const list = await requestJson(
         `${baseUrl}/api/internal/reviews?status=approved&channel=web&limit=1&offset=0`,
@@ -127,6 +129,14 @@ test('internal review API validates, creates, claims, decides, lists, and return
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+const principal: AuthPrincipal = {
+  displayName: 'Teacher API',
+  email: 'teacher-api@example.test',
+  id: 'teacher-api',
+  permissions: ['content:review'],
+  roles: ['reviewer'],
+};
 
 function record(): QuestionLogRecord {
   return {

@@ -1,17 +1,6 @@
 import type { IncomingMessage } from 'node:http';
+import type { AuthPermission, AuthPrincipal } from '../../shared/contracts/auth.ts';
 import { AppError } from '../errors.ts';
-
-export type AdminPermission =
-  | 'books:read'
-  | 'books:write'
-  | 'content:review'
-  | 'question_logs:read'
-  | 'quality:read'
-  | 'settings:manage';
-
-export interface AuthenticatedPrincipal {
-  readonly subject: string;
-}
 
 /**
  * Authentication, session validation, and role-to-permission mapping belong to
@@ -22,8 +11,8 @@ export interface AuthenticatedPrincipal {
 export interface AdminRequestAuthorizer {
   authorize(
     request: IncomingMessage,
-    permission: AdminPermission,
-  ): Promise<AuthenticatedPrincipal>;
+    permission: AuthPermission,
+  ): Promise<AuthPrincipal>;
 }
 
 export interface StateChangingRequestOriginGuard {

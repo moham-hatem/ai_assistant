@@ -11,7 +11,6 @@ import {
 } from '../../src/features/admin/books/api/book-processing-parser.ts';
 import { BooksApiError } from '../../src/features/admin/books/api/book-parser.ts';
 import { availableProcessingActions } from '../../src/features/admin/books/processing-action-availability.ts';
-import { localBookProcessingActorId } from '../../src/features/admin/books/processing-operator.ts';
 import {
   documentIdFromReference,
   isCurrentEditionProcessingRequest,
@@ -156,7 +155,6 @@ test('document references and displayed failure codes are constrained to safe fo
 });
 
 test('processing client uses canonical encoded load, reprocess, and approve routes', async () => {
-  const actorId = 'e5555555-5555-4555-8555-555555555555';
   const calls: Array<{ body: string | null; contentType: string | null; method: string; url: string }> = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -180,7 +178,7 @@ test('processing client uses canonical encoded load, reprocess, and approve rout
   try {
     await fetchEditionProcessing('book/id', 'edition/id');
     await reprocessEdition('book/id', 'edition/id');
-    const approved = await approveEditionProcessing('book/id', 'edition/id', { actorId });
+    const approved = await approveEditionProcessing('book/id', 'edition/id');
     assert.equal(approved.edition.status, 'ready');
     assert.equal(approved.processing.summary.status, 'ready');
   } finally {
@@ -190,20 +188,19 @@ test('processing client uses canonical encoded load, reprocess, and approve rout
     { body: null, contentType: null, method: 'GET', url: '/api/internal/books/book%2Fid/editions/edition%2Fid/processing' },
     { body: null, contentType: null, method: 'POST', url: '/api/internal/books/book%2Fid/editions/edition%2Fid/processing' },
     {
-      body: JSON.stringify({ actorId }),
-      contentType: 'application/json',
+      body: null,
+      contentType: null,
       method: 'POST',
       url: '/api/internal/books/book%2Fid/editions/edition%2Fid/processing/approve',
     },
   ]);
 });
 
-test('approval uses a constrained local audit actor without claiming authentication', async () => {
-  assert.match(localBookProcessingActorId, /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu);
+test('approval request never sends a client-controlled actor identity', async () => {
   const originalFetch = globalThis.fetch;
-  let body: unknown;
+  let body: BodyInit | null | undefined;
   globalThis.fetch = async (_input, init) => {
-    body = JSON.parse(String(init?.body));
+    body = init?.body;
     return Response.json({
       bookId,
       edition: approvedEdition,
@@ -214,11 +211,7 @@ test('approval uses a constrained local audit actor without claiming authenticat
   };
   try {
     await approveEditionProcessing(bookId, editionId);
-    assert.deepEqual(body, { actorId: localBookProcessingActorId });
-    await assert.rejects(
-      () => approveEditionProcessing(bookId, editionId, { actorId: 'local-user' }),
-      (error: unknown) => error instanceof BooksApiError && error.code === 'INVALID_ACTOR_ID',
-    );
+    assert.equal(body, undefined);
   } finally {
     globalThis.fetch = originalFetch;
   }

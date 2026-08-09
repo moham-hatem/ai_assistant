@@ -1,5 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { AuthPrincipal } from '../../shared/contracts/auth.ts';
 import type { Plugin } from 'vite';
+import type { AuthConfig } from '../auth/config.ts';
+import type { createAuthHandler } from '../auth/http-handler.ts';
+import { createLocalAuthRuntime } from '../auth/runtime.ts';
 import type { LocalRuntimeConfig } from '../config.ts';
 import { createRuntime } from '../create-runtime.ts';
 import { createAnswerHandler } from '../http/answer-handler.ts';
@@ -15,13 +19,16 @@ import {
   guardAdminRequest,
   type AdminApiSecurity,
 } from '../security/admin-authorization-guard.ts';
+import { createRuntimeAdminSecurity } from '../security/runtime-admin-security.ts';
 
 type Next = (error?: unknown) => void;
 type ApiHandler = (
   request: IncomingMessage,
   response: ServerResponse,
   url: URL,
+  principal: AuthPrincipal | null,
 ) => void | Promise<void>;
+type AuthHandler = ReturnType<typeof createAuthHandler>;
 
 export interface LocalApiHandlers {
   answer: ApiHandler;
@@ -36,11 +43,11 @@ export interface LocalApiHandlers {
 
 export function createLocalApiPlugin(
   config: LocalRuntimeConfig,
-  security: AdminApiSecurity,
+  authConfig: AuthConfig,
 ): Plugin {
   return {
     name: 'local-answer-api',
-    configureServer(server) {
+    async configureServer(server) {
       const runtime = createRuntime(config);
       const logError: ErrorLogger = (requestId, error) => {
         const loggedError = error instanceof Error ? error : new Error(String(error));
@@ -48,6 +55,8 @@ export function createLocalApiPlugin(
           `Local API request failed (${requestId}): ${loggedError.name}`,
         );
       };
+      const auth = await createLocalAuthRuntime(authConfig, logError);
+      const security = createRuntimeAdminSecurity(auth.service, auth.cookie, auth.origin);
       const handler = createLocalApiRequestHandler({
         answer: createAnswerHandler(runtime.answerRequestService, logError),
         books: createBooksHandler(runtime.bookService, logError, runtime.bookDocuments),
@@ -57,7 +66,9 @@ export function createLocalApiPlugin(
         questionLogs: createQuestionLogHandler(runtime.questionLogRepository, logError),
         reviews: createReviewsHandler(runtime.reviewService, logError),
         version: handleApiVersionRequest,
-      }, security, logError);
+      }, security, logError, auth.handler);
+
+      server.httpServer?.once('close', () => auth.repository.close());
 
       server.middlewares.use((request, response, next) => {
         void handler(request, response, next).catch(next);
@@ -70,17 +81,20 @@ export function createLocalApiRequestHandler(
   handlers: LocalApiHandlers,
   security: AdminApiSecurity,
   logError: ErrorLogger,
+  authHandler?: AuthHandler,
 ) {
   return async (request: IncomingMessage, response: ServerResponse, next: Next): Promise<void> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
-    if (!await guardAdminRequest(request, response, url, security, logError)) return;
+    if (authHandler && await authHandler(request, response, url.pathname)) return;
+    const guard = await guardAdminRequest(request, response, url, security, logError);
+    if (!guard.allowed) return;
 
     const handler = selectHandler(url.pathname, handlers);
     if (!handler) {
       next();
       return;
     }
-    await handler(request, response, url);
+    await handler(request, response, url, guard.principal);
   };
 }
 

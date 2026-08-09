@@ -53,10 +53,10 @@ export function ReviewsWorkspace({ language, principal }: { language: AppLanguag
           copy={copy}
           detail={detail}
           language={language}
-          onClaim={() => detail && reviews.claim(detail.item.id, reviews.reviewerId)}
+          onClaim={() => detail && reviews.claim(detail.item.id)}
           onClose={reviews.clearSelection}
           onDecide={(request) => detail && reviews.decide(detail.item.id, request)}
-          onRelease={() => detail && reviews.release(detail.item.id, reviews.reviewerId)}
+          onRelease={() => detail && reviews.release(detail.item.id)}
           onRetry={reviews.retryDetail}
           panelRef={detailPanelRef}
           reviewerId={reviews.reviewerId}

@@ -29,8 +29,6 @@ export const enReviewsCopy: ReviewsCopy = {
   notesRequired: 'Required to explain the requested change', outcomes: { approved: 'Approved', needs_changes: 'Content changes needed', rejected: 'Rejected' },
   previousPage: 'Previous page', nextPage: 'Next page', provider: 'Provider', question: 'Question', queueLabel: 'Teacher review queue',
   refresh: 'Refresh', reject: 'Reject', release: 'Release to queue', reviewerFilterPlaceholder: 'Exact reviewer ID',
-  reviewerId: 'Temporary reviewer ID', reviewerPlaceholder: 'e.g. teacher-fatima', reviewerSession: 'Local reviewer session',
-  reviewerWarning: 'This operator-supplied ID is stored locally in this browser. It is not a sign-in and does not prove identity or authorization.',
   retry: 'Try again', status: 'Review status',
   statuses: { approved: 'Approved', in_review: 'In review', needs_changes: 'Needs changes', pending: 'Pending', rejected: 'Rejected' },
   submitDecision: 'Confirm and save decision', submitting: 'Saving…', successClaim: 'Review claimed and queue resynced.',
@@ -40,8 +38,7 @@ export const enReviewsCopy: ReviewsCopy = {
   validation: {
     correction_required: 'Enter corrected wording before approval.', correction_too_long: 'The corrected answer exceeds the allowed length.',
     notes_required: 'Clearly explain what needs to change in the content.', notes_too_long: 'The internal notes exceed the allowed length.',
-    request_too_large: 'The decision text is larger than the server request limit.', reviewer_required: 'Enter a reviewer ID first.',
-    reviewer_too_long: 'The reviewer ID exceeds the allowed length.',
+    request_too_large: 'The decision text is larger than the server request limit.',
   },
   viewDetails: (question) => `View review details: ${question}`,
   rangeLabel: (start, end, total) => `${start}–${end} of ${total}`,

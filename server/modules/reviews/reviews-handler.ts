@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { AuthPrincipal } from '../../../shared/contracts/auth.ts';
 import { AppError } from '../../errors.ts';
 import { sendError, type ErrorLogger } from '../../http/error-response.ts';
 import { readJson, sendJson } from '../../http/json.ts';
@@ -12,7 +13,12 @@ import {
 import type { ReviewService } from './review-service.ts';
 
 export function createReviewsHandler(service: ReviewService, logError: ErrorLogger) {
-  return async (request: IncomingMessage, response: ServerResponse, url: URL) => {
+  return async (
+    request: IncomingMessage,
+    response: ServerResponse,
+    url: URL,
+    principal: AuthPrincipal | null,
+  ) => {
     const requestId = crypto.randomUUID();
     try {
       if (url.pathname === '/api/internal/reviews') {
@@ -42,7 +48,7 @@ export function createReviewsHandler(service: ReviewService, logError: ErrorLogg
         const review = await service.transitionStatus(
           validReviewId(status[0]),
           input.status,
-          input.reviewerId,
+          requirePrincipal(principal).id,
         );
         sendJson(response, 200, { review, requestId });
         return;
@@ -53,7 +59,7 @@ export function createReviewsHandler(service: ReviewService, logError: ErrorLogg
         if (request.method !== 'POST') return methodNotAllowed(response, requestId);
         const review = await service.saveDecision(
           validReviewId(decision[0]),
-          parseDecision(await readJson(request)),
+          { ...parseDecision(await readJson(request)), reviewerId: requirePrincipal(principal).id },
         );
         sendJson(response, 200, { review, requestId });
         return;
@@ -63,6 +69,11 @@ export function createReviewsHandler(service: ReviewService, logError: ErrorLogg
       sendError(response, requestId, error, logError);
     }
   };
+}
+
+function requirePrincipal(principal: AuthPrincipal | null): AuthPrincipal {
+  if (!principal) throw new AppError('UNAUTHENTICATED', 'Authentication is required.', 401);
+  return principal;
 }
 
 function matchPath(path: string, pattern: RegExp): string[] | undefined {

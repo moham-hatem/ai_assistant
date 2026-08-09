@@ -1,14 +1,14 @@
-import type { AdminPermission } from './admin-request-authorizer.ts';
+import type { AuthPermission } from '../../shared/contracts/auth.ts';
 
 export type AdminRoutePolicy =
   | { kind: 'public' }
-  | { kind: 'protected'; permission: AdminPermission }
+  | { kind: 'protected'; permission: AuthPermission }
   | { kind: 'denied' };
 
 interface ProtectedRoute {
   method: string;
   path: RegExp;
-  permission: AdminPermission;
+  permission: AuthPermission;
 }
 
 const protectedRoutes: readonly ProtectedRoute[] = [
@@ -67,6 +67,6 @@ function isAdminPath(pathname: string): boolean {
     || pathname.startsWith('/api/knowledge/documents/');
 }
 
-function route(method: string, path: RegExp, permission: AdminPermission): ProtectedRoute {
+function route(method: string, path: RegExp, permission: AuthPermission): ProtectedRoute {
   return { method, path, permission };
 }

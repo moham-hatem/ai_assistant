@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import test from 'node:test';
+import type { AuthPermission, AuthPrincipal } from '../../shared/contracts/auth.ts';
 import { AppError } from '../errors.ts';
 import { sendJson } from '../http/json.ts';
-import type { AdminPermission } from '../security/admin-request-authorizer.ts';
 import { forbidden, unauthenticated } from '../security/admin-request-authorizer.ts';
 import type { AdminApiSecurity } from '../security/admin-authorization-guard.ts';
 import { createLocalApiRequestHandler, type LocalApiHandlers } from './local-api.ts';
@@ -133,6 +133,41 @@ test('public APIs bypass admin authorization and continue to their handlers or n
   });
 });
 
+test('auth routes run before the admin guard and remain public', async () => {
+  const fixture = createFixture();
+  const authHandler = async (
+    _request: IncomingMessage,
+    response: ServerResponse,
+    pathname: string,
+  ) => {
+    if (pathname !== '/api/auth/session') return false;
+    sendJson(response, 200, { principal: null, requestId: 'auth-request' });
+    return true;
+  };
+  const requestHandler = createLocalApiRequestHandler(
+    fixture.handlers,
+    fixture.security,
+    () => undefined,
+    authHandler,
+  );
+  await withServer({
+    ...fixture,
+    listener(request: IncomingMessage, response: ServerResponse) {
+      void requestHandler(request, response, () => {
+        fixture.calls.next += 1;
+        response.statusCode = 204;
+        response.end();
+      });
+    },
+  }, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/auth/session`);
+    assert.equal(response.status, 200);
+    assert.equal((await response.json() as { principal: null }).principal, null);
+  });
+  assert.deepEqual(fixture.calls.permissions, []);
+  assert.equal(fixture.calls.next, 0);
+});
+
 interface FixtureOptions {
   rejectOrigin?: boolean;
 }
@@ -142,7 +177,7 @@ function createFixture(options: FixtureOptions = {}) {
     handlers: Partial<Record<keyof LocalApiHandlers, number>>;
     next: number;
     origins: number;
-    permissions: AdminPermission[];
+    permissions: AuthPermission[];
   } = { handlers: {}, next: 0, origins: 0, permissions: [] };
 
   const handler = (name: keyof LocalApiHandlers) => (
@@ -172,7 +207,7 @@ function createFixture(options: FixtureOptions = {}) {
         if (authorization === 'Bearer limited') {
           throw new AppError('INVALID_REQUEST', 'secret adapter detail', 403);
         }
-        return { subject: 'admin-1' };
+        return principal;
       },
     },
     originGuard: {
@@ -186,6 +221,7 @@ function createFixture(options: FixtureOptions = {}) {
 
   return {
     calls,
+    handlers,
     listener(request: IncomingMessage, response: ServerResponse) {
       void requestHandler(request, response, () => {
         calls.next += 1;
@@ -193,8 +229,24 @@ function createFixture(options: FixtureOptions = {}) {
         response.end();
       }).catch((error) => sendJson(response, 500, { error: String(error) }));
     },
+    security,
   };
 }
+
+const principal: AuthPrincipal = {
+  displayName: 'Admin User',
+  email: 'admin@example.test',
+  id: 'admin-1',
+  permissions: [
+    'books:read',
+    'books:write',
+    'content:review',
+    'question_logs:read',
+    'quality:read',
+    'settings:manage',
+  ],
+  roles: ['admin'],
+};
 
 async function withServer(
   fixture: ReturnType<typeof createFixture>,
