@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { SecurityAuditIntegritySummary, SecurityAuditPage } from '../../../shared/contracts/security-audit.ts';
 import { validateSecurityAuditCommand, type SecurityAuditCommand } from './domain.ts';
 import type { SecurityAuditQuery, SecurityAuditRepository, SecurityAuditSink } from './repository.ts';
+import { AppError } from '../../errors.ts';
 
 export class SecurityAuditService implements SecurityAuditSink {
   private readonly repository: SecurityAuditRepository;
@@ -21,8 +22,10 @@ export class SecurityAuditService implements SecurityAuditSink {
     this.logFailure = logFailure;
   }
 
-  record(command: SecurityAuditCommand): Promise<void> {
-    return this.repository.append(validateSecurityAuditCommand(command));
+  async record(command: SecurityAuditCommand): Promise<void> {
+    const validated = validateSecurityAuditCommand(command);
+    try { await this.repository.append(validated); }
+    catch (error) { throw unavailable(error); }
   }
 
   recordNew(command: Omit<SecurityAuditCommand, 'id' | 'timestamp'>): Promise<void> {
@@ -33,8 +36,22 @@ export class SecurityAuditService implements SecurityAuditSink {
     try { await this.recordNew(command); } catch (error) { this.logFailure(error); }
   }
 
-  list(query: SecurityAuditQuery): Promise<SecurityAuditPage> { return this.repository.list(query); }
-  verifyIntegrity(): Promise<SecurityAuditIntegritySummary> {
-    return this.repository.verifyIntegrity(this.now().toISOString());
+  async list(query: SecurityAuditQuery): Promise<SecurityAuditPage> {
+    try { return await this.repository.list(query); }
+    catch (error) { throw unavailable(error); }
   }
+  async verifyIntegrity(): Promise<SecurityAuditIntegritySummary> {
+    try { return await this.repository.verifyIntegrity(this.now().toISOString()); }
+    catch (error) { throw unavailable(error); }
+  }
+}
+
+function unavailable(error: unknown): AppError {
+  if (error instanceof AppError && error.code === 'SECURITY_AUDIT_UNAVAILABLE') return error;
+  return new AppError(
+    'SECURITY_AUDIT_UNAVAILABLE',
+    'Security audit is temporarily unavailable.',
+    503,
+    { cause: error },
+  );
 }

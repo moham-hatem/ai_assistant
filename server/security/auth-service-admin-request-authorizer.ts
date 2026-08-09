@@ -23,10 +23,14 @@ export class AuthServiceAdminRequestAuthorizer implements AdminRequestAuthorizer
   async authorize(
     request: IncomingMessage,
     permission: AuthPermission,
+    requestId: string,
   ): Promise<AuthPrincipal> {
-    const principal = await this.service.getPrincipal(readSessionCookie(request.headers, this.cookie));
+    const principal = await this.service.getPrincipal(
+      readSessionCookie(request.headers, this.cookie),
+      requestId,
+    );
     if (!principal) throw unauthenticated();
-    if (!principal.permissions.includes(permission)) throw forbidden();
+    if (!principal.permissions.includes(permission)) throw forbidden(principal);
     return principal;
   }
 }

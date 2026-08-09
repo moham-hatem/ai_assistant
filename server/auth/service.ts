@@ -85,7 +85,7 @@ export class AuthService {
     const now = this.now();
     const decision = await this.rateLimiter.check(rateKey, now.getTime());
     if (!decision.allowed) {
-      await this.audit?.bestEffort(authEvent('auth.login', 'denied', requestId, null, null, { reason: 'rate_limited' }));
+      await this.recordLoginAttempt('denied', requestId, now, 'rate_limited');
       throw new TooManyLoginAttemptsError(decision.retryAfterSeconds);
     }
 
@@ -97,17 +97,25 @@ export class AuthService {
       }
       const failure = await this.rateLimiter.recordFailure(rateKey, now.getTime());
       if (!failure.allowed) {
-        await this.audit?.bestEffort(authEvent('auth.login', 'denied', requestId, null, null, { reason: 'rate_limited' }));
+        await this.recordLoginAttempt('denied', requestId, now, 'rate_limited');
         throw new TooManyLoginAttemptsError(failure.retryAfterSeconds);
       }
-      await this.audit?.bestEffort(authEvent('auth.login', 'failure', requestId, null, null, { reason: 'invalid_credentials' }));
+      await this.recordLoginAttempt('failure', requestId, now, 'invalid_credentials');
       throw new InvalidCredentialsError('Invalid email or password.');
     }
 
     if (command.previousSessionToken) {
+      const previousHash = hashSessionToken(command.previousSessionToken);
+      const previous = await this.repository.findSession(previousHash);
       await this.repository.revokeSession(
-        hashSessionToken(command.previousSessionToken),
+        previousHash,
         now.toISOString(),
+        this.audit && previous && !previous.revokedAt ? withIdentity(
+          authEvent('auth.session_revoked', 'success', requestId, user.id, previous.userId, {
+            reason: 'rotated',
+          }),
+          now.toISOString(),
+        ) : undefined,
       );
     }
     const sessionToken = this.tokenFactory();
@@ -218,6 +226,29 @@ export class AuthService {
   private async flushAudit(): Promise<void> {
     if (this.audit && this.repository.flushSecurityAuditOutbox) {
       await this.repository.flushSecurityAuditOutbox(this.audit);
+    }
+  }
+
+  private async recordLoginAttempt(
+    outcome: 'denied' | 'failure',
+    requestId: string,
+    at: Date,
+    reason: 'invalid_credentials' | 'rate_limited',
+  ): Promise<void> {
+    if (!this.audit) return;
+    const command = withIdentity(
+      authEvent('auth.login', outcome, requestId, null, null, { reason }),
+      at.toISOString(),
+    );
+    try {
+      if (this.repository.enqueueSecurityAudit) {
+        await this.repository.enqueueSecurityAudit(command);
+        await this.flushAudit();
+      } else {
+        await this.audit.bestEffort(command);
+      }
+    } catch {
+      // Authentication failures retain their uniform response while the durable outbox retries later.
     }
   }
 }

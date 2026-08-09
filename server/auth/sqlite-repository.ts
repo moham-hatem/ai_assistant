@@ -132,22 +132,28 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
     return await this.sessions.touch(tokenHash, lastSeenAt, idleExpiresAt);
   }
 
-  async revokeSession(tokenHash: string, revokedAt: string, audit?: SecurityAuditCommand): Promise<void> {
-    transaction(this.database, () => {
-      this.database.prepare(`
-      UPDATE auth_sessions SET revoked_at = COALESCE(revoked_at, ?) WHERE token_hash = ?
+  async revokeSession(tokenHash: string, revokedAt: string, audit?: SecurityAuditCommand): Promise<boolean> {
+    return transaction(this.database, () => {
+      const result = this.database.prepare(`
+      UPDATE auth_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL
       `).run(revokedAt, tokenHash);
-      if (audit) enqueueSecurityAudit(this.database, audit);
+      if (audit && result.changes === 1) enqueueSecurityAudit(this.database, audit);
+      return result.changes === 1;
     });
   }
 
-  async revokeAllUserSessions(userId: string, revokedAt: string, audit?: SecurityAuditCommand): Promise<void> {
-    transaction(this.database, () => {
-      this.database.prepare(`
+  async revokeAllUserSessions(userId: string, revokedAt: string, audit?: SecurityAuditCommand): Promise<number> {
+    return transaction(this.database, () => {
+      const result = this.database.prepare(`
       UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL
       `).run(revokedAt, userId);
-      if (audit) enqueueSecurityAudit(this.database, audit);
+      if (audit && result.changes > 0) enqueueSecurityAudit(this.database, audit);
+      return Number(result.changes);
     });
+  }
+
+  async enqueueSecurityAudit(command: SecurityAuditCommand): Promise<void> {
+    transaction(this.database, () => enqueueSecurityAudit(this.database, command));
   }
 
   flushSecurityAuditOutbox(sink: SecurityAuditSink): Promise<number> {

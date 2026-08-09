@@ -13,6 +13,7 @@ import {
   InvalidCredentialsError,
   TooManyLoginAttemptsError,
 } from './service.ts';
+import { AppError } from '../errors.ts';
 
 export const AUTH_API_PATHS = {
   login: '/api/auth/login',
@@ -91,7 +92,10 @@ export function createAuthHandler(
       return true;
     } catch (error) {
       logError(requestId, error);
-      if (!response.headersSent) sendJson(response, 500, { code: 'INTERNAL_ERROR', requestId });
+      if (!response.headersSent && error instanceof AppError
+          && error.code === 'SECURITY_AUDIT_UNAVAILABLE') {
+        sendJson(response, 503, { code: error.code, requestId });
+      } else if (!response.headersSent) sendJson(response, 500, { code: 'INTERNAL_ERROR', requestId });
       else response.destroy();
       return true;
     }

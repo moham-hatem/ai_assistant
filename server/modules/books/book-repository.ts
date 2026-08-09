@@ -9,12 +9,22 @@ import type { SecurityAuditCommand } from '../security-audit/domain.ts';
 import type { SecurityAuditSink } from '../security-audit/repository.ts';
 
 export interface EditionTransitionCommand {
+  archiveAudit?: Omit<SecurityAuditCommand, 'subjectId'>;
   audit?: SecurityAuditCommand;
   at: string;
   bookId: string;
   editionId: string;
   expectedStatus: EditionStatus;
   targetStatus: EditionStatus;
+}
+
+export interface OcrApprovalIntent {
+  actorUserId: string;
+  bookId: string;
+  createdAt: string;
+  documentId: string;
+  editionId: string;
+  requestId: string;
 }
 
 export interface BookRepository {
@@ -28,6 +38,8 @@ export interface BookRepository {
   listEditions(bookId: string, query: PageQuery): Promise<Page<BookEdition>>;
   publishEdition(command: EditionTransitionCommand): Promise<BookEdition>;
   transitionEdition(command: EditionTransitionCommand): Promise<BookEdition>;
+  beginOcrApproval?(intent: OcrApprovalIntent): Promise<OcrApprovalIntent>;
+  completeOcrApproval?(intent: OcrApprovalIntent, audit: SecurityAuditCommand): Promise<BookEdition>;
   flushSecurityAuditOutbox?(sink: SecurityAuditSink): Promise<number>;
 }
 

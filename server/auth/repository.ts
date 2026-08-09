@@ -19,8 +19,9 @@ export interface AuthRepository {
   saveSession(session: AuthSession, audit?: SecurityAuditCommand): Promise<void>;
   findSession(tokenHash: string): Promise<AuthSession | undefined>;
   touchSession(tokenHash: string, lastSeenAt: string, idleExpiresAt: string): Promise<boolean>;
-  revokeSession(tokenHash: string, revokedAt: string, audit?: SecurityAuditCommand): Promise<void>;
-  revokeAllUserSessions(userId: string, revokedAt: string, audit?: SecurityAuditCommand): Promise<void>;
+  revokeSession(tokenHash: string, revokedAt: string, audit?: SecurityAuditCommand): Promise<boolean>;
+  revokeAllUserSessions(userId: string, revokedAt: string, audit?: SecurityAuditCommand): Promise<number>;
+  enqueueSecurityAudit?(command: SecurityAuditCommand): Promise<void>;
   flushSecurityAuditOutbox?(sink: SecurityAuditSink): Promise<number>;
   updateUserSecurity(command: SaveUserCommand): Promise<AuthUser>;
 }

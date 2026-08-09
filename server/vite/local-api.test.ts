@@ -1,17 +1,20 @@
 import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import test from 'node:test';
 import type { AuthPermission, AuthPrincipal } from '../../shared/contracts/auth.ts';
-import { AppError } from '../errors.ts';
 import { sendJson } from '../http/json.ts';
 import { forbidden, unauthenticated } from '../security/admin-request-authorizer.ts';
 import type { AdminApiSecurity } from '../security/admin-authorization-guard.ts';
 import { createLocalApiRequestHandler, type LocalApiHandlers } from './local-api.ts';
+import { SecurityAuditService } from '../modules/security-audit/service.ts';
+import { UnavailableSecurityAuditRepository } from '../modules/security-audit/unavailable-repository.ts';
+import { SqliteSecurityAuditRepository } from '../modules/security-audit/sqlite-repository.ts';
 
 test('rejected admin requests never reach handlers and return stable sanitized errors', async () => {
-  const fixture = createFixture();
-  await withServer(fixture, async (baseUrl) => {
+  const fixture = createFixture({ captureAudit: true });
+  try { await withServer(fixture, async (baseUrl) => {
     for (const authorization of [undefined, 'Bearer invalid']) {
       const response = await fetch(`${baseUrl}/api/internal/books`, {
         headers: authorization ? { authorization } : undefined,
@@ -24,11 +27,16 @@ test('rejected admin requests never reach handlers and return stable sanitized e
       headers: { authorization: 'Bearer limited' },
     });
     assert.equal(forbiddenResponse.status, 403);
-    assertStableError(await forbiddenResponse.json(), 'FORBIDDEN', 'Permission denied.');
+    const forbiddenBody = await forbiddenResponse.json() as { requestId: string };
+    assertStableError(forbiddenBody, 'FORBIDDEN', 'Permission denied.');
 
     assert.deepEqual(fixture.calls.handlers, {});
     assert.equal(fixture.calls.next, 0);
-  });
+    const events = await fixture.audit!.list({ action: 'authorization.denied', limit: 10, offset: 0 });
+    const authenticatedDenial = events.items.find((event) => event.requestId === forbiddenBody.requestId);
+    assert.equal(authenticatedDenial?.actorUserId, principal.id);
+    assert.equal(fixture.calls.requestIds.at(-1), forbiddenBody.requestId);
+  }); } finally { fixture.auditRepository?.close(); }
 });
 
 test('unknown internal and document operations are denied before dispatch', async () => {
@@ -115,7 +123,7 @@ test('origin rejection occurs before a state-changing handler', async () => {
 });
 
 test('public APIs bypass admin authorization and continue to their handlers or next middleware', async () => {
-  const fixture = createFixture();
+  const fixture = createFixture({ auditUnavailable: true });
   await withServer(fixture, async (baseUrl) => {
     const requests = [
       fetch(`${baseUrl}/api/answer-question`, { method: 'POST' }),
@@ -169,6 +177,8 @@ test('auth routes run before the admin guard and remain public', async () => {
 });
 
 interface FixtureOptions {
+  auditUnavailable?: boolean;
+  captureAudit?: boolean;
   rejectOrigin?: boolean;
 }
 
@@ -178,7 +188,8 @@ function createFixture(options: FixtureOptions = {}) {
     next: number;
     origins: number;
     permissions: AuthPermission[];
-  } = { handlers: {}, next: 0, origins: 0, permissions: [] };
+    requestIds: string[];
+  } = { handlers: {}, next: 0, origins: 0, permissions: [], requestIds: [] };
 
   const handler = (name: keyof LocalApiHandlers) => (
     _request: IncomingMessage,
@@ -199,14 +210,22 @@ function createFixture(options: FixtureOptions = {}) {
     reviews: handler('reviews'),
     version: handler('version'),
   };
+  const auditRepository = options.captureAudit ? new SqliteSecurityAuditRepository(
+    ':memory:', new Map([['v1', randomBytes(32)]]), 'v1',
+  ) : undefined;
+  const audit = options.auditUnavailable
+    ? new SecurityAuditService(new UnavailableSecurityAuditRepository())
+    : auditRepository ? new SecurityAuditService(auditRepository) : undefined;
   const security: AdminApiSecurity = {
+    audit,
     authorizer: {
-      async authorize(request, permission) {
+      async authorize(request, permission, requestId) {
         calls.permissions.push(permission);
+        calls.requestIds.push(requestId);
         const authorization = request.headers.authorization;
         if (!authorization || authorization === 'Bearer invalid') throw unauthenticated();
         if (authorization === 'Bearer limited') {
-          throw new AppError('INVALID_REQUEST', 'secret adapter detail', 403);
+          throw forbidden(principal);
         }
         return principal;
       },
@@ -221,6 +240,8 @@ function createFixture(options: FixtureOptions = {}) {
   const requestHandler = createLocalApiRequestHandler(handlers, security, () => undefined);
 
   return {
+    audit,
+    auditRepository,
     calls,
     handlers,
     listener(request: IncomingMessage, response: ServerResponse) {

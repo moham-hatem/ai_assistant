@@ -25,11 +25,24 @@ test('edition status, publication, and restoration use the durable audit boundar
     await service.transitionEdition(book.id, edition.id, 'published', context);
     await service.transitionEdition(book.id, edition.id, 'archived', context);
     await service.transitionEdition(book.id, edition.id, 'ready', context);
+    const second = await service.addEdition({
+      bookId: book.id, contentHash: 'b'.repeat(64),
+      originalDocumentReference: 'document:second', version: '2',
+    });
+    await service.transitionEdition(book.id, second.id, 'processing', context);
+    await service.transitionEdition(book.id, second.id, 'ready', context);
+    await service.transitionEdition(book.id, second.id, 'published', context);
     const events = await audit.list({ limit: 20, offset: 0 });
     assert.equal(events.items.some((event) => event.action === 'book.edition_published'), true);
     assert.equal(events.items.some((event) => event.action === 'book.edition_restored'), true);
     assert.equal(events.items.some((event) => event.action === 'book.edition_status_changed'), true);
     assert.equal(events.items.every((event) => event.actorUserId === context.actorUserId), true);
+    const automaticArchive = events.items.find((event) =>
+      event.action === 'book.edition_status_changed'
+      && event.subjectId === edition.id
+      && event.metadata.toStatus === 'archived');
+    assert.ok(automaticArchive);
+    assert.equal(automaticArchive.requestId, context.requestId);
   } finally {
     books.close();
     auditRepository.close();

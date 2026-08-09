@@ -127,11 +127,22 @@ export class BookDocumentService {
     }
     const documentId = parseDocumentReference(edition.originalDocumentReference);
     if (!documentId) throw unavailableDocument();
-    const processing = await this.processing.approveReview(documentId);
+    const intent = await this.books.beginOcrApproval(bookId, editionId, documentId, {
+      actorUserId: _actorId,
+      requestId,
+    });
+    const current = await this.processing.processingState(documentId);
+    const processing = current.summary.status === 'review_required'
+      ? await this.processing.approveReview(documentId)
+      : current.summary.status === 'ready' ? current : (() => {
+        throw new AppError(
+          'DOCUMENT_REVIEW_NOT_REQUIRED',
+          'The document does not require review approval.',
+          409,
+        );
+      })();
     return {
-      edition: await this.books.transitionEdition(bookId, editionId, 'ready', {
-        action: 'document.ocr_approved', actorUserId: _actorId, requestId,
-      }),
+      edition: await this.books.completeOcrApproval(intent),
       processing,
     };
   }

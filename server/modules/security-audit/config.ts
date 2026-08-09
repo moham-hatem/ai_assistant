@@ -6,6 +6,21 @@ export interface SecurityAuditConfig {
   keys: ReadonlyMap<string, Buffer>;
 }
 
+export type SecurityAuditConfigResolution =
+  | { config: SecurityAuditConfig; setupError?: never }
+  | { config?: never; setupError: string };
+
+export function resolveSecurityAuditConfig(
+  env: Record<string, string | undefined>,
+  cwd: string,
+): SecurityAuditConfigResolution {
+  try { return { config: readSecurityAuditConfig(env, cwd) }; }
+  catch (error) {
+    const detail = error instanceof Error ? error.message : 'Invalid security audit configuration.';
+    return { setupError: `${detail} Generate 32 random bytes as unpadded base64url and set SECURITY_AUDIT_HMAC_KEY in .env.local.` };
+  }
+}
+
 export function readSecurityAuditConfig(env: Record<string, string | undefined>, cwd: string): SecurityAuditConfig {
   const value = env.SECURITY_AUDIT_DATABASE_FILE?.trim() || 'data/security-audit.sqlite';
   if (value.includes('\0')) throw new Error('Invalid SECURITY_AUDIT_DATABASE_FILE.');

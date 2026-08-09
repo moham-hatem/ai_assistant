@@ -24,7 +24,10 @@ export async function createLocalAuthRuntime(
       { absoluteTtlMs: config.absoluteTtlMs, idleTtlMs: config.idleTtlMs },
       { audit },
     );
-    if (audit) await repository.flushSecurityAuditOutbox(audit);
+    if (audit) {
+      try { await repository.flushSecurityAuditOutbox(audit); }
+      catch (error) { logError('security-audit-startup', error); }
+    }
     const cookie = createAuthCookiePolicy(config);
     const origin = new SameOriginAuthPolicy(config.publicOrigin);
     const accessService = new AccessService(

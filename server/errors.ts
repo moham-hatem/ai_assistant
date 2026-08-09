@@ -38,7 +38,8 @@ export type AppErrorCode =
   | 'REVIEW_NOT_FOUND'
   | 'REVIEWS_UNAVAILABLE'
   | 'ROUTE_NOT_FOUND'
-  | 'REQUEST_TOO_LARGE';
+  | 'REQUEST_TOO_LARGE'
+  | 'SECURITY_AUDIT_UNAVAILABLE';
 
 export class AppError extends Error {
   readonly code: AppErrorCode;

@@ -20,10 +20,12 @@ import {
   type AdminApiSecurity,
 } from '../security/admin-authorization-guard.ts';
 import { createRuntimeAdminSecurity } from '../security/runtime-admin-security.ts';
-import type { SecurityAuditConfig } from '../modules/security-audit/config.ts';
+import type { SecurityAuditConfigResolution } from '../modules/security-audit/config.ts';
 import { SqliteSecurityAuditRepository } from '../modules/security-audit/sqlite-repository.ts';
 import { SecurityAuditService } from '../modules/security-audit/service.ts';
 import { createSecurityAuditHandler } from '../modules/security-audit/security-audit-handler.ts';
+import type { SecurityAuditRepository } from '../modules/security-audit/repository.ts';
+import { UnavailableSecurityAuditRepository } from '../modules/security-audit/unavailable-repository.ts';
 
 type Next = (error?: unknown) => void;
 type ApiHandler = (
@@ -50,7 +52,7 @@ export interface LocalApiHandlers {
 export function createLocalApiPlugin(
   config: LocalRuntimeConfig,
   authConfig: AuthConfig,
-  auditConfig: SecurityAuditConfig,
+  auditConfig: SecurityAuditConfigResolution,
 ): Plugin {
   return {
     name: 'local-answer-api',
@@ -61,11 +63,34 @@ export function createLocalApiPlugin(
           `Local API request failed (${requestId}): ${loggedError.name}`,
         );
       };
-      const auditRepository = new SqliteSecurityAuditRepository(
-        auditConfig.databasePath,
-        auditConfig.keys,
-        auditConfig.currentKeyVersion,
-      );
+      let auditRepository: SecurityAuditRepository;
+      if (auditConfig.config) {
+        try {
+          const candidate = new SqliteSecurityAuditRepository(
+            auditConfig.config.databasePath,
+            auditConfig.config.keys,
+            auditConfig.config.currentKeyVersion,
+          );
+          try {
+            const integrity = await candidate.verifyIntegrity(new Date().toISOString());
+            if (integrity.status !== 'valid') {
+              throw new Error('Security audit integrity verification did not pass.');
+            }
+            auditRepository = candidate;
+          } catch (error) {
+            candidate.close();
+            throw error;
+          }
+        } catch (error) {
+          server.config.logger.warn(
+            'Security audit storage is unavailable. Public answer/version APIs remain available; sensitive operations return 503.',
+          );
+          auditRepository = new UnavailableSecurityAuditRepository(error);
+        }
+      } else {
+        server.config.logger.warn(auditConfig.setupError);
+        auditRepository = new UnavailableSecurityAuditRepository(new Error('Audit setup incomplete.'));
+      }
       const audit = new SecurityAuditService(auditRepository, undefined, undefined, (error) => {
         logError('security-audit', error);
       });

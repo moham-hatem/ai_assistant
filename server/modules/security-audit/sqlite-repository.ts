@@ -30,6 +30,14 @@ interface AuditRow {
   timestamp: string;
 }
 
+interface HeadRow {
+  event_count: number;
+  head_seal: string;
+  key_version: string;
+  last_event_hash: string;
+  last_sequence: number;
+}
+
 export class SqliteSecurityAuditRepository implements SecurityAuditRepository {
   private readonly database: DatabaseSync;
   private readonly keys: ReadonlyMap<string, Buffer>;
@@ -38,34 +46,45 @@ export class SqliteSecurityAuditRepository implements SecurityAuditRepository {
   constructor(path: string, keys: ReadonlyMap<string, Buffer>, currentKeyVersion: string) {
     if (!keys.has(currentKeyVersion)) throw new Error('Current security audit HMAC key is unavailable.');
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
-    this.database = new DatabaseSync(path);
-    this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
-    if (path !== ':memory:') this.database.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
-    migrateSecurityAuditDatabase(this.database);
     this.keys = keys;
     this.currentKeyVersion = currentKeyVersion;
+    this.database = new DatabaseSync(path);
+    try {
+      this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
+      if (path !== ':memory:') this.database.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
+      migrateSecurityAuditDatabase(this.database, {
+        keyVersion: currentKeyVersion,
+        seal: (count, sequence, hash) => headSeal(keys.get(currentKeyVersion)!, count, sequence, hash, currentKeyVersion),
+      });
+    } catch (error) {
+      this.database.close();
+      throw error;
+    }
   }
 
   async append(input: SecurityAuditCommand): Promise<void> {
     const command = validateSecurityAuditCommand(input);
-    const existing = this.database.prepare('SELECT * FROM security_audit_events WHERE id = ?').get(command.id) as unknown as AuditRow | undefined;
-    if (existing) {
-      const existingKey = this.keys.get(existing.key_version);
-      const expectedHash = existingKey
-        ? digest(existingKey, canonicalAuditPayload(rowCommand(existing), existing.previous_hash, existing.key_version))
-        : undefined;
-      if (sameCommand(existing, command) && expectedHash && equalHash(existing.event_hash, expectedHash)) return;
-      throw new Error('Audit event id was reused with a different payload.');
-    }
     transaction(this.database, () => {
-      const previous = this.database.prepare(`
-        SELECT event_hash FROM security_audit_events ORDER BY sequence DESC LIMIT 1
-      `).get() as unknown as { event_hash: string } | undefined;
-      const previousHash = previous?.event_hash ?? genesisHash;
+      const head = requireValidHead(this.database, this.keys);
+      const existing = this.database.prepare(
+        'SELECT * FROM security_audit_events WHERE id = ?',
+      ).get(command.id) as unknown as AuditRow | undefined;
+      if (existing) {
+        const existingKey = this.keys.get(existing.key_version);
+        const expectedHash = existingKey
+          ? digest(existingKey, canonicalAuditPayload(
+            rowCommand(existing), existing.previous_hash, existing.key_version,
+          ))
+          : undefined;
+        if (sameCommand(existing, command) && expectedHash
+            && equalHash(existing.event_hash, expectedHash)) return;
+        throw new Error('Audit event id was reused with a different payload.');
+      }
+      const previousHash = head.last_event_hash;
       const key = this.keys.get(this.currentKeyVersion);
       if (!key) throw new Error('Current security audit HMAC key is unavailable.');
       const eventHash = digest(key, canonicalAuditPayload(command, previousHash, this.currentKeyVersion));
-      this.database.prepare(`
+      const inserted = this.database.prepare(`
         INSERT INTO security_audit_events (
           id, timestamp, category, action, outcome, actor_user_id, subject_type,
           subject_id, request_id, metadata_json, previous_hash, event_hash, key_version
@@ -74,6 +93,18 @@ export class SqliteSecurityAuditRepository implements SecurityAuditRepository {
         command.id, command.timestamp, command.category, command.action, command.outcome,
         command.actorUserId, command.subjectType, command.subjectId, command.requestId,
         JSON.stringify(command.metadata ?? {}), previousHash, eventHash, this.currentKeyVersion,
+      );
+      const sequence = Number(inserted.lastInsertRowid);
+      this.database.prepare(`
+        UPDATE security_audit_head SET
+          event_count = ?, last_sequence = ?, last_event_hash = ?,
+          key_version = ?, head_seal = ? WHERE singleton = 1
+      `).run(
+        head.event_count + 1,
+        sequence,
+        eventHash,
+        this.currentKeyVersion,
+        headSeal(key, head.event_count + 1, sequence, eventHash, this.currentKeyVersion),
       );
     });
   }
@@ -102,11 +133,26 @@ export class SqliteSecurityAuditRepository implements SecurityAuditRepository {
 
   async verifyIntegrity(checkedAt: string): Promise<SecurityAuditIntegritySummary> {
     const rows = this.database.prepare('SELECT * FROM security_audit_events ORDER BY sequence').all() as unknown as AuditRow[];
+    const head = this.database.prepare('SELECT * FROM security_audit_head WHERE singleton = 1').get() as unknown as HeadRow | undefined;
     let previousHash = genesisHash;
     const versions = new Set<string>();
     let firstInvalidSequence: number | null = null;
     let missingKey = false;
     let checkedEvents = 0;
+    let headStatus: 'invalid' | 'unverifiable' | 'valid' = 'invalid';
+    if (head) {
+      versions.add(head.key_version);
+      const key = this.keys.get(head.key_version);
+      if (!key) {
+        missingKey = true;
+        headStatus = 'unverifiable';
+      } else {
+        const expected = headSeal(
+          key, head.event_count, head.last_sequence, head.last_event_hash, head.key_version,
+        );
+        headStatus = equalHash(head.head_seal, expected) ? 'valid' : 'invalid';
+      }
+    }
     for (const row of rows) {
       versions.add(row.key_version);
       const key = this.keys.get(row.key_version);
@@ -125,17 +171,61 @@ export class SqliteSecurityAuditRepository implements SecurityAuditRepository {
       previousHash = row.event_hash;
       checkedEvents += 1;
     }
+    const tail = rows.at(-1);
+    const headMatchesRows = head !== undefined
+      && head.event_count === rows.length
+      && head.last_sequence === (tail?.sequence ?? 0)
+      && head.last_event_hash === (tail?.event_hash ?? genesisHash);
+    const status = missingKey || headStatus === 'unverifiable' ? 'unverifiable'
+      : firstInvalidSequence === null && headStatus === 'valid' && headMatchesRows
+        ? 'valid' : 'invalid';
     return {
+      assurance: 'local_authenticated_head',
       checkedAt,
       checkedEvents,
+      externallyAnchored: false,
       firstInvalidSequence,
       keyVersions: [...versions].sort(),
-      status: missingKey ? 'unverifiable' : firstInvalidSequence === null ? 'valid' : 'invalid',
+      status,
       totalEvents: rows.length,
     };
   }
 
   close(): void { this.database.close(); }
+}
+
+function requireValidHead(database: DatabaseSync, keys: ReadonlyMap<string, Buffer>): HeadRow {
+  const head = database.prepare('SELECT * FROM security_audit_head WHERE singleton = 1').get() as unknown as HeadRow | undefined;
+  if (!head) throw new Error('Security audit authenticated head is missing.');
+  const key = keys.get(head.key_version);
+  if (!key || !equalHash(
+    head.head_seal,
+    headSeal(key, head.event_count, head.last_sequence, head.last_event_hash, head.key_version),
+  )) throw new Error('Security audit authenticated head is invalid.');
+  const tail = database.prepare(`
+    SELECT COUNT(*) AS event_count, COALESCE(MAX(sequence), 0) AS last_sequence
+    FROM security_audit_events
+  `).get() as unknown as { event_count: number; last_sequence: number };
+  const last = database.prepare(`
+    SELECT event_hash FROM security_audit_events ORDER BY sequence DESC LIMIT 1
+  `).get() as unknown as { event_hash: string } | undefined;
+  if (tail.event_count !== head.event_count || tail.last_sequence !== head.last_sequence
+      || (last?.event_hash ?? genesisHash) !== head.last_event_hash) {
+    throw new Error('Security audit events do not match the authenticated head.');
+  }
+  return head;
+}
+
+function headSeal(
+  key: Buffer,
+  eventCount: number,
+  lastSequence: number,
+  lastEventHash: string,
+  keyVersion: string,
+): string {
+  return digest(key, JSON.stringify([
+    'security-audit-local-head-v1', eventCount, lastSequence, lastEventHash, keyVersion,
+  ]));
 }
 
 function digest(key: Buffer, payload: string): string {

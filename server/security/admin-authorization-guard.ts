@@ -7,6 +7,7 @@ import type {
   AdminRequestAuthorizer,
   StateChangingRequestOriginGuard,
 } from './admin-request-authorizer.ts';
+import { AdminAuthorizationError } from './admin-request-authorizer.ts';
 import { adminRoutePolicy } from './admin-route-policy.ts';
 import type { SecurityAuditService } from '../modules/security-audit/service.ts';
 
@@ -42,7 +43,7 @@ export async function guardAdminRequest(
   }
 
   try {
-    const principal = await security.authorizer.authorize(request, policy.permission);
+    const principal = await security.authorizer.authorize(request, policy.permission, requestId);
     if (isStateChanging(request.method)) await security.originGuard.assertAllowed(request);
     return { allowed: true, principal };
   } catch (error) {
@@ -50,8 +51,9 @@ export async function guardAdminRequest(
     const status = error instanceof AppError && error.status === 401 ? 401
       : error instanceof AppError && error.status === 403 ? 403
       : 503;
+    const actorUserId = error instanceof AdminAuthorizationError ? error.actorUserId : null;
     await security.audit?.bestEffort({
-      action: 'authorization.denied', actorUserId: null, category: 'authorization',
+      action: 'authorization.denied', actorUserId, category: 'authorization',
       metadata: {
         method: request.method?.toUpperCase() ?? 'GET', permission: policy.permission,
         reason: status === 401 ? 'unauthenticated' : status === 403 ? 'forbidden' : 'unavailable',

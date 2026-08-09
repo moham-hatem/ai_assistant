@@ -50,8 +50,10 @@ export interface SecurityAuditPage {
 }
 
 export interface SecurityAuditIntegritySummary {
+  assurance: 'local_authenticated_head';
   checkedAt: string;
   checkedEvents: number;
+  externallyAnchored: false;
   firstInvalidSequence: number | null;
   keyVersions: string[];
   status: 'valid' | 'invalid' | 'unverifiable';

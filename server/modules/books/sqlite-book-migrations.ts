@@ -33,6 +33,16 @@ const migrations = [
     CREATE UNIQUE INDEX book_editions_one_published_idx
       ON book_editions (book_id) WHERE status = 'published';
   `,
+  `
+    CREATE TABLE book_ocr_approval_intents (
+      edition_id TEXT PRIMARY KEY REFERENCES book_editions(id) ON DELETE RESTRICT,
+      book_id TEXT NOT NULL REFERENCES books(id) ON DELETE RESTRICT,
+      document_id TEXT NOT NULL,
+      actor_user_id TEXT NOT NULL,
+      request_id TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    ) STRICT;
+  `,
 ] as const;
 
 export function migrateBookDatabase(database: DatabaseSync): void {
