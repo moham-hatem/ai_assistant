@@ -9,6 +9,7 @@ import { AdminQualityPage } from './pages/AdminQualityPage';
 import { AdminReviewsPage } from './pages/AdminReviewsPage';
 import { AdminSettingsPage } from './pages/AdminSettingsPage';
 import type { AuthPrincipal } from '../../../shared/contracts/auth';
+import { AccessManagementPage } from '../access-management/AccessManagementPage';
 
 interface AdminAppProps {
   language: AppLanguage;
@@ -40,6 +41,7 @@ function renderPage(page: AdminPage, copy: (typeof adminCopies)[AppLanguage], la
     case 'reviews': return <AdminReviewsPage copy={copy} language={language.code} principal={principal} />;
     case 'question-logs': return <AdminQuestionLogsPage copy={copy} language={language.code} />;
     case 'quality': return <AdminQualityPage copy={copy} language={language.code} />;
+    case 'access': return <AccessManagementPage language={language.code} />;
     case 'settings': return <AdminSettingsPage copy={copy} languageDetails={language} />;
     default: return <AdminDashboardPage copy={copy} principal={principal} />;
   }

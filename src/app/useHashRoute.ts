@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { parseHashRoute, type AppRoute } from './routes';
+import type { AppRoute } from './routes';
+import { readBrowserRoute } from './secret-route';
 
 function readRoute(): AppRoute {
-  return parseHashRoute(window.location.hash);
+  return readBrowserRoute();
 }
 
 export function useHashRoute(): AppRoute {

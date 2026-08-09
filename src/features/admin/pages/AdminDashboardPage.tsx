@@ -1,4 +1,4 @@
-import { BookOpen, ClipboardCheck, ListTree, Settings } from 'lucide-react';
+import { BookOpen, ClipboardCheck, ListTree, Settings, Users } from 'lucide-react';
 import { adminRoute } from '../../../app/routes';
 import type { AdminCopy } from '../adminCopy';
 import { AdminPageHeader } from '../components/AdminPageHeader';
@@ -43,14 +43,24 @@ export function AdminDashboardPage({ copy, principal }: AdminDashboardPageProps)
           statusKind="ready"
           title={copy.navigation.questionLogs}
         />}
+        {canOpenAdminPage(principal, 'access') && <FeatureStatusCard
+          description={copy.featureCards.access.body}
+          href={adminRoute('access')}
+          icon={<Users size={22} />}
+          nextLabel={copy.nextStep}
+          nextStep={copy.featureCards.access.next}
+          status={copy.ready}
+          statusKind="ready"
+          title={copy.navigation.access}
+        />}
         {canOpenAdminPage(principal, 'settings') && <FeatureStatusCard
           description={copy.featureCards.settings.body}
           href={adminRoute('settings')}
           icon={<Settings size={22} />}
           nextLabel={copy.nextStep}
           nextStep={copy.featureCards.settings.next}
-          status={copy.planned}
-          statusKind="planned"
+          status={copy.ready}
+          statusKind="ready"
           title={copy.navigation.settings}
         />}
       </section>

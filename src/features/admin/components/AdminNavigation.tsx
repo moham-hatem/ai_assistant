@@ -1,4 +1,4 @@
-import { Activity, BookOpen, ClipboardCheck, LayoutDashboard, ListTree, Settings } from 'lucide-react';
+import { Activity, BookOpen, ClipboardCheck, LayoutDashboard, ListTree, Settings, Users } from 'lucide-react';
 import { adminRoute, type AdminPage } from '../../../app/routes';
 import type { AppLanguage } from '../../../i18n/language';
 import type { AdminCopy } from '../adminCopy';
@@ -19,6 +19,7 @@ const items = [
   { page: 'reviews', label: 'reviews', Icon: ClipboardCheck },
   { page: 'question-logs', label: 'questionLogs', Icon: ListTree },
   { page: 'quality', label: null, Icon: Activity },
+  { page: 'access', label: 'access', Icon: Users },
   { page: 'settings', label: 'settings', Icon: Settings },
 ] as const;
 
@@ -28,6 +29,7 @@ export function AdminNavigation({ activePage, copy, language, principal }: Admin
       {items.filter(({ page }) => canOpenAdminPage(principal, page)).map(({ Icon, label, page }) => (
         <a
           aria-current={activePage === page ? 'page' : undefined}
+          className={page === 'access' ? 'admin-navigation-access' : undefined}
           href={adminRoute(page)}
           key={page}
         >

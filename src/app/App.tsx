@@ -8,6 +8,7 @@ import { PwaStatusProvider } from '../features/pwa/PwaStatusProvider';
 import { getLanguage, isAppLanguage, type AppLanguage } from '../i18n/language';
 import { translations } from '../i18n/translations';
 import { ChatPage } from '../pages/ChatPage';
+import { PasswordAccessPage } from '../features/access-management/PasswordAccessPage';
 import { useHashRoute } from './useHashRoute';
 
 export function App() {
@@ -26,9 +27,9 @@ function AppContent() {
   useEffect(() => {
     document.documentElement.lang = activeLanguage;
     document.documentElement.dir = languageDetails.dir;
-    const section = route.area !== 'public' ? 'Admin' : copy.assistant;
+    const section = route.area === 'admin' || route.area === 'admin-login' ? 'Admin' : copy.assistant;
     document.title = activeLanguage === 'ar'
-      ? `دليل | ${route.area !== 'public' ? 'لوحة الإدارة' : 'المساعد التعليمي الإسلامي'}`
+      ? `دليل | ${route.area === 'admin' || route.area === 'admin-login' ? 'لوحة الإدارة' : 'المساعد التعليمي الإسلامي'}`
       : `Daleel | ${section}`;
   }, [activeLanguage, copy.assistant, languageDetails.dir, route.area]);
 
@@ -50,7 +51,15 @@ function AppContent() {
 
   return (
     <PwaStatusProvider language={activeLanguage}>
-      {route.area !== 'public' ? (
+      {route.area === 'password' ? (
+        <PasswordAccessPage
+          language={activeLanguage}
+          languageDetails={languageDetails}
+          mode={route.page === 'password-setup' ? 'invitation' : 'recovery'}
+          onChooseLanguage={() => setIsChoosingLanguage(true)}
+          token={route.token}
+        />
+      ) : route.area !== 'public' ? (
         <AdminGate
           language={activeLanguage}
           languageDetails={languageDetails}
