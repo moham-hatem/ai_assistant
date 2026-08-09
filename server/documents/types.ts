@@ -1,3 +1,5 @@
+import type { DocumentProcessingSummary } from '../../shared/contracts/document-processing.ts';
+
 export type DocumentFormat = 'docx' | 'markdown' | 'pdf' | 'text';
 
 export interface DocumentMetadata {
@@ -6,6 +8,7 @@ export interface DocumentMetadata {
   id: string;
   importedAt: string;
   name: string;
+  processing: DocumentProcessingSummary;
   size: number;
 }
 

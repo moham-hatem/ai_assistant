@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { editionStatuses, type EditionStatus, type PageQuery } from '../../../shared/contracts/books.ts';
+import type { DocumentProcessingState } from '../../../shared/contracts/document-processing.ts';
 import { AppError } from '../../errors.ts';
 import { sendError, type ErrorLogger } from '../../http/error-response.ts';
 import { readJson, sendJson } from '../../http/json.ts';
@@ -11,6 +12,8 @@ interface EditionTransitioner {
     editionId: string,
     targetStatus: EditionStatus,
   ): Promise<unknown>;
+  editionProcessing?(bookId: string, editionId: string): Promise<DocumentProcessingState>;
+  reprocessEdition?(bookId: string, editionId: string): Promise<DocumentProcessingState>;
 }
 
 const defaultLimit = 25;
@@ -81,6 +84,37 @@ export function createBooksHandler(
           status,
         );
         sendJson(response, 200, { edition, requestId });
+        return;
+      }
+
+      const processing = matchPath(
+        url.pathname,
+        /^\/api\/internal\/books\/([^/]+)\/editions\/([^/]+)\/processing$/u,
+      );
+      if (processing) {
+        const bookId = validId(processing[0]);
+        const editionId = validId(processing[1]);
+        if (request.method === 'GET') {
+          if (!transitions.editionProcessing) throw processingUnavailable();
+          sendJson(response, 200, {
+            bookId,
+            editionId,
+            processing: await transitions.editionProcessing(bookId, editionId),
+            requestId,
+          });
+          return;
+        }
+        if (request.method === 'POST') {
+          if (!transitions.reprocessEdition) throw processingUnavailable();
+          sendJson(response, 200, {
+            bookId,
+            editionId,
+            processing: await transitions.reprocessEdition(bookId, editionId),
+            requestId,
+          });
+          return;
+        }
+        methodNotAllowed(response, requestId);
         return;
       }
 
@@ -184,4 +218,12 @@ function methodNotAllowed(response: ServerResponse, requestId: string): void {
 
 function invalid(message: string): never {
   throw new AppError('INVALID_REQUEST', message, 400);
+}
+
+function processingUnavailable(): AppError {
+  return new AppError(
+    'DOCUMENT_PROCESSOR_UNAVAILABLE',
+    'Document processing operations are unavailable.',
+    503,
+  );
 }

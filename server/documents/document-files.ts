@@ -1,10 +1,16 @@
-import { access, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { access, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import {
+  normalizeDocumentProcessingGeneration,
+  normalizeDocumentProcessingSummary,
+} from '../../shared/contracts/document-processing.ts';
 import { AppError } from '../errors.ts';
 import type { DocumentMetadata } from './types.ts';
 import type { DocumentResourceKind } from './types.ts';
 
 export interface StoredMetadata extends DocumentMetadata {
+  processingGeneration: number;
   sourceFile: string;
   textFile: string;
 }
@@ -25,15 +31,18 @@ export class DocumentFiles {
   async save(metadata: StoredMetadata, source: Buffer, text: string): Promise<void> {
     await this.ensureDirectories();
     const paths = this.paths(metadata);
+    const created: string[] = [];
 
     try {
-      await Promise.all([
-        writeFile(paths.source, source),
-        writeFile(paths.text, text, 'utf8'),
-        writeFile(paths.metadata, JSON.stringify(metadata, null, 2), 'utf8'),
-      ]);
+      await writeFile(paths.source, source, { flag: 'wx' });
+      created.push(paths.source);
+      await writeFile(paths.text, text, { encoding: 'utf8', flag: 'wx' });
+      created.push(paths.text);
+      await atomicWrite(paths.metadata, JSON.stringify(metadata, null, 2));
+      created.push(paths.metadata);
     } catch (error) {
-      await Promise.all(Object.values(paths).map((path) => rm(path, { force: true })));
+      // A failed initial import has no metadata through which an orphan could be recovered.
+      await Promise.allSettled(created.map((path) => rm(path, { force: true })));
       throw error;
     }
   }
@@ -48,7 +57,7 @@ export class DocumentFiles {
 
   async read(id: string): Promise<StoredMetadata> {
     try {
-      return JSON.parse(await readFile(this.metadataPath(id), 'utf8')) as StoredMetadata;
+      return normalizeStoredMetadata(JSON.parse(await readFile(this.metadataPath(id), 'utf8')));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         throw new AppError('DOCUMENT_NOT_FOUND', 'الملف غير موجود.', 404);
@@ -71,11 +80,14 @@ export class DocumentFiles {
   async replaceText(metadata: StoredMetadata, text: string): Promise<void> {
     await this.ensureDirectories();
     const paths = this.paths(metadata);
-    await Promise.all([
-      writeFile(paths.text, text, 'utf8'),
-      writeFile(paths.metadata, JSON.stringify(metadata, null, 2), 'utf8'),
-    ]);
+    await atomicWrite(paths.text, text);
+    await atomicWrite(paths.metadata, JSON.stringify(metadata, null, 2));
     await rm(this.legacyTextPath(metadata), { force: true });
+  }
+
+  async writeMetadata(metadata: StoredMetadata): Promise<void> {
+    await this.ensureDirectories();
+    await atomicWrite(this.paths(metadata).metadata, JSON.stringify(metadata, null, 2));
   }
 
   async readText(metadata: StoredMetadata): Promise<string> {
@@ -120,6 +132,29 @@ export class DocumentFiles {
 
   private metadataPath(id: string) {
     return join(this.metadataDirectory, `${validateId(id)}.json`);
+  }
+}
+
+function normalizeStoredMetadata(value: unknown): StoredMetadata {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new SyntaxError('Document metadata must be a JSON object.');
+  }
+  const metadata = value as StoredMetadata & Record<string, unknown>;
+  return {
+    ...metadata,
+    processing: normalizeDocumentProcessingSummary(metadata.processing),
+    processingGeneration: normalizeDocumentProcessingGeneration(metadata.processingGeneration),
+  };
+}
+
+async function atomicWrite(path: string, contents: string): Promise<void> {
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, contents, { encoding: 'utf8', flag: 'wx' });
+    await rename(temporary, path);
+  } catch (error) {
+    await rm(temporary, { force: true });
+    throw error;
   }
 }
 

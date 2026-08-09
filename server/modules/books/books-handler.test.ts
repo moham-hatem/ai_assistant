@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
+import type { DocumentProcessorPort } from '../../documents/document-processing-service.ts';
+import { DocumentStore } from '../../documents/document-store.ts';
+import { BookDocumentService } from './book-document-service.ts';
 import { BookService } from './book-service.ts';
 import { createBooksHandler } from './books-handler.ts';
 import { SqliteBookRepository } from './sqlite-book-repository.ts';
@@ -92,6 +98,85 @@ test('internal book API reports database initialization failure without exposing
     assert.equal(result.body.code, 'BOOKS_UNAVAILABLE');
     assert.equal(JSON.stringify(result.body).includes('secret filesystem detail'), false);
   });
+});
+
+test('processing API reports state, reprocesses drafts, and refuses published editions', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'books-processing-handler-test-'));
+  const repository = new SqliteBookRepository(join(root, 'books.sqlite'));
+  const service = new BookService(repository);
+  let calls = 0;
+  const processor: DocumentProcessorPort = {
+    async process() {
+      calls += 1;
+      return {
+        text: 'Reprocessed document text with enough content for publication.',
+        summary: {
+          averageConfidence: 0.98,
+          failureCode: null,
+          lowConfidencePageCount: 0,
+          method: 'ocr',
+          ocrPageCount: 2,
+          pageCount: 2,
+          processedAt: '2026-08-09T10:00:00.000Z',
+          status: 'ready',
+        },
+      };
+    },
+  };
+  const operations = new BookDocumentService(
+    service,
+    repository,
+    new DocumentStore(join(root, 'documents'), join(root, 'knowledge')),
+    undefined,
+    processor,
+  );
+  const handler = createBooksHandler(service, () => undefined, operations);
+
+  try {
+    const book = await service.createBook({ language: 'en', title: 'Processing API' });
+    const uploaded = await operations.upload({
+      bookId: book.id,
+      buffer: Buffer.from('Initial document text with enough content for a normal import.'),
+      name: 'edition.txt',
+    });
+    await withServer((request, response) => {
+      void handler(request, response, new URL(request.url ?? '/', 'http://localhost'));
+    }, async (baseUrl) => {
+      const endpoint = `${baseUrl}/api/internal/books/${book.id}/editions/${uploaded.edition.id}/processing`;
+      const before = await jsonRequest(endpoint);
+      assert.equal(before.response.status, 200);
+      assert.equal(
+        ((before.body.processing as { summary: { status: string } }).summary.status),
+        'ready',
+      );
+
+      const reprocessed = await jsonRequest(endpoint, 'POST');
+      assert.equal(reprocessed.response.status, 200);
+      assert.deepEqual(reprocessed.body.processing, {
+        generation: 1,
+        summary: {
+          averageConfidence: 0.98,
+          failureCode: null,
+          lowConfidencePageCount: 0,
+          method: 'ocr',
+          ocrPageCount: 2,
+          pageCount: 2,
+          processedAt: '2026-08-09T10:00:00.000Z',
+          status: 'ready',
+        },
+      });
+
+      await operations.transitionEdition(book.id, uploaded.edition.id, 'published');
+      const forbidden = await jsonRequest(endpoint, 'POST');
+      assert.equal(forbidden.response.status, 409);
+      assert.equal(forbidden.body.code, 'PUBLISHED_EDITION_REPROCESS_FORBIDDEN');
+      assert.equal(calls, 1);
+      assert.equal((await service.getEdition(book.id, uploaded.edition.id)).status, 'published');
+    });
+  } finally {
+    repository.close();
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 function transition(baseUrl: string, bookId: string, editionId: string, status: string) {
