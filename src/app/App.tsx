@@ -58,10 +58,9 @@ export function App() {
           <span className="brand-mark"><BookOpen size={22} /></span>
           <span>{activeLanguage === 'ar' ? 'دليل' : 'Daleel'}</span>
         </a>
-        {/* Admin routes are intentionally absent from public navigation. This is
-            discoverability only; real access control must be enforced by the backend. */}
         <nav className="site-nav" aria-label={copy.assistant}>
           <a aria-current="page" href="#/chat">{copy.assistant}</a>
+          <a href="#/admin/dashboard">{copy.adminPanel}</a>
         </nav>
         <div className="header-actions">
           <span className="header-note"><ShieldCheck size={16} /> {copy.localContent}</span>

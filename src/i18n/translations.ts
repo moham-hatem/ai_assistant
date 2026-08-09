@@ -2,6 +2,7 @@ import type { AppLanguage } from './language';
 import type { FeedbackCopy } from '../features/chat/feedback/copy';
 
 export interface AppTranslations {
+  adminPanel: string;
   answerUnavailable: string;
   assistant: string;
   books: string;
@@ -62,6 +63,7 @@ export const translations: Record<AppLanguage, AppTranslations> = {
       success: 'شكرًا، تم تسجيل تقييمك.',
       unhelpful: 'غير مفيدة',
     },
+    adminPanel: 'لوحة الإدارة',
     answerUnavailable: 'تعذر إنشاء الإجابة الآن.',
     assistant: 'المساعد',
     books: 'الكتب',
@@ -119,6 +121,7 @@ export const translations: Record<AppLanguage, AppTranslations> = {
       success: 'Thanks, your rating was recorded.',
       unhelpful: 'Not helpful',
     },
+    adminPanel: 'Admin panel',
     answerUnavailable: 'The answer could not be generated right now.',
     assistant: 'Assistant',
     books: 'Books',
@@ -176,6 +179,7 @@ export const translations: Record<AppLanguage, AppTranslations> = {
       success: 'Asante, tathmini yako imerekodiwa.',
       unhelpful: 'Halikusaidia',
     },
+    adminPanel: 'Paneli ya usimamizi',
     answerUnavailable: 'Jibu haliwezi kutayarishwa sasa hivi.',
     assistant: 'Msaidizi',
     books: 'Vitabu',
