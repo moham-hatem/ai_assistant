@@ -27,6 +27,9 @@ import type { ReviewRepository } from './modules/reviews/review-repository.ts';
 import { ReviewService } from './modules/reviews/review-service.ts';
 import { SqliteReviewRepository } from './modules/reviews/sqlite-review-repository.ts';
 import { UnavailableReviewRepository } from './modules/reviews/unavailable-review-repository.ts';
+import type { ApprovedAnswerRepository } from './modules/approved-answers/approved-answer-repository.ts';
+import { PublishedApprovedAnswerEvidenceValidator } from './modules/approved-answers/approved-answer-evidence-validator.ts';
+import { LocalPublishedEvidenceSource } from './knowledge/local-published-evidence-source.ts';
 
 export function createRuntime(config: LocalRuntimeConfig) {
   const documentStore = new DocumentStore(config.documentDirectory, config.knowledgeDirectory);
@@ -42,10 +45,11 @@ export function createRuntime(config: LocalRuntimeConfig) {
     config.knowledgeDirectory,
     config.semantic.minimumScore,
   );
+  const publishedEvidence = new BookDocumentEvidenceSource(bookRepository, documentStore);
   const knowledge = new LocalKnowledgeSource(
     config.knowledgeDirectory,
     semantic,
-    new BookDocumentEvidenceSource(bookRepository, documentStore),
+    publishedEvidence,
   );
   const localModel = new LocalTranslationAnswerModel(
     new NllbTranslator(config.translation.model, config.translation.cacheDirectory),
@@ -73,7 +77,16 @@ export function createRuntime(config: LocalRuntimeConfig) {
   const questionLogRepository = createQuestionLogRepository(config.questionLogDatabaseFile);
   const reviewRepository = createReviewRepository(config.questionLogDatabaseFile);
   return {
-    answerService: new AnswerService(knowledge, config.matchCount, model, questionExpander),
+    answerService: new AnswerService(
+      knowledge,
+      config.matchCount,
+      model,
+      questionExpander,
+      reviewRepository,
+      new PublishedApprovedAnswerEvidenceValidator(
+        new LocalPublishedEvidenceSource(config.knowledgeDirectory, publishedEvidence),
+      ),
+    ),
     bookDocuments,
     documentStore,
     bookRepository,
@@ -86,7 +99,7 @@ export function createRuntime(config: LocalRuntimeConfig) {
   };
 }
 
-function createReviewRepository(path: string): ReviewRepository {
+function createReviewRepository(path: string): ReviewRepository & ApprovedAnswerRepository {
   try {
     return new SqliteReviewRepository(path);
   } catch (error) {

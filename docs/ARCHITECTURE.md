@@ -28,11 +28,12 @@ server/model                  OpenCode والـPrompt والتحقق
 server/modules/question-log   عقد السجل وخدمته وتخزين SQLite وواجهات القراءة
 server/modules/books          مجال الكتب والإصدارات وSQLite migrations وواجهات الإدارة
 server/modules/reviews        طابور مراجعة المعلمين وقراراته وسجل أحداث SQLite غير القابل للتعديل
+server/modules/approved-answers  إجابات معتمدة ذات نسخ وعقد تحقق من صلاحية الأدلة وقت الطلب
 server/vite                   ربط الـAPI بخادم التطوير
 server/create-runtime         إنشاء وربط الاعتماديات
 ```
 
-تعتمد `AnswerService` على عقدي `KnowledgeSource` و`AnswerModel`، ولا تعرف Vite أو OpenCode أو نظام الملفات. لذلك يمكن إعادة استخدامها لاحقًا من Telegram أو خادم إنتاج دون نقل منطق الواجهة.
+تعتمد `AnswerService` على عقود `KnowledgeSource` و`AnswerModel` و`ApprovedAnswerRepository` و`ApprovedAnswerEvidenceValidator`، ولا تعرف Vite أو OpenCode أو SQLite أو نظام الملفات. لذلك يمكن إعادة استخدامها لاحقًا من Telegram أو خادم إنتاج دون نقل منطق الواجهة.
 
 ## تدفق الإجابة
 
@@ -40,6 +41,10 @@ server/create-runtime         إنشاء وربط الاعتماديات
 المتصفح
   -> POST /api/answer-question
   -> تحديد لغة الإجابة المختارة (ar / en / sw)
+  -> بحث exact بالسؤال المعياري واللغة عن إجابة معتمدة نشطة
+  -> التحقق وقت الطلب من بقاء كل مراجع أدلتها منشورة وموجودة
+  -> عند الصلاحية: إعادة المعتمد وأدلته من دون بحث أو استدعاء نموذج
+  -> عند الغياب/عدم الصلاحية/تعطل المخزن: متابعة المسار العادي
   -> توسيع تلقائي للمصطلحات إلى صيغ بحث متعددة اللغات مع كاش محلي
   -> بحث دلالي محلي متعدد اللغات في data/knowledge
   -> توسيع النتائج بالمقاطع السابقة والتالية من نفس الكتاب

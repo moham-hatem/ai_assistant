@@ -4,6 +4,9 @@ import { AppError } from './errors.ts';
 import { normalizeArabic, tokenize } from './knowledge/arabic-text.ts';
 import { expandKnowledgeQuery } from './knowledge/query-expansion.ts';
 import { splitQuestionParts } from './question-parts.ts';
+import { normalizeApprovedQuestion } from './modules/approved-answers/approved-answer-domain.ts';
+import type { ApprovedAnswerRepository } from './modules/approved-answers/approved-answer-repository.ts';
+import type { ApprovedAnswerEvidenceValidator } from './modules/approved-answers/approved-answer-evidence-validator.ts';
 
 export interface AnswerExecution {
   evidenceReferences: string[];
@@ -15,17 +18,23 @@ export class AnswerService {
   private readonly matchCount: number;
   private readonly model?: AnswerModel;
   private readonly questionExpander?: QuestionExpander;
+  private readonly approvedAnswers?: ApprovedAnswerRepository;
+  private readonly approvedAnswerEvidence?: ApprovedAnswerEvidenceValidator;
 
   constructor(
     knowledge: KnowledgeSource,
     matchCount: number,
     model?: AnswerModel,
     questionExpander?: QuestionExpander,
+    approvedAnswers?: ApprovedAnswerRepository,
+    approvedAnswerEvidence?: ApprovedAnswerEvidenceValidator,
   ) {
     this.knowledge = knowledge;
     this.matchCount = matchCount;
     this.model = model;
     this.questionExpander = questionExpander;
+    this.approvedAnswers = approvedAnswers;
+    this.approvedAnswerEvidence = approvedAnswerEvidence;
   }
 
   async answer(input: AnswerInput): Promise<AnswerResult> {
@@ -33,6 +42,9 @@ export class AnswerService {
   }
 
   async answerWithContext(input: AnswerInput): Promise<AnswerExecution> {
+    const approved = await this.findApprovedAnswer(input);
+    if (approved) return approved;
+
     if (!this.model) {
       throw new AppError(
         'MODEL_NOT_CONFIGURED',
@@ -70,6 +82,33 @@ export class AnswerService {
       evidenceReferences: evidence.map((item) => item.id),
       result: await result,
     };
+  }
+
+  private async findApprovedAnswer(input: AnswerInput): Promise<AnswerExecution | undefined> {
+    if (!this.approvedAnswers || !this.approvedAnswerEvidence) return undefined;
+    try {
+      const answer = await this.approvedAnswers.findActiveExact({
+        answerLanguage: input.language,
+        normalizedQuestion: normalizeApprovedQuestion(input.question),
+      });
+      if (!answer) return undefined;
+      const validation = await this.approvedAnswerEvidence.validate(answer.evidenceReferences);
+      if (!validation.valid) return undefined;
+      return {
+        evidenceReferences: [...answer.evidenceReferences],
+        result: {
+          answer: answer.answer,
+          generation: {
+            model: `approved-answer/v${answer.version}`,
+            provider: 'approved-answer',
+          },
+          grounded: true,
+        },
+      };
+    } catch (error) {
+      console.warn('Approved-answer lookup unavailable; continuing with the normal answer path.', error);
+      return undefined;
+    }
   }
 
   private async expandQuestion(question: string): Promise<string[]> {

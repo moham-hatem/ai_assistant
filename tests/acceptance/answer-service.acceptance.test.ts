@@ -48,3 +48,56 @@ for (const fixture of acceptanceFixtures) {
     }
   });
 }
+
+test('approved answer priority: a valid exact-language approval bypasses model generation', async () => {
+  const knowledge = new FixtureKnowledgeSource({
+    'What is wudu?': [{ content: 'Fresh searchable evidence.', id: 'live:1' }],
+  });
+  const model = new FixtureAnswerModel({ answer: 'Model answer.', grounded: true });
+  const service = new AnswerService(
+    knowledge,
+    MATCH_COUNT,
+    model,
+    undefined,
+    {
+      findActiveExact: async ({ answerLanguage, normalizedQuestion }) => {
+        assert.equal(answerLanguage, 'en');
+        assert.equal(normalizedQuestion, 'what is wudu');
+        return {
+          answer: 'Teacher-approved answer.',
+          answerLanguage: 'en',
+          approvedAt: '2026-08-09T10:00:00.000Z',
+          createdAt: '2026-08-09T10:00:00.000Z',
+          evidenceReferences: ['books/book/editions/edition:1'],
+          id: 'approved-1',
+          normalizedQuestion,
+          question: 'What is wudu?',
+          retiredAt: null,
+          reviewerId: 'teacher',
+          sourceDecisionId: 'decision-1',
+          sourceReviewItemId: 'review-1',
+          status: 'active',
+          supersededByAnswerId: null,
+          version: 1,
+        };
+      },
+    },
+    {
+      validate: async () => ({
+        evidence: [{ content: 'Still published.', id: 'books/book/editions/edition:1' }],
+        valid: true,
+      }),
+    },
+  );
+
+  const execution = await service.answerWithContext({
+    history: [],
+    language: 'en',
+    question: 'What is wudu?',
+  });
+  assert.equal(execution.result.answer, 'Teacher-approved answer.');
+  assert.equal(execution.result.generation?.provider, 'approved-answer');
+  assert.deepEqual(execution.evidenceReferences, ['books/book/editions/edition:1']);
+  assert.equal(knowledge.calls.length, 0);
+  assert.equal(model.calls.length, 0);
+});

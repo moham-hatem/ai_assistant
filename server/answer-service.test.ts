@@ -2,6 +2,132 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AnswerService } from './answer-service.ts';
 import type { AnswerModel, KnowledgeSource, QuestionExpander } from './domain.ts';
+import type { ApprovedAnswer } from '../shared/contracts/approved-answers.ts';
+import type { ApprovedAnswerRepository } from './modules/approved-answers/approved-answer-repository.ts';
+import type { ApprovedAnswerEvidenceValidator } from './modules/approved-answers/approved-answer-evidence-validator.ts';
+
+function approvedAnswer(): ApprovedAnswer {
+  return {
+    answer: 'Reviewed answer.',
+    answerLanguage: 'en',
+    approvedAt: '2026-08-09T10:00:00.000Z',
+    createdAt: '2026-08-09T10:00:00.000Z',
+    evidenceReferences: ['books/book/editions/edition:1'],
+    id: 'approved-3',
+    normalizedQuestion: 'what is wudu',
+    question: 'What is wudu?',
+    retiredAt: null,
+    reviewerId: 'teacher',
+    sourceDecisionId: 'decision-3',
+    sourceReviewItemId: 'review-3',
+    status: 'active',
+    supersededByAnswerId: null,
+    version: 3,
+  };
+}
+
+test('a valid approved answer bypasses knowledge search and the model with explicit metadata', async () => {
+  let knowledgeCalls = 0;
+  let modelCalls = 0;
+  const knowledge: KnowledgeSource = {
+    search: async () => {
+      knowledgeCalls += 1;
+      return { evidence: [], fileCount: 1 };
+    },
+  };
+  const model: AnswerModel = {
+    answer: async () => {
+      modelCalls += 1;
+      return { answer: 'model answer', grounded: true };
+    },
+  };
+  const approvedAnswers: ApprovedAnswerRepository = {
+    findActiveExact: async (query) => {
+      assert.equal(query.normalizedQuestion, 'what is wudu');
+      assert.equal(query.answerLanguage, 'en');
+      return approvedAnswer();
+    },
+  };
+  const validator: ApprovedAnswerEvidenceValidator = {
+    validate: async () => ({
+      evidence: [{ content: 'Live evidence.', id: 'books/book/editions/edition:1' }],
+      valid: true,
+    }),
+  };
+
+  const execution = await new AnswerService(
+    knowledge,
+    6,
+    model,
+    undefined,
+    approvedAnswers,
+    validator,
+  ).answerWithContext({ question: ' WHAT is Wudu?! ', history: [], language: 'en' });
+
+  assert.equal(execution.result.answer, 'Reviewed answer.');
+  assert.equal(execution.result.grounded, true);
+  assert.deepEqual(execution.result.generation, {
+    model: 'approved-answer/v3',
+    provider: 'approved-answer',
+  });
+  assert.deepEqual(execution.evidenceReferences, ['books/book/editions/edition:1']);
+  assert.equal(knowledgeCalls, 0);
+  assert.equal(modelCalls, 0);
+});
+
+test('an approved answer can be returned even when no AI model is configured', async () => {
+  const service = new AnswerService(
+    { search: async () => ({ evidence: [], fileCount: 0 }) },
+    6,
+    undefined,
+    undefined,
+    { findActiveExact: async () => approvedAnswer() },
+    { validate: async () => ({ evidence: [], valid: true }) },
+  );
+  assert.equal((await service.answer({ question: 'What is wudu?', history: [], language: 'en' })).answer,
+    'Reviewed answer.');
+});
+
+test('archived or missing approved evidence falls back to the normal model path', async () => {
+  let modelCalls = 0;
+  const service = new AnswerService(
+    { search: async () => ({
+      evidence: [{ content: 'Current evidence.', id: 'books/book/editions/current:1' }],
+      fileCount: 1,
+    }) },
+    6,
+    { answer: async () => {
+      modelCalls += 1;
+      return { answer: 'Fresh model answer.', grounded: true };
+    } },
+    undefined,
+    { findActiveExact: async () => approvedAnswer() },
+    { validate: async () => ({ evidence: [], valid: false }) },
+  );
+
+  assert.equal((await service.answer({ question: 'What is wudu?', history: [], language: 'en' })).answer,
+    'Fresh model answer.');
+  assert.equal(modelCalls, 1);
+});
+
+test('approved-answer repository failure is fail-safe and uses the normal answer path', async () => {
+  let modelCalls = 0;
+  const service = new AnswerService(
+    { search: async () => ({ evidence: [{ content: 'Evidence.', id: 'live:1' }], fileCount: 1 }) },
+    6,
+    { answer: async () => {
+      modelCalls += 1;
+      return { answer: 'Fallback answer.', grounded: true };
+    } },
+    undefined,
+    { findActiveExact: async () => { throw new Error('repository offline'); } },
+    { validate: async () => ({ evidence: [], valid: true }) },
+  );
+
+  assert.equal((await service.answer({ question: 'What is wudu?', history: [], language: 'en' })).answer,
+    'Fallback answer.');
+  assert.equal(modelCalls, 1);
+});
 
 test('answer service does not call the model without evidence', async () => {
   let modelCalls = 0;

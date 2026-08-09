@@ -12,8 +12,18 @@ test('migration 2 preserves legacy corrections as edited approvals and seeds imm
   const database = new DatabaseSync(path);
   database.exec(`
     PRAGMA foreign_keys = ON;
-    CREATE TABLE question_logs (id TEXT PRIMARY KEY);
-    INSERT INTO question_logs (id) VALUES ('question-1');
+    CREATE TABLE question_logs (
+      id TEXT PRIMARY KEY,
+      question TEXT NOT NULL,
+      answer_language TEXT NOT NULL,
+      status TEXT NOT NULL,
+      answer TEXT,
+      evidence_references TEXT NOT NULL
+    );
+    INSERT INTO question_logs VALUES (
+      'question-1', 'What is purification?', 'en', 'answered',
+      'Original generated answer.', '["books/book-1/editions/edition-1:1"]'
+    );
 
     CREATE TABLE review_items (
       id TEXT PRIMARY KEY,
@@ -72,6 +82,32 @@ test('migration 2 preserves legacy corrections as edited approvals and seeds imm
       SELECT MAX(version) AS version FROM review_schema_migrations WHERE feature = 'teacher_reviews'
     `).get() as unknown as { version: number };
     assert.equal(version.version, 2);
+    const approvedAnswerVersion = migrated.prepare(`
+      SELECT MAX(version) AS version
+      FROM approved_answer_schema_migrations WHERE feature = 'approved_answers'
+    `).get() as unknown as { version: number };
+    assert.equal(approvedAnswerVersion.version, 1);
+    const approvedAnswerTable = migrated.prepare(`
+      SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'approved_answers'
+    `).get() as unknown as { name: string } | undefined;
+    assert.equal(approvedAnswerTable?.name, 'approved_answers');
+    const migratedAnswer = migrated.prepare(`
+      SELECT answer_text, version, status, source_review_item_id, source_decision_id
+      FROM approved_answers WHERE normalized_question = 'what is purification'
+    `).get() as unknown as {
+      answer_text: string;
+      source_decision_id: string;
+      source_review_item_id: string;
+      status: string;
+      version: number;
+    };
+    assert.deepEqual({ ...migratedAnswer }, {
+      answer_text: 'Legacy corrected answer.',
+      source_decision_id: 'decision-1',
+      source_review_item_id: 'review-1',
+      status: 'active',
+      version: 1,
+    });
     assert.throws(() => migrated.exec(`
       UPDATE review_events SET to_status = 'rejected' WHERE review_item_id = 'review-1';
     `), /append-only/u);

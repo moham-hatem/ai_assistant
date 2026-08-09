@@ -7,6 +7,7 @@ import type {
   ReviewPage,
   ReviewStatus,
 } from '../../../shared/contracts/reviews.ts';
+import type { ApprovedAnswerApproval } from '../approved-answers/approved-answer-repository.ts';
 
 export interface ReviewTransitionCommand {
   at: string;
@@ -19,6 +20,7 @@ export interface ReviewTransitionCommand {
 }
 
 export interface SaveReviewDecisionCommand {
+  approvedAnswer?: ApprovedAnswerApproval;
   decision: ReviewDecision;
   eventId: string;
   expectedStatus: ReviewStatus;

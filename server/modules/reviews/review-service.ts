@@ -10,6 +10,7 @@ import type {
 } from '../../../shared/contracts/reviews.ts';
 import { AppError } from '../../errors.ts';
 import type { QuestionLogRepository } from '../question-log/question-log-repository.ts';
+import { normalizeApprovedQuestion } from '../approved-answers/approved-answer-domain.ts';
 import {
   assertDecisionCanBeSaved,
   assertDecisionFields,
@@ -138,13 +139,51 @@ export class ReviewService {
       reviewerId: input.reviewerId,
       reviewItemId: id,
     };
+    const approvedAnswer = input.outcome === 'approved'
+      ? await this.buildApprovedAnswer(item.questionLogId, decision)
+      : undefined;
     await this.call(() => this.reviews.saveDecision({
+      approvedAnswer,
       decision,
       eventId: this.createId(),
       expectedStatus: item.status,
       targetStatus: decisionStatus(input.outcome),
     }));
     return this.getReview(id);
+  }
+
+  private async buildApprovedAnswer(questionLogId: string, decision: ReviewDecision) {
+    const questionLog = await this.questionLogs.findById(questionLogId);
+    if (!questionLog) {
+      throw new AppError('QUESTION_LOG_NOT_FOUND', 'Question log not found.', 404);
+    }
+    const answer = decision.correctedAnswer ?? questionLog.answer;
+    if (questionLog.status !== 'answered' || !answer?.trim()) {
+      throw new AppError(
+        'INVALID_REQUEST',
+        'An approved review requires an answered question log or corrected answer.',
+        400,
+      );
+    }
+    if (questionLog.evidenceReferences.length === 0) {
+      throw new AppError(
+        'INVALID_REQUEST',
+        'An approved review requires at least one evidence reference.',
+        400,
+      );
+    }
+    return {
+      answer: answer.trim(),
+      answerLanguage: questionLog.answerLanguage,
+      approvedAt: decision.createdAt,
+      evidenceReferences: [...questionLog.evidenceReferences],
+      id: this.createId(),
+      normalizedQuestion: normalizeApprovedQuestion(questionLog.question),
+      question: questionLog.question,
+      reviewerId: decision.reviewerId,
+      sourceDecisionId: decision.id,
+      sourceReviewItemId: decision.reviewItemId,
+    };
   }
 
   private async requireItem(id: string): Promise<ReviewItem> {

@@ -10,6 +10,7 @@ import { AppError } from '../../errors.ts';
 import { SqliteQuestionLogRepository } from '../question-log/sqlite-question-log-repository.ts';
 import { ReviewService } from './review-service.ts';
 import { SqliteReviewRepository } from './sqlite-review-repository.ts';
+import { normalizeApprovedQuestion } from '../approved-answers/approved-answer-domain.ts';
 
 test('creating a review requires an existing question log and prevents duplicates', async () => {
   await withFixture(async ({ service, questionLogs }) => {
@@ -30,8 +31,8 @@ test('creating a review requires an existing question log and prevents duplicate
   });
 });
 
-test('approval records an immutable decision and permits an unclaimed reviewer', async () => {
-  await withFixture(async ({ service, questionLogs }) => {
+test('approval records an immutable decision and creates the approved answer as-is', async () => {
+  await withFixture(async ({ reviews, service, questionLogs }) => {
     const questionLog = record();
     await questionLogs.save(questionLog);
     const item = await service.createReview(questionLog.id);
@@ -46,6 +47,16 @@ test('approval records an immutable decision and permits an unclaimed reviewer',
     assert.equal(detail.decision?.outcome, 'approved');
     assert.equal(detail.decision?.correctedAnswer, null);
     assert.deepEqual(detail.events.map((event) => event.type), ['created', 'decision_saved']);
+    const approved = await reviews.findActiveExact({
+      answerLanguage: questionLog.answerLanguage,
+      normalizedQuestion: normalizeApprovedQuestion(questionLog.question),
+    });
+    assert.equal(approved?.answer, questionLog.answer);
+    assert.deepEqual(approved?.evidenceReferences, questionLog.evidenceReferences);
+    assert.equal(approved?.sourceDecisionId, detail.decision?.id);
+    assert.equal(approved?.sourceReviewItemId, item.id);
+    assert.equal(approved?.reviewerId, 'teacher-1');
+    assert.equal(approved?.version, 1);
     await assert.rejects(
       service.saveDecision(item.id, { outcome: 'rejected', reviewerId: 'teacher-1' }),
       (error: unknown) => appError(error, 'INVALID_REVIEW_TRANSITION', 409),
@@ -53,8 +64,8 @@ test('approval records an immutable decision and permits an unclaimed reviewer',
   });
 });
 
-test('edited approval stores the approved wording', async () => {
-  await withFixture(async ({ service, questionLogs }) => {
+test('edited approval stores the corrected wording as the approved answer', async () => {
+  await withFixture(async ({ reviews, service, questionLogs }) => {
     const changeLog = record({ channel: 'mobile-app' });
     await questionLogs.save(changeLog);
     const change = await service.createReview(changeLog.id);
@@ -66,11 +77,15 @@ test('edited approval stores the approved wording', async () => {
     });
     assert.equal(changed.item.status, 'approved');
     assert.equal(changed.decision?.correctedAnswer, 'A reviewed and corrected answer.');
+    assert.equal((await reviews.findActiveExact({
+      answerLanguage: changeLog.answerLanguage,
+      normalizedQuestion: normalizeApprovedQuestion(changeLog.question),
+    }))?.answer, 'A reviewed and corrected answer.');
   });
 });
 
-test('rejection records notes without a corrected answer', async () => {
-  await withFixture(async ({ service, questionLogs }) => {
+test('rejection records notes without a corrected or approved answer', async () => {
+  await withFixture(async ({ reviews, service, questionLogs }) => {
     const rejectLog = record();
     await questionLogs.save(rejectLog);
     const reject = await service.createReview(rejectLog.id);
@@ -83,11 +98,15 @@ test('rejection records notes without a corrected answer', async () => {
     assert.equal(rejected.item.status, 'rejected');
     assert.equal(rejected.decision?.internalNotes, 'The cited source does not support the conclusion.');
     assert.equal(rejected.decision?.correctedAnswer, null);
+    assert.equal(await reviews.findActiveExact({
+      answerLanguage: rejectLog.answerLanguage,
+      normalizedQuestion: normalizeApprovedQuestion(rejectLog.question),
+    }), undefined);
   });
 });
 
-test('needs_changes records a content-change reason without approved wording', async () => {
-  await withFixture(async ({ service, questionLogs }) => {
+test('needs_changes records a content-change reason without an approved answer', async () => {
+  await withFixture(async ({ reviews, service, questionLogs }) => {
     const questionLog = record();
     await questionLogs.save(questionLog);
     const item = await service.createReview(questionLog.id);
@@ -99,6 +118,78 @@ test('needs_changes records a content-change reason without approved wording', a
     assert.equal(detail.item.status, 'needs_changes');
     assert.equal(detail.decision?.correctedAnswer, null);
     assert.match(detail.decision?.internalNotes ?? '', /source content/u);
+    assert.equal(await reviews.findActiveExact({
+      answerLanguage: questionLog.answerLanguage,
+      normalizedQuestion: normalizeApprovedQuestion(questionLog.question),
+    }), undefined);
+  });
+});
+
+test('later approval creates a new version and retires the previous version with an audit link', async () => {
+  await withFixture(async ({ path, reviews, service, questionLogs }) => {
+    const question = '  What is   purification? ';
+    const firstLog = record({ answer: 'First approved wording.', question });
+    const secondLog = record({ answer: 'Second generated wording.', question: 'what is purification?' });
+    await questionLogs.save(firstLog);
+    await questionLogs.save(secondLog);
+    const firstReview = await service.createReview(firstLog.id);
+    const secondReview = await service.createReview(secondLog.id);
+    await service.saveDecision(firstReview.id, { outcome: 'approved', reviewerId: 'teacher-1' });
+    await service.saveDecision(secondReview.id, {
+      correctedAnswer: 'Second approved wording.',
+      outcome: 'approved',
+      reviewerId: 'teacher-2',
+    });
+
+    const normalizedQuestion = normalizeApprovedQuestion(question);
+    const active = await reviews.findActiveExact({ answerLanguage: 'en', normalizedQuestion });
+    assert.equal(active?.answer, 'Second approved wording.');
+    assert.equal(active?.version, 2);
+
+    const control = new DatabaseSync(path);
+    try {
+      const rows = control.prepare(`
+        SELECT id, version, status, retired_at, superseded_by_answer_id
+        FROM approved_answers
+        WHERE normalized_question = ? AND answer_language = 'en'
+        ORDER BY version
+      `).all(normalizedQuestion) as unknown as Array<{
+        id: string;
+        retired_at: string | null;
+        status: string;
+        superseded_by_answer_id: string | null;
+        version: number;
+      }>;
+      assert.equal(rows.length, 2);
+      assert.equal(rows[0]?.status, 'retired');
+      assert.ok(rows[0]?.retired_at);
+      assert.equal(rows[0]?.superseded_by_answer_id, rows[1]?.id);
+      assert.equal(rows[1]?.status, 'active');
+    } finally {
+      control.close();
+    }
+  });
+});
+
+test('exact normalized lookup remains language-specific', async () => {
+  await withFixture(async ({ reviews, service, questionLogs }) => {
+    const questionLog = record({ question: 'What is Wudu?' });
+    await questionLogs.save(questionLog);
+    const item = await service.createReview(questionLog.id);
+    await service.saveDecision(item.id, { outcome: 'approved', reviewerId: 'teacher' });
+
+    assert.ok(await reviews.findActiveExact({
+      answerLanguage: 'en',
+      normalizedQuestion: normalizeApprovedQuestion('  WHAT is wudu !!! '),
+    }));
+    assert.equal(await reviews.findActiveExact({
+      answerLanguage: 'ar',
+      normalizedQuestion: normalizeApprovedQuestion('What is Wudu?'),
+    }), undefined);
+    assert.equal(await reviews.findActiveExact({
+      answerLanguage: 'en',
+      normalizedQuestion: normalizeApprovedQuestion('What is ritual Wudu?'),
+    }), undefined);
   });
 });
 
@@ -196,6 +287,33 @@ test('a failed event append rolls back the decision and status update together',
     assert.equal(await reviews.findDecision(item.id), undefined);
     assert.equal((await reviews.findItem(item.id))?.status, 'pending');
     assert.deepEqual((await reviews.findEvents(item.id)).map((event) => event.type), ['created']);
+  });
+});
+
+test('a failed approved-answer insert rolls back the approval decision, status, and retirement', async () => {
+  await withFixture(async ({ path, reviews, service, questionLogs }) => {
+    const questionLog = record({ question: 'Atomic approval?' });
+    await questionLogs.save(questionLog);
+    const item = await service.createReview(questionLog.id);
+    const control = new DatabaseSync(path);
+    control.exec(`
+      CREATE TRIGGER force_approved_answer_failure
+      BEFORE INSERT ON approved_answers
+      BEGIN SELECT RAISE(ABORT, 'forced approved-answer failure'); END;
+    `);
+    control.close();
+
+    await assert.rejects(service.saveDecision(item.id, {
+      outcome: 'approved',
+      reviewerId: 'teacher-rollback',
+    }), /forced approved-answer failure/u);
+    assert.equal(await reviews.findDecision(item.id), undefined);
+    assert.equal((await reviews.findItem(item.id))?.status, 'pending');
+    assert.deepEqual((await reviews.findEvents(item.id)).map((event) => event.type), ['created']);
+    assert.equal(await reviews.findActiveExact({
+      answerLanguage: questionLog.answerLanguage,
+      normalizedQuestion: normalizeApprovedQuestion(questionLog.question),
+    }), undefined);
   });
 });
 

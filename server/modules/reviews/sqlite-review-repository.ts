@@ -7,6 +7,16 @@ import type {
   ReviewListQuery,
   ReviewPage,
 } from '../../../shared/contracts/reviews.ts';
+import type {
+  ApprovedAnswer,
+  ApprovedAnswerLookup,
+  ApprovedAnswerStatus,
+} from '../../../shared/contracts/approved-answers.ts';
+import type {
+  ApprovedAnswerApproval,
+  ApprovedAnswerRepository,
+} from '../approved-answers/approved-answer-repository.ts';
+import { migrateApprovedAnswerDatabase } from '../approved-answers/sqlite-approved-answer-migrations.ts';
 import {
   ConcurrentReviewUpdateError,
   DuplicateReviewError,
@@ -25,7 +35,25 @@ import {
   toReviewItem,
 } from './sqlite-review-rows.ts';
 
-export class SqliteReviewRepository implements ReviewRepository {
+interface ApprovedAnswerRow {
+  answer_language: string;
+  answer_text: string;
+  approved_at: string;
+  created_at: string;
+  evidence_references: string;
+  id: string;
+  normalized_question: string;
+  question_text: string;
+  retired_at: string | null;
+  reviewer_id: string;
+  source_decision_id: string;
+  source_review_item_id: string;
+  status: string;
+  superseded_by_answer_id: string | null;
+  version: number;
+}
+
+export class SqliteReviewRepository implements ReviewRepository, ApprovedAnswerRepository {
   private readonly database: DatabaseSync;
 
   constructor(path: string) {
@@ -34,6 +62,7 @@ export class SqliteReviewRepository implements ReviewRepository {
     this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
     if (path !== ':memory:') this.database.exec('PRAGMA journal_mode = WAL;');
     migrateReviewDatabase(this.database);
+    migrateApprovedAnswerDatabase(this.database);
   }
 
   async createFromQuestionLog(item: ReviewItem, event: ReviewEvent): Promise<void> {
@@ -80,6 +109,19 @@ export class SqliteReviewRepository implements ReviewRepository {
 
   async findEvents(reviewItemId: string): Promise<ReviewEvent[]> {
     return readReviewEvents(this.database, reviewItemId);
+  }
+
+  async findActiveExact(query: ApprovedAnswerLookup): Promise<ApprovedAnswer | undefined> {
+    const row = this.database.prepare(`
+      SELECT a.* FROM approved_answers a
+      JOIN review_items r ON r.id = a.source_review_item_id
+      JOIN review_decisions d ON d.id = a.source_decision_id
+      WHERE a.normalized_question = ? AND a.answer_language = ? AND a.status = 'active'
+        AND r.status = 'approved' AND d.outcome = 'approved'
+      LIMIT 1
+    `).get(query.normalizedQuestion, query.answerLanguage) as unknown as
+      ApprovedAnswerRow | undefined;
+    return row ? toApprovedAnswer(row) : undefined;
   }
 
   async list(query: ReviewListQuery): Promise<ReviewPage> {
@@ -162,6 +204,7 @@ export class SqliteReviewRepository implements ReviewRepository {
           toStatus: command.targetStatus,
           type: 'decision_saved',
         });
+        if (command.approvedAnswer) this.saveApprovedAnswer(command.approvedAnswer);
         return this.requireItem(decision.reviewItemId);
       });
     } catch (error) {
@@ -179,6 +222,45 @@ export class SqliteReviewRepository implements ReviewRepository {
       unknown as ReviewItemRow | undefined;
     if (!row) throw new ConcurrentReviewUpdateError();
     return toReviewItem(row);
+  }
+
+  private saveApprovedAnswer(answer: ApprovedAnswerApproval): void {
+    const latest = this.database.prepare(`
+      SELECT COALESCE(MAX(version), 0) AS version
+      FROM approved_answers
+      WHERE normalized_question = ? AND answer_language = ?
+    `).get(answer.normalizedQuestion, answer.answerLanguage) as unknown as { version: number };
+    this.database.prepare(`
+      UPDATE approved_answers
+      SET status = 'retired', retired_at = ?, superseded_by_answer_id = ?
+      WHERE normalized_question = ? AND answer_language = ? AND status = 'active'
+    `).run(
+      answer.approvedAt,
+      answer.id,
+      answer.normalizedQuestion,
+      answer.answerLanguage,
+    );
+    this.database.prepare(`
+      INSERT INTO approved_answers (
+        id, normalized_question, question_text, answer_language, answer_text,
+        evidence_references, source_review_item_id, source_decision_id, version,
+        status, reviewer_id, approved_at, created_at, retired_at,
+        superseded_by_answer_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, NULL, NULL)
+    `).run(
+      answer.id,
+      answer.normalizedQuestion,
+      answer.question,
+      answer.answerLanguage,
+      answer.answer,
+      JSON.stringify(answer.evidenceReferences),
+      answer.sourceReviewItemId,
+      answer.sourceDecisionId,
+      latest.version + 1,
+      answer.reviewerId,
+      answer.approvedAt,
+      answer.approvedAt,
+    );
   }
 }
 
@@ -202,4 +284,27 @@ function isDuplicateReview(error: unknown): boolean {
 function isDuplicateDecision(error: unknown): boolean {
   return error instanceof Error
     && error.message.includes('UNIQUE constraint failed: review_decisions.review_item_id');
+}
+
+function toApprovedAnswer(row: ApprovedAnswerRow): ApprovedAnswer {
+  const references = JSON.parse(row.evidence_references) as unknown;
+  return {
+    answer: row.answer_text,
+    answerLanguage: row.answer_language,
+    approvedAt: row.approved_at,
+    createdAt: row.created_at,
+    evidenceReferences: Array.isArray(references)
+      ? references.filter((item): item is string => typeof item === 'string')
+      : [],
+    id: row.id,
+    normalizedQuestion: row.normalized_question,
+    question: row.question_text,
+    retiredAt: row.retired_at,
+    reviewerId: row.reviewer_id,
+    sourceDecisionId: row.source_decision_id,
+    sourceReviewItemId: row.source_review_item_id,
+    status: row.status as ApprovedAnswerStatus,
+    supersededByAnswerId: row.superseded_by_answer_id,
+    version: row.version,
+  };
 }

@@ -17,6 +17,10 @@ or language into review tables.
   reason and does not accept or imply approved corrected wording.
 - A single immutable decision is stored per review. Status and decision writes share one SQLite
   transaction, and optimistic status checks reject concurrent updates.
+- An `approved` decision also creates a versioned approved-answer row in that transaction. The
+  corrected wording wins when supplied; otherwise the question-log answer is used. `rejected` and
+  `needs_changes` create no approved version. A later approval of the same exact normalized question
+  and language creates the next version and retires the previous active version.
 
 ## Audit history
 
@@ -61,3 +65,7 @@ already overwritten before event logging existed. Neither migration rewrites `qu
 Operational rollback is to stop the application and restore the pre-migration database backup.
 Dropping `review_events`, its triggers, `review_decisions`, `review_items`, and the `teacher_reviews`
 migration rows is only appropriate when all review and audit data is intentionally being discarded.
+
+Approved-answer schema history is tracked separately in `approved_answer_schema_migrations`; see
+[APPROVED_ANSWERS.md](APPROVED_ANSWERS.md) for matching, request-time evidence validation, backfill,
+failure isolation, and operational limits.
