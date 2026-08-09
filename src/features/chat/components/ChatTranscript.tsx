@@ -1,14 +1,17 @@
 import { useEffect, useRef } from 'react';
-import { Bot, Sparkles, UserRound } from 'lucide-react';
+import { Bot, Sparkles } from 'lucide-react';
 import type { ChatMessage } from '../types';
+import type { AppTranslations } from '../../../i18n/translations';
+import { ChatMessageItem } from './ChatMessageItem';
 
 interface ChatTranscriptProps {
+  copy: AppTranslations;
   messages: ChatMessage[];
   isAnswering: boolean;
   searchingLabel: string;
 }
 
-export function ChatTranscript({ messages, isAnswering, searchingLabel }: ChatTranscriptProps) {
+export function ChatTranscript({ copy, messages, isAnswering, searchingLabel }: ChatTranscriptProps) {
   const transcriptRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
 
@@ -37,17 +40,12 @@ export function ChatTranscript({ messages, isAnswering, searchingLabel }: ChatTr
       tabIndex={0}
     >
       {messages.map((message) => (
-        <article className={`message message-${message.role}`} key={message.id}>
-          <span className="message-avatar" aria-hidden="true">
-            {message.role === 'assistant' ? <Bot size={18} /> : <UserRound size={18} />}
-          </span>
-          <p>{message.content}</p>
-        </article>
+        <ChatMessageItem copy={copy} key={message.id} message={message} />
       ))}
       {isAnswering && (
         <article className="message message-assistant">
           <span className="message-avatar" aria-hidden="true"><Sparkles size={18} /></span>
-          <p className="thinking">{searchingLabel}</p>
+          <p className="message-content thinking">{searchingLabel}</p>
         </article>
       )}
     </div>

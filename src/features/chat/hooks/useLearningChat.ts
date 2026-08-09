@@ -1,21 +1,29 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { answerQuestion, ChatServiceError } from '../api/answerQuestion';
-import type { ChatMessage, ChatStatus, ChatTurn } from '../types';
+import { createAnswerMessage, createWelcomeMessage, getChatHistory } from '../chat-messages';
+import type { ChatMessage, ChatStatus } from '../types';
 import type { AppLanguage } from '../../../i18n/language';
 import type { AppTranslations } from '../../../i18n/translations';
 
 export function useLearningChat(language: AppLanguage, copy: AppTranslations) {
-  const [messages, setMessages] = useState<ChatMessage[]>(() => [welcomeMessage(copy.welcome)]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [createWelcomeMessage(copy.welcome)]);
   const [status, setStatus] = useState<ChatStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const generationRef = useRef(0);
+  const sendingRef = useRef(false);
 
   useEffect(() => {
-    setMessages([welcomeMessage(copy.welcome)]);
+    generationRef.current += 1;
+    sendingRef.current = false;
+    setMessages([createWelcomeMessage(copy.welcome)]);
     setErrorMessage(null);
     setStatus('idle');
   }, [copy.welcome, language]);
 
   async function sendQuestion(question: string) {
+    if (sendingRef.current) return;
+    sendingRef.current = true;
+    const generation = generationRef.current;
     const userMessage: ChatMessage = { id: crypto.randomUUID(), role: 'user', content: question };
     setMessages((currentMessages) => [...currentMessages, userMessage]);
     setErrorMessage(null);
@@ -23,38 +31,25 @@ export function useLearningChat(language: AppLanguage, copy: AppTranslations) {
 
     try {
       const response = await answerQuestion(
-        { question, history: getHistory(messages), language },
+        { question, history: getChatHistory(messages), language },
         copy,
       );
-      setMessages((currentMessages) => [
-        ...currentMessages,
-        {
-          id: response.requestId,
-          role: 'assistant',
-          content: response.answer,
-        },
-      ]);
+      if (generation !== generationRef.current) return;
+      setMessages((currentMessages) => [...currentMessages, createAnswerMessage(response)]);
     } catch (error) {
+      if (generation !== generationRef.current) return;
       setErrorMessage(
         error instanceof ChatServiceError
           ? error.message
           : copy.unexpectedError,
       );
     } finally {
-      setStatus('idle');
+      if (generation === generationRef.current) {
+        sendingRef.current = false;
+        setStatus('idle');
+      }
     }
   }
 
   return { errorMessage, messages, sendQuestion, status };
-}
-
-function welcomeMessage(content: string): ChatMessage {
-  return { id: 'welcome', role: 'assistant', content };
-}
-
-function getHistory(messages: ChatMessage[]): ChatTurn[] {
-  return messages
-    .filter((message) => message.id !== 'welcome')
-    .slice(-8)
-    .map(({ role, content }) => ({ role, content }));
 }

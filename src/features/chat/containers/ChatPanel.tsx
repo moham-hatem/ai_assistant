@@ -15,6 +15,7 @@ export function ChatPanel({ copy, language }: ChatPanelProps) {
   return (
     <section className="chat-card" aria-label={copy.chatAria}>
       <ChatTranscript
+        copy={copy}
         isAnswering={status === 'answering'}
         messages={messages}
         searchingLabel={copy.searching}

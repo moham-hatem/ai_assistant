@@ -5,9 +5,25 @@ export interface ChatTurn {
   content: string;
 }
 
-export interface ChatMessage extends ChatTurn {
+export interface UserChatMessage extends ChatTurn {
   id: string;
+  role: 'user';
 }
+
+export interface WelcomeChatMessage extends ChatTurn {
+  id: string;
+  kind: 'welcome';
+  role: 'assistant';
+}
+
+export interface AnswerChatMessage extends ChatTurn {
+  id: string;
+  kind: 'answer';
+  requestId: string;
+  role: 'assistant';
+}
+
+export type ChatMessage = UserChatMessage | WelcomeChatMessage | AnswerChatMessage;
 
 export type ChatStatus = 'idle' | 'answering';
 

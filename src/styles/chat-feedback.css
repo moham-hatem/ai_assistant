@@ -1,0 +1,46 @@
+.message-feedback { color: #486055; font-size: .82rem; line-height: 1.5; }
+.feedback-actions, .feedback-helpful-confirm, .feedback-inline-error, .feedback-result { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.feedback-actions > span, .feedback-helpful-confirm > span { flex-basis: 100%; }
+.message-feedback button, .feedback-dialog button { min-height: 44px; padding: 8px 12px; color: #174b36; font: inherit; font-weight: 700; background: #fff; border: 1px solid #bdd1c2; border-radius: 10px; cursor: pointer; }
+.feedback-actions button { display: inline-flex; align-items: center; gap: 6px; }
+.message-feedback button:hover, .feedback-dialog button:hover { background: #edf5ee; }
+.message-feedback button:focus-visible, .feedback-dialog button:focus-visible, .feedback-dialog input:focus-visible, .feedback-dialog textarea:focus-visible { outline: 3px solid #2a9366; outline-offset: 2px; }
+.message-feedback button:disabled, .feedback-dialog button:disabled { cursor: not-allowed; opacity: .55; }
+.feedback-helpful-confirm, .feedback-inline-error, .feedback-result { padding: 10px 12px; background: #f5f9f5; border: 1px solid #d6e4d8; border-radius: 12px; }
+.feedback-helpful-confirm button:first-of-type, .feedback-inline-error button:first-of-type, .feedback-dialog footer button:last-child { color: #fff; background: #0b5d3c; border-color: #0b5d3c; }
+.feedback-inline-error { color: #842b2b; background: #fff7f6; border-color: #eccbc7; }
+.feedback-result { color: #185c3d; background: #eff8f1; }
+.feedback-result:focus { outline: 3px solid #2a9366; outline-offset: 2px; }
+.feedback-result svg { flex: 0 0 auto; }
+
+.feedback-dialog-backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px; background: #11261db3; }
+.feedback-dialog { width: min(100%, 580px); max-height: min(90dvh, 720px); overflow-y: auto; padding: 22px; color: #173226; background: #fff; border: 1px solid #d7e4da; border-radius: 20px; box-shadow: 0 28px 80px #07150e66; }
+.feedback-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.feedback-dialog h2 { margin: 0; font-size: 1.35rem; }
+.feedback-dialog header p { margin: 6px 0 0; color: #5b7166; line-height: 1.6; }
+.feedback-dialog header > button { display: grid; flex: 0 0 42px; place-items: center; padding: 0; }
+.feedback-dialog form { display: grid; gap: 18px; margin-top: 20px; }
+.feedback-dialog fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.feedback-dialog legend, .feedback-comment > span { margin-bottom: 8px; font-weight: 800; }
+.feedback-field-hint { display: none; }
+.feedback-reasons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-top: 10px; }
+.feedback-reasons label { display: flex; align-items: flex-start; gap: 9px; min-width: 0; padding: 11px; line-height: 1.45; background: #f8faf8; border: 1px solid #d9e5db; border-radius: 12px; cursor: pointer; }
+.feedback-reasons input { flex: 0 0 auto; width: 18px; height: 18px; margin-top: 2px; accent-color: #0b6a46; }
+.feedback-reasons span { overflow-wrap: anywhere; }
+.feedback-comment { display: grid; }
+.feedback-comment textarea { width: 100%; min-height: 112px; resize: vertical; padding: 11px 12px; color: #173226; background: #fff; border: 1px solid #bdcec1; border-radius: 12px; }
+.feedback-comment small { margin-top: 6px; color: #64776d; }
+.feedback-error { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 10px 12px; color: #842b2b; background: #fff7f6; border-radius: 10px; }
+.feedback-dialog footer { display: flex; justify-content: flex-end; gap: 10px; }
+
+@media (max-width: 560px) {
+  .feedback-dialog-backdrop { align-items: end; padding: 10px 10px max(10px, env(safe-area-inset-bottom)); }
+  .feedback-dialog { max-height: 92dvh; padding: 18px 16px; border-radius: 18px 18px 10px 10px; }
+  .feedback-reasons { grid-template-columns: 1fr; }
+  .feedback-dialog footer { display: grid; grid-template-columns: 1fr; }
+  .feedback-dialog footer button { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feedback-dialog-backdrop { scroll-behavior: auto; }
+}
