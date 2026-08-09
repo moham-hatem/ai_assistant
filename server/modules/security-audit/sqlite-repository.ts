@@ -55,6 +55,7 @@ export class SqliteSecurityAuditRepository implements SecurityAuditRepository {
       migrateSecurityAuditDatabase(this.database, {
         keyVersion: currentKeyVersion,
         seal: (count, sequence, hash) => headSeal(keys.get(currentKeyVersion)!, count, sequence, hash, currentKeyVersion),
+        validateHistory: (database) => validateHistoricalChain(database, keys),
       });
     } catch (error) {
       this.database.close();
@@ -214,6 +215,28 @@ function requireValidHead(database: DatabaseSync, keys: ReadonlyMap<string, Buff
     throw new Error('Security audit events do not match the authenticated head.');
   }
   return head;
+}
+
+function validateHistoricalChain(
+  database: DatabaseSync,
+  keys: ReadonlyMap<string, Buffer>,
+): void {
+  const rows = database.prepare(
+    'SELECT * FROM security_audit_events ORDER BY sequence',
+  ).all() as unknown as AuditRow[];
+  let previousHash = genesisHash;
+  for (const row of rows) {
+    const key = keys.get(row.key_version);
+    if (!key) throw new Error(`Security audit historical key is unavailable: ${row.key_version}.`);
+    const expected = digest(
+      key,
+      canonicalAuditPayload(rowCommand(row), previousHash, row.key_version),
+    );
+    if (row.previous_hash !== previousHash || !equalHash(row.event_hash, expected)) {
+      throw new Error(`Security audit history is invalid at sequence ${row.sequence}.`);
+    }
+    previousHash = row.event_hash;
+  }
 }
 
 function headSeal(

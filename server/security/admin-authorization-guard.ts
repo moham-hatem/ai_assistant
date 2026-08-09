@@ -42,8 +42,9 @@ export async function guardAdminRequest(
     return { allowed: false, principal: null };
   }
 
+  let principal: AuthPrincipal | null = null;
   try {
-    const principal = await security.authorizer.authorize(request, policy.permission, requestId);
+    principal = await security.authorizer.authorize(request, policy.permission, requestId);
     if (isStateChanging(request.method)) await security.originGuard.assertAllowed(request);
     return { allowed: true, principal };
   } catch (error) {
@@ -51,7 +52,8 @@ export async function guardAdminRequest(
     const status = error instanceof AppError && error.status === 401 ? 401
       : error instanceof AppError && error.status === 403 ? 403
       : 503;
-    const actorUserId = error instanceof AdminAuthorizationError ? error.actorUserId : null;
+    const errorActor = error instanceof AdminAuthorizationError ? error.actorUserId : null;
+    const actorUserId = errorActor ?? principal?.id ?? null;
     await security.audit?.bestEffort({
       action: 'authorization.denied', actorUserId, category: 'authorization',
       metadata: {

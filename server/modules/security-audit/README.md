@@ -8,7 +8,9 @@ supplied only through runtime environment variables and is never stored in SQLit
 **tamper-evident, not tamper-proof**. `local_authenticated_head` is deliberately not called an
 external checkpoint: rollback or replacement of both the database events and its local head cannot
 be detected without an independently stored anchor, and an operator who has the key can replace
-history.
+history. Upgrading a v1 database verifies every historical event with its recorded key version
+inside the upgrade transaction before creating the authenticated head; missing or mismatched keys
+leave the database at v1.
 
 Sensitive changes in the auth, books, and reviews SQLite databases enqueue their audit command in
 `security_audit_outbox` in the same transaction as the business change. Delivery to the separate

@@ -57,6 +57,76 @@ test('integrity verification detects database tampering and reports missing hist
   }
 });
 
+test('v1 migration rolls back before schema mutation when the same key version has the wrong key', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'security-audit-v1-wrong-key-'));
+  const path = join(directory, 'audit.sqlite');
+  const correctKey = randomBytes(32);
+  const repository = new SqliteSecurityAuditRepository(
+    path, new Map([['v1', correctKey]]), 'v1',
+  );
+  await repository.append(event());
+  repository.close();
+  downgradeToV1(path);
+
+  try {
+    assert.throws(
+      () => new SqliteSecurityAuditRepository(
+        path, new Map([['v1', randomBytes(32)]]), 'v1',
+      ),
+      /history is invalid/u,
+    );
+    assertV1Shape(path);
+
+    const recovered = new SqliteSecurityAuditRepository(
+      path, new Map([['v1', correctKey]]), 'v1',
+    );
+    try {
+      assert.equal((await recovered.verifyIntegrity(new Date().toISOString())).status, 'valid');
+    } finally {
+      recovered.close();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('v1 migration requires every historical key and accepts valid key rotation', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'security-audit-v1-rotation-'));
+  const path = join(directory, 'audit.sqlite');
+  const v1 = randomBytes(32);
+  const v2 = randomBytes(32);
+  let repository = new SqliteSecurityAuditRepository(path, new Map([['v1', v1]]), 'v1');
+  await repository.append(event());
+  repository.close();
+  repository = new SqliteSecurityAuditRepository(
+    path, new Map([['v1', v1], ['v2', v2]]), 'v2',
+  );
+  await repository.append(event());
+  repository.close();
+  downgradeToV1(path);
+
+  try {
+    assert.throws(
+      () => new SqliteSecurityAuditRepository(path, new Map([['v2', v2]]), 'v2'),
+      /historical key is unavailable: v1/u,
+    );
+    assertV1Shape(path);
+
+    const recovered = new SqliteSecurityAuditRepository(
+      path, new Map([['v1', v1], ['v2', v2]]), 'v2',
+    );
+    try {
+      const integrity = await recovered.verifyIntegrity(new Date().toISOString());
+      assert.equal(integrity.status, 'valid');
+      assert.deepEqual(integrity.keyVersions, ['v1', 'v2']);
+    } finally {
+      recovered.close();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 for (const deletion of ['tail', 'all'] as const) {
   test(`authenticated local head detects ${deletion} event deletion`, async () => {
     const directory = await mkdtemp(join(tmpdir(), `security-audit-${deletion}-`));
@@ -134,6 +204,37 @@ function appendFromWorker(path: string, command: SecurityAuditCommand): Promise<
     });
     worker.once('error', reject);
   });
+}
+
+function downgradeToV1(path: string): void {
+  const database = new DatabaseSync(path);
+  try {
+    database.exec(`
+      BEGIN IMMEDIATE;
+      DROP TABLE security_audit_head;
+      DELETE FROM security_audit_schema_migrations WHERE version = 2;
+      COMMIT;
+    `);
+  } finally {
+    database.close();
+  }
+}
+
+function assertV1Shape(path: string): void {
+  const database = new DatabaseSync(path);
+  try {
+    const head = database.prepare(`
+      SELECT COUNT(*) AS count FROM sqlite_master
+      WHERE type = 'table' AND name = 'security_audit_head'
+    `).get() as unknown as { count: number };
+    const version = database.prepare(`
+      SELECT MAX(version) AS version FROM security_audit_schema_migrations
+    `).get() as unknown as { version: number };
+    assert.equal(head.count, 0);
+    assert.equal(version.version, 1);
+  } finally {
+    database.close();
+  }
 }
 
 function event(overrides: Partial<SecurityAuditCommand> = {}): SecurityAuditCommand {

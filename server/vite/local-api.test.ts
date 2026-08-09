@@ -107,8 +107,8 @@ test('authorized requests use the mapped permission and origin guard before hand
 });
 
 test('origin rejection occurs before a state-changing handler', async () => {
-  const fixture = createFixture({ rejectOrigin: true });
-  await withServer(fixture, async (baseUrl) => {
+  const fixture = createFixture({ captureAudit: true, rejectOrigin: true });
+  try { await withServer(fixture, async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/internal/books`, {
       method: 'POST',
       body: '{not-json',
@@ -116,10 +116,16 @@ test('origin rejection occurs before a state-changing handler', async () => {
     });
 
     assert.equal(response.status, 403);
-    assertStableError(await response.json(), 'FORBIDDEN', 'Permission denied.');
+    const body = await response.json() as { requestId: string };
+    assertStableError(body, 'FORBIDDEN', 'Permission denied.');
     assert.equal(fixture.calls.origins, 1);
     assert.equal(fixture.calls.handlers.books, undefined);
-  });
+    const events = await fixture.audit!.list({ action: 'authorization.denied', limit: 10, offset: 0 });
+    assert.equal(events.total, 1);
+    assert.equal(events.items[0]?.actorUserId, principal.id);
+    assert.equal(events.items[0]?.requestId, body.requestId);
+    assert.equal(fixture.calls.requestIds[0], body.requestId);
+  }); } finally { fixture.auditRepository?.close(); }
 });
 
 test('public APIs bypass admin authorization and continue to their handlers or next middleware', async () => {

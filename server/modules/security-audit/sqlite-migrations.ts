@@ -3,6 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 export interface SecurityAuditHeadInitializer {
   keyVersion: string;
   seal(eventCount: number, lastSequence: number, lastEventHash: string): string;
+  validateHistory(database: DatabaseSync): void;
 }
 
 export function migrateSecurityAuditDatabase(
@@ -52,6 +53,7 @@ export function migrateSecurityAuditDatabase(
     database.prepare("INSERT INTO security_audit_schema_migrations VALUES (1, strftime('%Y-%m-%dT%H:%M:%fZ','now'))").run();
   });
   if (version.version < 2) transaction(database, () => {
+    head.validateHistory(database);
     database.exec(`
       CREATE TABLE security_audit_head (
         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
