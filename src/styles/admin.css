@@ -145,7 +145,13 @@
   .admin-brand { justify-content: space-between; }
   .admin-brand > span { width: 36px; height: 36px; }
   .admin-brand div { flex: 1; }
-  .admin-navigation { display: flex; overflow-x: auto; padding-bottom: 3px; scrollbar-width: thin; }
+  .admin-navigation {
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 3px;
+    scrollbar-width: none;
+  }
+  .admin-navigation::-webkit-scrollbar { display: none; }
   .admin-navigation a { flex: 0 0 auto; }
   .back-to-assistant { position: absolute; inset-block-start: 17px; inset-inline-end: 20px; width: 36px; height: 36px; padding: 0; justify-content: center; }
   .back-to-assistant span { display: none; }

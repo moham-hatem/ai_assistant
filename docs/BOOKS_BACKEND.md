@@ -11,6 +11,8 @@ The internal API is rooted at `/api/internal/books` and supports:
 - `POST /api/internal/books/:bookId/editions` and
   `GET /api/internal/books/:bookId/editions`
 - `POST /api/internal/books/:bookId/editions/:editionId/transition`
+- `GET` and `POST /api/internal/books/:bookId/editions/:editionId/processing`
+- `POST /api/internal/books/:bookId/editions/:editionId/processing/approve`
 
 List endpoints use `limit` and `offset`; the default limit is 25 and the maximum is 100. This is a
 local-development API, so it has request validation and stable error codes but intentionally has no
@@ -30,10 +32,18 @@ edition was active, while both edition records and their content hashes remain i
 
 `POST /api/knowledge/documents?bookId=...&version=...&name=...` attaches an uploaded document to
 an existing book. It creates the edition as `draft`, extracts and stores the document while the
-edition is `processing`, then returns `{ book, edition, document }` only after the edition reaches
-`ready`. Uploading never publishes a linked edition; publication remains an explicit lifecycle
-transition. A duplicate content hash returns `DUPLICATE_EDITION`, while extraction failures return
-`DOCUMENT_EXTRACTION_FAILED` without exposing extractor internals.
+edition is `processing`. It returns `{ book, edition, document }` with a `ready` edition when enough
+text was extracted, or preserves the edition in `processing` when its document is `ocr_required` or
+`review_required`. Uploading never publishes a linked edition; publication remains an explicit
+lifecycle transition. A duplicate content hash returns `DUPLICATE_EDITION`, while extraction failures
+return `DOCUMENT_EXTRACTION_FAILED` without exposing extractor internals.
+
+The processing endpoint reports the stored generation and summary and can start a new local attempt.
+The approval endpoint accepts a temporary local `actorId` UUID and changes a `review_required`
+document and its edition to `ready`; it never publishes the edition. This identifier is attribution
+for trusted local development only, not authentication. Published editions are immutable through
+these processing endpoints. Poppler and Tesseract are optional external executables: when unavailable,
+the original PDF remains stored with `ocr_required` so it can be retried after the tools are installed.
 
 The compatibility upload without `bookId` remains available for legacy operators. It creates an
 implicit `und` book and publishes that edition automatically, so the admin UI presents it in a

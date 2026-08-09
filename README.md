@@ -44,6 +44,12 @@ OPENCODE_API_ENDPOINT=https://opencode.ai/zen/v1/chat/completions
 OPENCODE_TIMEOUT_MS=60000
 KNOWLEDGE_DIRECTORY=data/knowledge
 DOCUMENT_DIRECTORY=data/documents
+OCR_LANGUAGES=ara+eng+swa
+OCR_CONFIDENCE_THRESHOLD=0.75
+PDFTOPPM_PATH=pdftoppm
+PDFTOPPM_TIMEOUT_MS=90000
+TESSERACT_PATH=tesseract
+TESSERACT_TIMEOUT_MS=60000
 KNOWLEDGE_MATCH_COUNT=6
 EMBEDDING_MODEL=Xenova/multilingual-e5-small
 EMBEDDING_CACHE_DIRECTORY=data/models
@@ -89,7 +95,11 @@ QUESTION_EXPANSION_TIMEOUT_MS=12000
 
 لوحة الإدارة ومساراتها الداخلية مخصصة حاليًا لجهاز موثوق؛ معرّفات المراجعين المحلية وروابط الواجهة ليست إثبات هوية أو صلاحية، ولذلك لا يجوز نشرها للعامة كما هي.
 
-ملفات PDF ذات الطبقة النصية تُقرأ مع مراعاة مواضع الأسطر والتسلسلات المرقمة حتى لا تختلط خطوات الإنفوجرافيك. بعد تطوير المستخرج يمكن إعادة معالجة الكتب الموجودة باستخدام `npm run rebuild:documents`، ثم تحديث الفهرس عبر `npm run prepare:semantic`. يمكن تجهيز المترجم المحلي مسبقًا عبر `npm run prepare:translation`. ملفات PDF المصورة ضوئيًا دون طبقة نص ما زالت تحتاج OCR. تُحفظ النماذج المحلية داخل `data/models`.
+ملفات PDF ذات الطبقة النصية تُقرأ مع مراعاة مواضع الأسطر والتسلسلات المرقمة حتى لا تختلط خطوات الإنفوجرافيك. أما الصفحات المصورة أو ضعيفة النص فتدخل مسار OCR محليًا باستخدام Poppler (`pdftoppm`) وTesseract، مع حفظ ترتيب الصفحات وطريقة الاستخراج ودرجة الثقة. إذا كانت الأدوات غير مثبتة لا يضيع الملف: يُحفظ الأصل ويظل الإصدار في حالة `processing` مع `ocr_required` بدل نشر محتوى فارغ. ويمكن من إدارة الكتب معاينة الأصل والنص المرحلي، وإعادة المعالجة، واعتماد النص منخفض الثقة؛ الاعتماد يجعله `ready` فقط ولا ينشره تلقائيًا.
+
+ثبّت Poppler وTesseract وحزم اللغات المطلوبة على جهاز الخادم، ثم تأكد أن `pdftoppm` و`tesseract` متاحان في `PATH`، أو عيّن `PDFTOPPM_PATH` و`TESSERACT_PATH` في `.env.local`. اللغات الافتراضية المجانية هي `ara+eng+swa` ويمكن تغييرها عبر `OCR_LANGUAGES`. لا ينزّل المشروع محركات أو ملفات لغات تلقائيًا ولا يرسل صفحات الكتاب إلى خدمة OCR خارجية. ما زال يلزم corpus حقيقي معتمد لقياس جودة العربية والإنجليزية والسواحيلية قبل اعتبار مرحلة OCR مكتملة.
+
+يمكن إعادة معالجة الكتب الموجودة من واجهة الإدارة، ثم تحديث الفهرس المنشور عبر `npm run prepare:semantic` عند الحاجة. ويمكن تجهيز المترجم المحلي مسبقًا عبر `npm run prepare:translation`. تُحفظ النماذج المحلية داخل `data/models`.
 
 الكتب والبحث والـBackend محليون. يستخدم النظام OpenCode لتحسين الصياغة، وعند تعطله يترجم NLLB الدليل محليًا إلى اللغة المختارة بعد تنزيل ملفاته مرة واحدة. لا تضع معلومات شخصية أو سرية في الأسئلة المرسلة إلى OpenCode.
 
