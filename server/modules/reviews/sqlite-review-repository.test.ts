@@ -126,6 +126,65 @@ test('needs_changes records a content-change reason without an approved answer',
   });
 });
 
+test('edited approval accepts declined and failed logs when evidence remains available', async () => {
+  await withFixture(async ({ reviews, service, questionLogs }) => {
+    for (const status of ['declined', 'failed'] as const) {
+      const questionLog = record({
+        answer: null,
+        apology: `${status} response.`,
+        evidenceReferences: [`books/book/editions/edition:${status}`],
+        grounded: false,
+        question: `Correct the ${status} answer?`,
+        status,
+        sufficiency: status === 'declined' ? 'insufficient' : 'unknown',
+      });
+      await questionLogs.save(questionLog);
+      const item = await service.createReview(questionLog.id);
+      const detail = await service.saveDecision(item.id, {
+        correctedAnswer: `Teacher correction for ${status}.`,
+        outcome: 'approved',
+        reviewerId: 'teacher-editor',
+      });
+
+      assert.equal(detail.item.status, 'approved');
+      assert.equal(detail.decision?.correctedAnswer, `Teacher correction for ${status}.`);
+      const approved = await reviews.findActiveExact({
+        answerLanguage: questionLog.answerLanguage,
+        normalizedQuestion: normalizeApprovedQuestion(questionLog.question),
+      });
+      assert.equal(approved?.answer, `Teacher correction for ${status}.`);
+      assert.deepEqual(approved?.evidenceReferences, questionLog.evidenceReferences);
+    }
+  });
+});
+
+test('approve-as-is rejects a question log without an original answer', async () => {
+  await withFixture(async ({ reviews, service, questionLogs }) => {
+    const questionLog = record({
+      answer: null,
+      apology: 'No original answer was produced.',
+      evidenceReferences: ['books/book/editions/edition:declined'],
+      grounded: false,
+      question: 'Can this be approved as-is?',
+      status: 'declined',
+      sufficiency: 'insufficient',
+    });
+    await questionLogs.save(questionLog);
+    const item = await service.createReview(questionLog.id);
+
+    await assert.rejects(
+      service.saveDecision(item.id, { outcome: 'approved', reviewerId: 'teacher' }),
+      (error: unknown) => appError(error, 'INVALID_REQUEST', 400),
+    );
+    assert.equal(await reviews.findDecision(item.id), undefined);
+    assert.equal((await reviews.findItem(item.id))?.status, 'pending');
+    assert.equal(await reviews.findActiveExact({
+      answerLanguage: questionLog.answerLanguage,
+      normalizedQuestion: normalizeApprovedQuestion(questionLog.question),
+    }), undefined);
+  });
+});
+
 test('later approval creates a new version and retires the previous version with an audit link', async () => {
   await withFixture(async ({ path, reviews, service, questionLogs }) => {
     const question = '  What is   purification? ';

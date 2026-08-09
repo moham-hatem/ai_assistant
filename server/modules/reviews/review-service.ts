@@ -158,10 +158,10 @@ export class ReviewService {
       throw new AppError('QUESTION_LOG_NOT_FOUND', 'Question log not found.', 404);
     }
     const answer = decision.correctedAnswer ?? questionLog.answer;
-    if (questionLog.status !== 'answered' || !answer?.trim()) {
+    if (!answer?.trim()) {
       throw new AppError(
         'INVALID_REQUEST',
-        'An approved review requires an answered question log or corrected answer.',
+        'An approved review requires an original answer or correctedAnswer.',
         400,
       );
     }
