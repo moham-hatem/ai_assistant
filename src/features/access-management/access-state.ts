@@ -52,20 +52,20 @@ export function accessReducer(state: AccessState, action: AccessStateAction): Ac
       return action.requestId === state.listRequestId ? { ...state, listStatus: 'error' } : state;
     case 'next-page':
       if (!state.page?.nextCursor) return state;
-      return {
+      return clearDetail({
         ...state,
         cursor: state.page.nextCursor,
         cursorHistory: [...state.cursorHistory, state.cursor],
         listStatus: 'loading',
         page: null,
-      };
+      });
     case 'previous-page': {
       if (!state.cursorHistory.length) return state;
       const history = state.cursorHistory.slice(0, -1);
-      return { ...state, cursor: state.cursorHistory.at(-1) ?? null, cursorHistory: history, listStatus: 'loading', page: null };
+      return clearDetail({ ...state, cursor: state.cursorHistory.at(-1) ?? null, cursorHistory: history, listStatus: 'loading', page: null });
     }
     case 'retry-list':
-      return { ...state, listStatus: 'loading', reloadKey: state.reloadKey + 1 };
+      return clearDetail({ ...state, listStatus: 'loading', page: null, reloadKey: state.reloadKey + 1 });
     case 'select-user':
       return { ...state, detail: null, detailRequestId: action.requestId, detailStatus: 'loading', selectedId: action.id };
     case 'detail-loaded':
@@ -74,10 +74,14 @@ export function accessReducer(state: AccessState, action: AccessStateAction): Ac
     case 'detail-failed':
       return action.requestId === state.detailRequestId ? { ...state, detailStatus: 'error' } : state;
     case 'close-detail':
-      return { ...state, detail: null, selectedId: null };
+      return clearDetail(state);
     case 'user-updated':
       return replaceUser(state, action.user);
   }
+}
+
+function clearDetail(state: AccessState): AccessState {
+  return { ...state, detail: null, detailStatus: 'loading', selectedId: null };
 }
 
 function replaceUser(state: AccessState, user: AccessUserDetails): AccessState {

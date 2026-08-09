@@ -12,7 +12,7 @@ interface AccessUserDetailsProps {
   busy: AccessAction | null;
   copy: AccessCopy;
   onConfirm: (action: 'enable' | 'disable' | 'sessions') => void;
-  onRecovery: (id: string) => void;
+  onRecovery: (id: string, trigger: HTMLButtonElement) => void;
   onRetry: (id: string) => void;
   onSave: (id: string, update: { displayName: string; roles: AuthRole[] }) => void;
   selectedId: string | null;
@@ -61,7 +61,7 @@ export function AccessUserDetails(props: AccessUserDetailsProps) {
       <div className="access-account-actions">
         <button className={user.enabled ? 'access-danger-outline' : 'access-secondary'} disabled={props.busy !== null} onClick={() => props.onConfirm(user.enabled ? 'disable' : 'enable')} type="button">{user.enabled ? props.copy.disabled : props.copy.enabled}</button>
         <button className="access-secondary" disabled={props.busy !== null} onClick={() => props.onConfirm('sessions')} type="button">{props.copy.sessions}</button>
-        <button className="access-secondary" disabled={props.busy !== null} onClick={() => props.onRecovery(user.id)} type="button">{props.copy.recovery.create}</button>
+        <button className="access-secondary" disabled={props.busy !== null} onClick={(event) => props.onRecovery(user.id, event.currentTarget)} type="button">{props.copy.recovery.create}</button>
       </div>
     </article>
   );

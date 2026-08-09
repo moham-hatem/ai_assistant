@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { AccessUserDetails } from '../../shared/contracts/access-management.ts';
+import type { AccessUserDetails, SecretLinkResponse } from '../../shared/contracts/access-management.ts';
 import {
   createAccessInvitation,
   createAccessRecovery,
@@ -21,6 +21,10 @@ import {
   accessReducer,
   initialAccessState,
 } from '../../src/features/access-management/access-state.ts';
+import {
+  invitationUiPolicy,
+  resolveAccessAction,
+} from '../../src/features/access-management/access-policies.ts';
 
 const user: AccessUserDetails = {
   createdAt: '2026-08-01T10:00:00.000Z',
@@ -31,7 +35,7 @@ const user: AccessUserDetails = {
   roles: ['operator'],
   updatedAt: '2026-08-02T10:00:00.000Z',
 };
-const secret = {
+const secret: SecretLinkResponse = {
   expiresAt: '2026-08-12T10:00:00.000Z',
   id: 'secret-1',
   link: 'https://app.example/#/password-setup?invitation=only-in-memory',
@@ -54,11 +58,20 @@ test('cursor state supports forward/back navigation and ignores stale list and d
   state = accessReducer(state, { page: { items: [user], nextCursor: 'next' }, requestId: 1, type: 'list-loaded' });
   assert.equal(state.page, null);
   state = accessReducer(state, { page: { items: [user], nextCursor: 'next' }, requestId: 2, type: 'list-loaded' });
+  state = accessReducer(state, { id: user.id, requestId: 3, type: 'select-user' });
+  state = accessReducer(state, { requestId: 3, type: 'detail-loaded', user });
   state = accessReducer(state, { type: 'next-page' });
   assert.equal(state.cursor, 'next');
   assert.deepEqual(state.cursorHistory, [null]);
+  assert.equal(state.selectedId, null);
+  assert.equal(state.detail, null);
+  assert.equal(state.detailStatus, 'loading');
+
+  const lateDetail = accessReducer(state, { requestId: 3, type: 'detail-loaded', user });
+  assert.equal(lateDetail.detail, null);
   state = accessReducer(state, { type: 'previous-page' });
   assert.equal(state.cursor, null);
+  assert.equal(state.selectedId, null);
 
   state = accessReducer(state, { id: user.id, requestId: 4, type: 'select-user' });
   const stale = { ...user, displayName: 'Stale' };
@@ -66,17 +79,46 @@ test('cursor state supports forward/back navigation and ignores stale list and d
   assert.equal(state.detail, null);
   state = accessReducer(state, { requestId: 4, type: 'detail-loaded', user });
   assert.equal(state.detail?.displayName, user.displayName);
+  state = accessReducer(state, { type: 'retry-list' });
+  assert.equal(state.selectedId, null);
+  assert.equal(state.detail, null);
+  assert.equal(state.page, null);
+});
+
+test('recovery secrets outrank a programmatic selection race while ordinary stale mutations are dropped', () => {
+  const recovery = resolveAccessAction('recovery', secret, false);
+  assert.deepEqual(recovery, { secret, success: null, user: null });
+
+  const staleUpdate = resolveAccessAction('save', user, false);
+  assert.deepEqual(staleUpdate, { secret: null, success: null, user: null });
+
+  const currentUpdate = resolveAccessAction('save', user, true);
+  assert.deepEqual(currentUpdate, { secret: null, success: 'save', user });
+});
+
+test('invitation dismissal policy separates idle close from the in-flight modal lock', () => {
+  assert.deepEqual(invitationUiPolicy(false), {
+    ariaBusy: false,
+    controlsDisabled: false,
+    dismissible: true,
+  });
+  assert.deepEqual(invitationUiPolicy(true), {
+    ariaBusy: true,
+    controlsDisabled: true,
+    dismissible: false,
+  });
 });
 
 test('typed access client uses canonical cursor and action routes with JSON bodies', async () => {
   const originalFetch = globalThis.fetch;
-  const calls: Array<{ body: string | null; credentials?: RequestCredentials; method: string; url: string }> = [];
+  const calls: Array<{ body: string | null; credentials?: RequestCredentials; method: string; signal?: AbortSignal | null; url: string }> = [];
   globalThis.fetch = async (input, init) => {
     const url = String(input);
     calls.push({
       body: typeof init?.body === 'string' ? init.body : null,
       credentials: init?.credentials,
       method: init?.method ?? 'GET',
+      signal: init?.signal,
       url,
     });
     if (url.endsWith('/revoke-sessions') || url.includes('/api/auth/')) return new Response(null, { status: 204 });
@@ -113,6 +155,7 @@ test('typed access client uses canonical cursor and action routes with JSON bodi
   ]);
   assert.deepEqual(JSON.parse(calls[2]!.body!), { displayName: 'Updated', roles: ['admin', 'reviewer'] });
   assert.deepEqual(JSON.parse(calls[5]!.body!), {});
+  assert.equal(calls[7]!.signal, undefined);
   assert.equal(calls[8]!.credentials, 'same-origin');
   assert.deepEqual(JSON.parse(calls[8]!.body!), { password: 'a secure password', token: 'private-token' });
 });

@@ -15,6 +15,7 @@ import {
   updateAccessUser,
 } from '../api/access-api';
 import { accessReducer, initialAccessState } from '../access-state';
+import { resolveAccessAction } from '../access-policies';
 
 export type AccessAction = 'save' | 'enable' | 'disable' | 'sessions' | 'recovery';
 
@@ -30,8 +31,6 @@ export function useAccessManagement() {
   const detailRequest = useRef(0);
   const actionLock = useRef(false);
   const invitationLock = useRef(false);
-  const invitationRequest = useRef(0);
-  const invitationController = useRef<AbortController | null>(null);
   const selectionVersion = useRef(0);
 
   useEffect(() => {
@@ -61,24 +60,34 @@ export function useAccessManagement() {
   }, [state.detailRequestId, state.selectedId]);
 
   const selectUser = useCallback((id: string) => {
+    if (actionLock.current || invitationLock.current || state.listStatus === 'loading') return;
     selectionVersion.current += 1;
     setActionError(null);
     setActionSuccess(null);
     dispatch({ id, requestId: ++detailRequest.current, type: 'select-user' });
-  }, []);
+  }, [state.listStatus]);
 
   const closeDetail = useCallback(() => {
+    if (actionLock.current || invitationLock.current) return;
     selectionVersion.current += 1;
     setActionError(null);
     setActionSuccess(null);
     dispatch({ type: 'close-detail' });
   }, []);
 
+  const navigateList = useCallback((type: 'next-page' | 'previous-page' | 'retry-list') => {
+    if (actionLock.current || invitationLock.current || state.listStatus === 'loading') return;
+    selectionVersion.current += 1;
+    setActionError(null);
+    setActionSuccess(null);
+    dispatch({ type });
+  }, [state.listStatus]);
+
   const runUserAction = useCallback(async (
     action: AccessAction,
     operation: () => Promise<AccessUserDetails | SecretLinkResponse | void>,
   ) => {
-    if (actionLock.current) return;
+    if (actionLock.current || invitationLock.current) return;
     actionLock.current = true;
     const version = selectionVersion.current;
     setBusyAction(action);
@@ -86,10 +95,10 @@ export function useAccessManagement() {
     setActionSuccess(null);
     try {
       const result = await operation();
-      if (selectionVersion.current !== version) return;
-      if (result && 'link' in result) setSecret({ kind: 'recovery', value: result });
-      else if (result) dispatch({ type: 'user-updated', user: result });
-      setActionSuccess(action);
+      const resolved = resolveAccessAction(action, result, selectionVersion.current === version);
+      if (resolved.secret) setSecret({ kind: 'recovery', value: resolved.secret });
+      if (resolved.user) dispatch({ type: 'user-updated', user: resolved.user });
+      if (resolved.success) setActionSuccess(resolved.success);
     } catch (error) {
       if (selectionVersion.current === version) setActionError(readErrorCode(error));
     } finally {
@@ -108,48 +117,36 @@ export function useAccessManagement() {
     runUserAction('recovery', () => createAccessRecovery(id)), [runUserAction]);
 
   const invite = useCallback(async (input: CreateInvitationRequest) => {
-    if (invitationLock.current) return false;
+    if (invitationLock.current || actionLock.current) return false;
     invitationLock.current = true;
-    const requestId = ++invitationRequest.current;
-    const controller = new AbortController();
-    invitationController.current = controller;
     setInviting(true);
     setInvitationError(null);
     try {
-      const value = await createAccessInvitation(input, controller.signal);
-      if (requestId !== invitationRequest.current) return false;
+      const value = await createAccessInvitation(input);
       setSecret({ kind: 'invitation', value });
       return true;
     } catch (error) {
-      if (requestId === invitationRequest.current && !isAbort(error)) {
-        setInvitationError(readErrorCode(error));
-      }
+      setInvitationError(readErrorCode(error));
       return false;
     } finally {
       invitationLock.current = false;
-      if (requestId === invitationRequest.current) setInviting(false);
+      setInviting(false);
     }
-  }, []);
-
-  const cancelInvitation = useCallback(() => {
-    invitationRequest.current += 1;
-    invitationController.current?.abort();
-    setInvitationError(null);
-    setInviting(false);
   }, []);
 
   return {
     actionError,
     actionSuccess,
     busyAction,
-    cancelInvitation,
     clearSecret: () => setSecret(null),
     closeDetail,
     createRecovery,
-    dispatch,
     invitationError,
     invite,
     inviting,
+    nextPage: () => navigateList('next-page'),
+    previousPage: () => navigateList('previous-page'),
+    retryList: () => navigateList('retry-list'),
     revokeSessions,
     saveUser,
     secret,

@@ -15,7 +15,7 @@ export interface AccessCopy {
   enabled: string;
   expires: string;
   intro: string;
-  invitation: { body: string; conflict: string; open: string; title: string };
+  invitation: { ambiguous: string; body: string; conflict: string; open: string; title: string };
   listError: string;
   loading: string;
   next: string;
@@ -42,7 +42,7 @@ export const accessCopies: Record<AppLanguage, AccessCopy> = {
     created: 'أُنشئ', details: 'تفاصيل المستخدم', disabled: 'معطّل', displayName: 'الاسم الظاهر', email: 'البريد الإلكتروني',
     empty: 'لا توجد حسابات فريق في هذه الصفحة.', enabled: 'مفعّل', expires: 'ينتهي',
     intro: 'أنشئ دعوات وأدِر حسابات الفريق وجلساته. يظل الخادم صاحب القرار النهائي لكل صلاحية وإجراء.',
-    invitation: { body: 'أدخل بيانات عضو الفريق وحدد دورًا واحدًا على الأقل. يمكن جمع الأدوار الصحيحة معًا.', conflict: 'تعذّر إنشاء الدعوة. قد يكون الحساب أو الدعوة موجودًا بالفعل.', open: 'دعوة عضو', title: 'إنشاء دعوة فريق' },
+    invitation: { ambiguous: 'تعذّر تأكيد نتيجة الطلب بسبب الاتصال. أعد المحاولة بأمان؛ إذا وصلت المحاولة الأولى فسيمنع الخادم إنشاء دعوة مكررة.', body: 'أدخل بيانات عضو الفريق وحدد دورًا واحدًا على الأقل. يمكن جمع الأدوار الصحيحة معًا.', conflict: 'تعذّر إنشاء الدعوة. قد يكون الحساب أو الدعوة موجودًا بالفعل.', open: 'دعوة عضو', title: 'إنشاء دعوة فريق' },
     listError: 'تعذّر تحميل قائمة الفريق.', loading: 'جارٍ التحميل…', next: 'التالي', noSelection: 'اختر مستخدمًا لعرض التفاصيل.', previous: 'السابق',
     recovery: { create: 'إنشاء رابط استعادة', title: 'استعادة كلمة المرور' },
     roles: {
@@ -63,7 +63,7 @@ export const accessCopies: Record<AppLanguage, AccessCopy> = {
     created: 'Created', details: 'User details', disabled: 'Disabled', displayName: 'Display name', email: 'Email address',
     empty: 'There are no team accounts on this page.', enabled: 'Enabled', expires: 'Expires',
     intro: 'Invite team members and manage their accounts and sessions. The server remains the final authority for every permission and action.',
-    invitation: { body: 'Enter the team member’s details and select at least one role. Valid roles may be combined.', conflict: 'The invitation could not be created. The account or an invitation may already exist.', open: 'Invite member', title: 'Create team invitation' },
+    invitation: { ambiguous: 'The connection ended before the result was confirmed. It is safe to retry; the server will reject a duplicate if the first request arrived.', body: 'Enter the team member’s details and select at least one role. Valid roles may be combined.', conflict: 'The invitation could not be created. The account or an invitation may already exist.', open: 'Invite member', title: 'Create team invitation' },
     listError: 'The team list could not be loaded.', loading: 'Loading…', next: 'Next', noSelection: 'Select a user to see details.', previous: 'Previous',
     recovery: { create: 'Create recovery link', title: 'Password recovery' },
     roles: {
@@ -84,7 +84,7 @@ export const accessCopies: Record<AppLanguage, AccessCopy> = {
     created: 'Iliundwa', details: 'Maelezo ya mtumiaji', disabled: 'Imezimwa', displayName: 'Jina la kuonekana', email: 'Barua pepe',
     empty: 'Hakuna akaunti za timu kwenye ukurasa huu.', enabled: 'Imewezeshwa', expires: 'Inaisha',
     intro: 'Alika wanatimu na usimamie akaunti na vikao vyao. Seva ndiyo yenye uamuzi wa mwisho kwa kila ruhusa na kitendo.',
-    invitation: { body: 'Weka maelezo ya mwanatimu na uchague angalau jukumu moja. Majukumu halali yanaweza kuunganishwa.', conflict: 'Mwaliko haukuweza kuundwa. Huenda akaunti au mwaliko tayari upo.', open: 'Alika mwanatimu', title: 'Unda mwaliko wa timu' },
+    invitation: { ambiguous: 'Muunganisho uliisha kabla ya kuthibitisha matokeo. Ni salama kujaribu tena; seva itakataa nakala ikiwa ombi la kwanza lilifika.', body: 'Weka maelezo ya mwanatimu na uchague angalau jukumu moja. Majukumu halali yanaweza kuunganishwa.', conflict: 'Mwaliko haukuweza kuundwa. Huenda akaunti au mwaliko tayari upo.', open: 'Alika mwanatimu', title: 'Unda mwaliko wa timu' },
     listError: 'Orodha ya timu haikuweza kupakiwa.', loading: 'Inapakia…', next: 'Inayofuata', noSelection: 'Chagua mtumiaji kuona maelezo.', previous: 'Iliyotangulia',
     recovery: { create: 'Unda kiungo cha urejeshaji', title: 'Urejeshaji wa nenosiri' },
     roles: {

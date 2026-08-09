@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Copy } from 'lucide-react';
 import type { SecretLinkResponse } from '../../../../shared/contracts/access-management';
 import type { AccessCopy } from '../access-copy';
@@ -14,6 +14,11 @@ interface SecretLinkDialogProps {
 export function SecretLinkDialog({ copy, kind, onClose, secret }: SecretLinkDialogProps) {
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
 
   async function copyLink() {
     try {

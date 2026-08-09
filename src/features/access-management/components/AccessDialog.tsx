@@ -1,22 +1,29 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 
 interface AccessDialogProps {
   children: ReactNode;
   closeLabel: string;
   descriptionId?: string;
+  dismissible?: boolean;
   onClose: () => void;
   title: string;
 }
 
-export function AccessDialog({ children, closeLabel, descriptionId, onClose, title }: AccessDialogProps) {
+export function AccessDialog({ children, closeLabel, descriptionId, dismissible = true, onClose, title }: AccessDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const titleId = `access-dialog-${useIdSafe(title)}`;
+  const titleId = useId();
 
   useEffect(() => {
     const dialog = dialogRef.current;
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (dialog && !dialog.open) dialog.showModal();
-    return () => { if (dialog?.open) dialog.close(); };
+    return () => {
+      if (dialog?.open) dialog.close();
+      queueMicrotask(() => {
+        if (trigger?.isConnected && !document.querySelector('dialog[open]')) trigger.focus();
+      });
+    };
   }, []);
 
   return (
@@ -24,18 +31,14 @@ export function AccessDialog({ children, closeLabel, descriptionId, onClose, tit
       aria-describedby={descriptionId}
       aria-labelledby={titleId}
       className="access-dialog"
-      onCancel={(event) => { event.preventDefault(); onClose(); }}
+      onCancel={(event) => { event.preventDefault(); if (dismissible) onClose(); }}
       ref={dialogRef}
     >
       <div className="access-dialog-heading">
         <h2 id={titleId}>{title}</h2>
-        <button aria-label={closeLabel} onClick={onClose} type="button"><X size={19} /></button>
+        <button aria-label={closeLabel} disabled={!dismissible} onClick={onClose} type="button"><X size={19} /></button>
       </div>
       {children}
     </dialog>
   );
-}
-
-function useIdSafe(value: string): string {
-  return value.toLocaleLowerCase().replace(/[^a-z0-9]+/giu, '-').slice(0, 32) || 'title';
 }

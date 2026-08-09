@@ -5,6 +5,7 @@ import type { LoadStatus } from '../access-state';
 interface AccessUserListProps {
   canGoBack: boolean;
   copy: AccessCopy;
+  disabled: boolean;
   onNext: () => void;
   onPrevious: () => void;
   onRetry: () => void;
@@ -26,6 +27,7 @@ export function AccessUserList(props: AccessUserListProps) {
           aria-pressed={props.selectedId === user.id}
           className="access-user-row"
           key={user.id}
+          disabled={props.disabled}
           onClick={() => props.onSelect(user.id)}
           type="button"
         >
@@ -35,8 +37,8 @@ export function AccessUserList(props: AccessUserListProps) {
         </button>
       ))}
       <div className="access-pagination">
-        <button disabled={!props.canGoBack} onClick={props.onPrevious} type="button">{props.copy.previous}</button>
-        <button disabled={!props.page?.nextCursor} onClick={props.onNext} type="button">{props.copy.next}</button>
+        <button disabled={props.disabled || !props.canGoBack} onClick={props.onPrevious} type="button">{props.copy.previous}</button>
+        <button disabled={props.disabled || !props.page?.nextCursor} onClick={props.onNext} type="button">{props.copy.next}</button>
       </div>
     </div>
   );

@@ -16,7 +16,7 @@ export function ConfirmActionDialog({ action, busy, copy, onClose, onConfirm }: 
     <AccessDialog closeLabel={copy.actions.close} descriptionId="confirm-access-action" onClose={onClose} title={title}>
       <p id="confirm-access-action">{copy.confirm[action]}</p>
       <div className="access-dialog-actions">
-        <button className="access-secondary" disabled={busy !== null} onClick={onClose} type="button">{copy.actions.cancel}</button>
+        <button autoFocus className="access-secondary" disabled={busy !== null} onClick={onClose} type="button">{copy.actions.cancel}</button>
         <button className={action === 'enable' ? 'access-primary' : 'access-danger'} disabled={busy !== null} onClick={onConfirm} type="button">{title}</button>
       </div>
     </AccessDialog>

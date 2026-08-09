@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { captureHashRoute, readBrowserRoute } from '../../src/app/secret-route.ts';
+import {
+  captureHashRoute,
+  clearCapturedPasswordRoute,
+  prepareCapturedPasswordRouteForHash,
+  readBrowserRoute,
+} from '../../src/app/secret-route.ts';
 
 test('password secrets are captured in memory and immediately receive a clean hash', () => {
   const captured = captureHashRoute('#/password-setup?invitation=top-secret');
@@ -14,19 +19,55 @@ test('password secrets are captured in memory and immediately receive a clean ha
 test('browser route capture removes the secret from the address bar with replaceState', () => {
   const originalWindow = globalThis.window;
   const replacements: string[] = [];
+  const location = { hash: '#/password-recovery?recovery=recovery-secret', pathname: '/', search: '' };
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
     value: {
-      history: { replaceState: (_state: unknown, _title: string, url: string) => replacements.push(url), state: null },
-      location: { hash: '#/password-recovery?recovery=recovery-secret', pathname: '/', search: '' },
+      history: { replaceState: (_state: unknown, _title: string, url: string) => {
+        replacements.push(url);
+        location.hash = `#${url.split('#', 2)[1] ?? ''}`;
+      }, state: null },
+      location,
     },
   });
   try {
-    const route = readBrowserRoute();
-    assert.deepEqual(route, { area: 'password', page: 'password-recovery', token: 'recovery-secret' });
+    const firstStrictRead = readBrowserRoute();
+    const secondStrictRead = readBrowserRoute();
+    const laterStrictRead = readBrowserRoute();
+    assert.deepEqual(firstStrictRead, { area: 'password', page: 'password-recovery', token: 'recovery-secret' });
+    assert.deepEqual(secondStrictRead, firstStrictRead);
+    assert.deepEqual(laterStrictRead, firstStrictRead);
     assert.deepEqual(replacements, ['/#/password-recovery']);
     assert.equal(replacements.join('').includes('recovery-secret'), false);
   } finally {
+    clearCapturedPasswordRoute();
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: originalWindow });
+  }
+});
+
+test('hash navigation never revives an invitation secret on later tokenless password routes', () => {
+  const originalWindow = globalThis.window;
+  const location = { hash: '#/password-setup?invitation=invitation-secret', pathname: '/', search: '' };
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      history: { replaceState: (_state: unknown, _title: string, url: string) => {
+        location.hash = `#${url.split('#', 2)[1] ?? ''}`;
+      }, state: null },
+      location,
+    },
+  });
+  try {
+    assert.deepEqual(readBrowserRoute(), { area: 'password', page: 'password-setup', token: 'invitation-secret' });
+    prepareCapturedPasswordRouteForHash(location.hash);
+    assert.deepEqual(readBrowserRoute(), { area: 'password', page: 'password-setup', token: 'invitation-secret' });
+    location.hash = '#/password-recovery';
+    prepareCapturedPasswordRouteForHash(location.hash);
+    assert.deepEqual(readBrowserRoute(), { area: 'password', page: 'password-recovery', token: null });
+    location.hash = '#/password-setup';
+    assert.deepEqual(readBrowserRoute(), { area: 'password', page: 'password-setup', token: null });
+  } finally {
+    clearCapturedPasswordRoute();
     Object.defineProperty(globalThis, 'window', { configurable: true, value: originalWindow });
   }
 });

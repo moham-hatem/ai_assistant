@@ -17,6 +17,7 @@
 .access-user-list { display: grid; }
 .access-user-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; width: 100%; padding: 15px 16px; color: inherit; text-align: start; background: #fff; border: 0; border-bottom: 1px solid #edf1ee; cursor: pointer; }
 .access-user-row:hover { background: #f6faf7; }
+.access-user-row:disabled { color: inherit; opacity: .62; cursor: wait; }
 .access-user-row[aria-pressed='true'] { background: #eaf5ed; box-shadow: inset 4px 0 #18704b; }
 [dir='rtl'] .access-user-row[aria-pressed='true'] { box-shadow: inset -4px 0 #18704b; }
 .access-user-avatar { display: grid; place-items: center; width: 39px; height: 39px; color: #15583d; font-weight: 800; background: #dfeee3; border-radius: 50%; }
@@ -67,6 +68,7 @@
 .access-dialog-heading { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 24px 14px; background: #fff; border-bottom: 1px solid #e4ebe6; }
 .access-dialog-heading h2 { margin: 0; font-size: 1.25rem; }
 .access-dialog-heading button { display: grid; place-items: center; width: 34px; height: 34px; color: #496257; background: #f1f5f2; border: 0; border-radius: 9px; cursor: pointer; }
+.access-dialog-heading button:disabled { opacity: .45; cursor: wait; }
 .access-dialog > p { color: #607369; line-height: 1.65; }
 .access-dialog .access-form { padding-bottom: 24px; }
 .access-dialog-actions { display: flex; justify-content: flex-end; gap: 9px; margin-block: 22px 24px; }
