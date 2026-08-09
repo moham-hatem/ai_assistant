@@ -21,6 +21,7 @@ export function PwaStatusProvider({ children, language }: { children: ReactNode;
       <PwaStatusNotice
         copy={copy}
         language={getLanguage(language)}
+        onReload={() => status.update ? requestPwaUpdate() : window.location.reload()}
         onRequestUpdate={() => requestPwaUpdate()}
         status={status}
       />

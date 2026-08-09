@@ -1,15 +1,21 @@
 import { PWA_UPDATE_READY_EVENT } from '../../pwa/update-contract.ts';
+import type { ApiCompatibilityState } from '../../pwa/check-api-compatibility.ts';
+
+export type ApiCompatibilityStatus = ApiCompatibilityState['status'] | 'checking' | 'unknown';
 
 export interface PwaUpdateInfo {
   version: string | null;
 }
 
 export interface PwaStatusState {
+  apiCompatibility: ApiCompatibilityStatus;
   isOnline: boolean;
   update: PwaUpdateInfo | null;
 }
 
 export type PwaStatusAction =
+  | { type: 'compatibility_check_started' }
+  | { status: ApiCompatibilityState['status']; type: 'compatibility_checked' }
   | { isOnline: boolean; type: 'connection_changed' }
   | { update: PwaUpdateInfo; type: 'update_ready' };
 
@@ -25,13 +31,28 @@ const MAX_VERSION_LENGTH = 80;
 const SAFE_VERSION = /^[a-zA-Z0-9._-]+$/u;
 
 export function createPwaStatusState(isOnline: boolean): PwaStatusState {
-  return { isOnline, update: null };
+  return {
+    apiCompatibility: isOnline ? 'checking' : 'unknown',
+    isOnline,
+    update: null,
+  };
 }
 
 export function pwaStatusReducer(state: PwaStatusState, action: PwaStatusAction): PwaStatusState {
   switch (action.type) {
+    case 'compatibility_check_started':
+      return state.apiCompatibility === 'checking'
+        ? state
+        : { ...state, apiCompatibility: 'checking' };
+    case 'compatibility_checked':
+      return { ...state, apiCompatibility: action.status };
     case 'connection_changed':
-      return state.isOnline === action.isOnline ? state : { ...state, isOnline: action.isOnline };
+      if (state.isOnline === action.isOnline) return state;
+      return {
+        ...state,
+        apiCompatibility: action.isOnline ? 'checking' : state.apiCompatibility,
+        isOnline: action.isOnline,
+      };
     case 'update_ready':
       return { ...state, update: action.update };
   }

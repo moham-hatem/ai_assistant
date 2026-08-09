@@ -27,6 +27,8 @@
 .pwa-status-notice strong { display: block; font-size: .9rem; }
 .pwa-status-notice p { margin: 3px 0 0; font-size: .79rem; line-height: 1.6; }
 .pwa-status-offline { color: #593f0b; background: #fff8df; border-color: #e4c875; }
+.pwa-status-incompatible { color: #7a2020; background: #fff0ef; border-color: #dda09c; }
+.pwa-status-unavailable { color: #594516; background: #fff9e9; border-color: #ddca91; }
 .pwa-status-update { color: #124b32; background: #eff9f1; border-color: #98c6a5; }
 .pwa-status-notice button {
   align-self: center;

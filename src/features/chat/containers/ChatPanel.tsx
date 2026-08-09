@@ -1,6 +1,7 @@
 import { ChatComposer } from '../components/ChatComposer';
 import { ChatTranscript } from '../components/ChatTranscript';
 import { useLearningChat } from '../hooks/useLearningChat';
+import { getPwaChatBlockReason } from '../../pwa/chat-availability';
 import { usePwaStatus } from '../../pwa/PwaStatusProvider';
 import type { AppLanguage } from '../../../i18n/language';
 import type { AppTranslations } from '../../../i18n/translations';
@@ -12,10 +13,9 @@ interface ChatPanelProps {
 
 export function ChatPanel({ copy, language }: ChatPanelProps) {
   const { errorMessage, messages, sendQuestion, status } = useLearningChat(language, copy);
-  const { copy: pwaCopy, isOnline } = usePwaStatus();
-  const submissionBlockReason = !isOnline
-    ? pwaCopy.composerOffline
-    : status === 'answering' ? copy.searching : null;
+  const pwaStatus = usePwaStatus();
+  const submissionBlockReason = getPwaChatBlockReason(pwaStatus, pwaStatus.copy)
+    ?? (status === 'answering' ? copy.searching : null);
 
   return (
     <section className="chat-card" aria-label={copy.chatAria}>
