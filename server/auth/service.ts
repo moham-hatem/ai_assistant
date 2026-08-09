@@ -81,7 +81,10 @@ export class AuthService {
 
     const user = email ? await this.repository.findUserByEmail(email) : undefined;
     const valid = await this.passwords.verify(password, user?.passwordHash ?? this.dummyPasswordHash);
-    if (!user || !valid) {
+    if (!user || !valid || !user.enabled) {
+      if (user && !user.enabled) {
+        await this.repository.revokeAllUserSessions(user.id, now.toISOString());
+      }
       const failure = await this.rateLimiter.recordFailure(rateKey, now.getTime());
       if (!failure.allowed) {
         throw new TooManyLoginAttemptsError(failure.retryAfterSeconds);
@@ -128,7 +131,10 @@ export class AuthService {
     const idleExpiresAt = new Date(Math.min(nowMs + this.options.idleTtlMs, absoluteMs)).toISOString();
     if (!await this.repository.touchSession(tokenHash, now.toISOString(), idleExpiresAt)) return null;
     const user = await this.repository.findUserById(session.userId);
-    if (!user) {
+    if (!user || !user.enabled) {
+      if (user && !user.enabled) {
+        await this.repository.revokeAllUserSessions(user.id, now.toISOString());
+      }
       await this.repository.revokeSession(tokenHash, now.toISOString());
       return null;
     }

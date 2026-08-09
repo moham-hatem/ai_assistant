@@ -189,6 +189,7 @@ function createFixture(options: FixtureOptions = {}) {
     response.end();
   };
   const handlers: LocalApiHandlers = {
+    access: handler('access'),
     answer: handler('answer'),
     books: handler('books'),
     documents: handler('documents'),

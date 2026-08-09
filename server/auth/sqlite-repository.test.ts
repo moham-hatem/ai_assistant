@@ -21,6 +21,8 @@ test('SQLite migrations are ordered, idempotent, and enforce normalized security
     });
     const password = 'database plaintext sentinel';
     const rawToken = 'raw-session-token-sentinel-'.padEnd(43, 'x');
+    const rawInvitationToken = 'raw-invitation-token-sentinel-'.padEnd(43, 'i');
+    const rawRecoveryToken = 'raw-recovery-token-sentinel-'.padEnd(43, 'r');
     const repository = new SqliteAuthRepository(path);
     const command = {
       displayName: 'Local Operator',
@@ -47,10 +49,29 @@ test('SQLite migrations are ordered, idempotent, and enforce normalized security
       tokenHash: hashSessionToken(rawToken),
       userId: command.id,
     });
+    await repository.createInvitation({
+      createdAt: command.timestamp,
+      createdByUserId: command.id,
+      displayName: 'Invited User',
+      email: 'invited@example.org',
+      expiresAt: '2026-01-02T00:00:00.000Z',
+      id: 'invitation-1',
+      roles: ['reviewer'],
+      tokenHash: hashSessionToken(rawInvitationToken),
+    });
+    await repository.createRecovery({
+      createdAt: command.timestamp,
+      createdByUserId: command.id,
+      expiresAt: '2026-01-01T01:00:00.000Z',
+      id: 'recovery-1',
+      tokenHash: hashSessionToken(rawRecoveryToken),
+      userId: command.id,
+    });
     repository.close();
 
     const reopened = new SqliteAuthRepository(path);
     assert.deepEqual((await reopened.findUserByEmail(command.email))?.roles.sort(), ['admin', 'operator']);
+    assert.equal((await reopened.findUserByEmail(command.email))?.enabled, true);
     reopened.close();
 
     const bytes = readdirSync(directory)
@@ -58,10 +79,12 @@ test('SQLite migrations are ordered, idempotent, and enforce normalized security
       .reduce((combined, item) => Buffer.concat([combined, item]), Buffer.alloc(0));
     assert.equal(bytes.includes(Buffer.from(password)), false);
     assert.equal(bytes.includes(Buffer.from(rawToken)), false);
+    assert.equal(bytes.includes(Buffer.from(rawInvitationToken)), false);
+    assert.equal(bytes.includes(Buffer.from(rawRecoveryToken)), false);
 
     const database = new DatabaseSync(path);
     assert.equal((database.prepare('SELECT count(*) AS count FROM auth_schema_migrations').get() as
-      unknown as { count: number }).count, 2);
+      unknown as { count: number }).count, 3);
     assert.throws(() => database.prepare(`
       INSERT INTO auth_sessions (
         token_hash, user_id, created_at, last_seen_at, idle_expires_at,
@@ -117,6 +140,7 @@ test('schema v1 users migrate to a safe explicit display-name fallback', async (
     const repository = new SqliteAuthRepository(path);
     const migrated = await repository.findUserById('legacy-user');
     assert.equal(migrated?.displayName, 'Local User');
+    assert.equal(migrated?.enabled, true);
     assert.equal(migrated?.displayName.trim().length > 0, true);
     repository.close();
   } finally {

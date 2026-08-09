@@ -39,6 +39,7 @@ test('roles map exactly to the least-privilege API gateway permissions', () => {
     createdAt: '2026-01-01T00:00:00.000Z',
     displayName: 'Local Admin',
     email: 'admin@example.org',
+    enabled: true,
     id: 'admin',
     passwordHash: 'not-exposed-by-principal',
     roles: ['admin', 'reviewer'],

@@ -45,6 +45,55 @@ const migrations = [
         AND instr(display_name, char(0)) = 0
       );
   `,
+  `
+    ALTER TABLE auth_users ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1
+      CHECK (enabled IN (0, 1));
+
+    CREATE TABLE auth_invitations (
+      id TEXT PRIMARY KEY,
+      token_hash TEXT NOT NULL UNIQUE CHECK (
+        length(token_hash) = 64 AND token_hash NOT GLOB '*[^0-9a-f]*'
+      ),
+      email TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      created_by_user_id TEXT NOT NULL REFERENCES auth_users(id),
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      revoked_at TEXT,
+      CHECK (email = lower(trim(email))),
+      CHECK (expires_at > created_at),
+      CHECK (NOT (used_at IS NOT NULL AND revoked_at IS NOT NULL))
+    ) STRICT;
+
+    CREATE TABLE auth_invitation_roles (
+      invitation_id TEXT NOT NULL REFERENCES auth_invitations(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK (
+        role IN ('reviewer', 'content_manager', 'operator', 'admin')
+      ),
+      PRIMARY KEY (invitation_id, role)
+    ) STRICT;
+
+    CREATE TABLE auth_recovery_tokens (
+      id TEXT PRIMARY KEY,
+      token_hash TEXT NOT NULL UNIQUE CHECK (
+        length(token_hash) = 64 AND token_hash NOT GLOB '*[^0-9a-f]*'
+      ),
+      user_id TEXT NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
+      created_by_user_id TEXT NOT NULL REFERENCES auth_users(id),
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      revoked_at TEXT,
+      CHECK (expires_at > created_at),
+      CHECK (NOT (used_at IS NOT NULL AND revoked_at IS NOT NULL))
+    ) STRICT;
+
+    CREATE INDEX auth_invitations_active_idx
+      ON auth_invitations (email, expires_at) WHERE used_at IS NULL AND revoked_at IS NULL;
+    CREATE INDEX auth_recovery_active_idx
+      ON auth_recovery_tokens (user_id, expires_at) WHERE used_at IS NULL AND revoked_at IS NULL;
+  `,
 ] as const;
 
 export function migrateAuthDatabase(database: DatabaseSync): void {

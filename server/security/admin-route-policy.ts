@@ -12,6 +12,20 @@ interface ProtectedRoute {
 }
 
 const protectedRoutes: readonly ProtectedRoute[] = [
+  route('GET', /^\/api\/internal\/access\/users$/u, 'settings:manage'),
+  route('GET', /^\/api\/internal\/access\/users\/[^/]+$/u, 'settings:manage'),
+  route('PATCH', /^\/api\/internal\/access\/users\/[^/]+$/u, 'settings:manage'),
+  route(
+    'POST',
+    /^\/api\/internal\/access\/users\/[^/]+\/(?:enable|disable|revoke-sessions|recovery)$/u,
+    'settings:manage',
+  ),
+  route('POST', /^\/api\/internal\/access\/invitations$/u, 'settings:manage'),
+  route(
+    'POST',
+    /^\/api\/internal\/access\/(?:invitations|recoveries)\/[^/]+\/revoke$/u,
+    'settings:manage',
+  ),
   route('GET', /^\/api\/internal\/books$/u, 'books:read'),
   route('POST', /^\/api\/internal\/books$/u, 'books:write'),
   route('GET', /^\/api\/internal\/books\/[^/]+$/u, 'books:read'),
