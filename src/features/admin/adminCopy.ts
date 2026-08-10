@@ -11,6 +11,7 @@ export interface AdminCopy {
   dashboardIntro: string;
   dashboardTitle: string;
   navigation: Record<AdminNavigationKey, string>;
+  navigationBlocked: string;
   nextStep: string;
   pageIntro: Record<'books' | 'reviews' | 'questionLogs' | 'settings', string>;
   pageTitle: Record<'books' | 'reviews' | 'questionLogs' | 'settings', string>;
@@ -40,6 +41,7 @@ export const adminCopies: Record<AppLanguage, AdminCopy> = {
     dashboardIntro: 'نقطة موحدة لإدارة المحتوى ووصول الفريق ومتابعة الميزات التشغيلية المتصلة بخدمات الخادم.',
     dashboardTitle: 'نظرة عامة',
     navigation: { dashboard: 'الرئيسية', books: 'الكتب', reviews: 'المراجعات', questionLogs: 'سجل الأسئلة', access: 'وصول الفريق', settings: 'الإعدادات' },
+    navigationBlocked: 'جارٍ إنشاء رابط سري يُعرض مرة واحدة. ابقَ في هذه الصفحة حتى تكتمل العملية.',
     nextStep: 'الخطوة التالية',
     pageIntro: {
       books: 'إدارة سجلات الكتب وإصداراتها ودورة نشرها، مع إبقاء أدوات الملفات القديمة منفصلة أثناء الانتقال.',
@@ -72,6 +74,7 @@ export const adminCopies: Record<AppLanguage, AdminCopy> = {
     dashboardIntro: 'One place to manage content and team access and monitor operational features backed by server services.',
     dashboardTitle: 'Overview',
     navigation: { dashboard: 'Dashboard', books: 'Books', reviews: 'Reviews', questionLogs: 'Question logs', access: 'Team access', settings: 'Settings' },
+    navigationBlocked: 'A one-time secret link is being created. Stay on this page until the request finishes.',
     nextStep: 'Next step',
     pageIntro: {
       books: 'Manage book records, editions, and publication lifecycle while legacy file tools remain separate during migration.',
@@ -104,6 +107,7 @@ export const adminCopies: Record<AppLanguage, AdminCopy> = {
     dashboardIntro: 'Sehemu moja ya kusimamia maudhui na ufikiaji wa timu na kufuatilia vipengele vinavyounganishwa na huduma za seva.',
     dashboardTitle: 'Muhtasari',
     navigation: { dashboard: 'Dashibodi', books: 'Vitabu', reviews: 'Mapitio', questionLogs: 'Kumbukumbu za maswali', access: 'Ufikiaji wa timu', settings: 'Mipangilio' },
+    navigationBlocked: 'Kiungo cha siri kinachoonyeshwa mara moja kinaundwa. Baki kwenye ukurasa huu hadi ombi likamilike.',
     nextStep: 'Hatua inayofuata',
     pageIntro: {
       books: 'Simamia rekodi za vitabu, matoleo, na mzunguko wa uchapishaji huku zana za faili za zamani zikiwa tofauti.',

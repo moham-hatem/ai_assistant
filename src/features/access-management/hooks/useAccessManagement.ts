@@ -16,6 +16,7 @@ import {
 } from '../api/access-api';
 import { accessReducer, initialAccessState } from '../access-state';
 import { resolveAccessAction } from '../access-policies';
+import { acquireSpaNavigationGuard } from '../../../app/spa-navigation-guard';
 
 export type AccessAction = 'save' | 'enable' | 'disable' | 'sessions' | 'recovery';
 
@@ -89,6 +90,9 @@ export function useAccessManagement() {
   ) => {
     if (actionLock.current || invitationLock.current) return;
     actionLock.current = true;
+    const releaseNavigation = action === 'recovery'
+      ? acquireSpaNavigationGuard(window.location.hash)
+      : null;
     const version = selectionVersion.current;
     setBusyAction(action);
     setActionError(null);
@@ -103,6 +107,7 @@ export function useAccessManagement() {
       if (selectionVersion.current === version) setActionError(readErrorCode(error));
     } finally {
       actionLock.current = false;
+      releaseNavigation?.();
       setBusyAction(null);
     }
   }, []);
@@ -119,6 +124,7 @@ export function useAccessManagement() {
   const invite = useCallback(async (input: CreateInvitationRequest) => {
     if (invitationLock.current || actionLock.current) return false;
     invitationLock.current = true;
+    const releaseNavigation = acquireSpaNavigationGuard(window.location.hash);
     setInviting(true);
     setInvitationError(null);
     try {
@@ -130,6 +136,7 @@ export function useAccessManagement() {
       return false;
     } finally {
       invitationLock.current = false;
+      releaseNavigation();
       setInviting(false);
     }
   }, []);

@@ -25,6 +25,7 @@ import {
   invitationUiPolicy,
   resolveAccessAction,
 } from '../../src/features/access-management/access-policies.ts';
+import { accessCopies } from '../../src/features/access-management/access-copy.ts';
 
 const user: AccessUserDetails = {
   createdAt: '2026-08-01T10:00:00.000Z',
@@ -107,6 +108,14 @@ test('invitation dismissal policy separates idle close from the in-flight modal 
     controlsDisabled: true,
     dismissible: false,
   });
+});
+
+test('invitation ambiguity copy never promises retry success or secret replay', () => {
+  for (const copy of Object.values(accessCopies)) {
+    assert.equal(/safe to retry|بأمان|salama kujaribu tena/iu.test(copy.invitation.ambiguous), false);
+    assert.equal(copy.invitation.ambiguous.length > 40, true);
+    assert.equal(copy.invitation.conflict.length > 20, true);
+  }
 });
 
 test('typed access client uses canonical cursor and action routes with JSON bodies', async () => {
