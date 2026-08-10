@@ -42,10 +42,11 @@ this configured origin too; it does not derive the trusted origin from the reque
 
 ## Local team access management
 
-This is a backend-only access lifecycle; no React management or password-setup UI is included
-yet. Routes under `/api/internal/access/*` require `settings:manage` and use the same session and
-trusted-origin guard as other admin writes. The API provides bounded cursor pagination, safe
-user details,
+The local access lifecycle is available through the protected React route `#/admin/access`, with
+public invitation setup and password-recovery routes that capture their secrets in memory and
+remove them from the address bar. Routes under `/api/internal/access/*` require
+`settings:manage` and use the same session and trusted-origin guard as other admin writes. The
+API provides bounded cursor pagination, safe user details,
 display-name/role updates, enable/disable actions, full session revocation, invitations, and
 password recovery. Responses never include password hashes, session tokens, or stored token
 hashes.
