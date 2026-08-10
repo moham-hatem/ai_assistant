@@ -14,6 +14,7 @@ import {
   AccessConflictError,
   AccessLockoutError,
   AccessService,
+  AccessTokenRejectedError,
   AccessUserNotFoundError,
   InvalidAccessInputError,
 } from './access-service.ts';
@@ -258,6 +259,87 @@ test('sensitive access success commits to outbox and fails closed while audit is
   }
 });
 
+test('a lost recovery link is safely superseded after audit delivery recovers without duplicates', async () => {
+  const auth = new SqliteAuthRepository(':memory:');
+  const passwords = new ScryptPasswordHasher(fastScrypt);
+  await createUser(auth, passwords, 'admin-1', 'admin@example.test', ['admin']);
+  await createUser(auth, passwords, 'user-1', 'user@example.test', ['reviewer']);
+  const tokens = ['l'.repeat(43), 'w'.repeat(43)];
+  const ids = ['lost-recovery', 'replacement-recovery'];
+  const unavailable = new AccessService(
+    auth,
+    passwords,
+    new InMemoryLoginRateLimiter(),
+    { invitationTtlMs: 60_000, publicOrigin, recoveryTtlMs: 60_000 },
+    () => new Date('2026-08-10T00:00:00.000Z'),
+    () => tokens.shift()!,
+    () => ids.shift()!,
+    new SecurityAuditService(new UnavailableSecurityAuditRepository()),
+  );
+  const auditRepository = new SqliteSecurityAuditRepository(
+    ':memory:', new Map([['v1', randomBytes(32)]]), 'v1',
+  );
+  try {
+    await assert.rejects(
+      unavailable.createRecovery('admin-1', 'user-1', 'issue-lost-recovery'),
+      (error: unknown) => error instanceof AppError
+        && error.code === 'SECURITY_AUDIT_UNAVAILABLE'
+        && error.status === 503,
+    );
+    assert.equal(
+      (await auth.findRecoveryByTokenHash(hashSessionToken('l'.repeat(43))))?.revokedAt,
+      null,
+    );
+
+    const audit = new SecurityAuditService(auditRepository);
+    const recovered = new AccessService(
+      auth,
+      passwords,
+      new InMemoryLoginRateLimiter(),
+      { invitationTtlMs: 60_000, publicOrigin, recoveryTtlMs: 60_000 },
+      () => new Date('2026-08-10T00:00:30.000Z'),
+      () => tokens.shift()!,
+      () => ids.shift()!,
+      audit,
+    );
+    const replacement = await recovered.createRecovery(
+      'admin-1', 'user-1', 'issue-replacement-recovery',
+    );
+    assert.equal(replacement.id, 'replacement-recovery');
+    assert.equal(
+      (await auth.findRecoveryByTokenHash(hashSessionToken('l'.repeat(43))))?.revokedAt,
+      '2026-08-10T00:00:30.000Z',
+    );
+    assert.equal(
+      (await auth.findRecoveryByTokenHash(hashSessionToken('w'.repeat(43))))?.revokedAt,
+      null,
+    );
+    await assert.rejects(
+      recovered.redeemRecovery(
+        'l'.repeat(43), 'replacement secure password', 'lost-client', 'redeem-lost-recovery',
+      ),
+      AccessTokenRejectedError,
+    );
+
+    const events = await audit.list({ category: 'access', limit: 20, offset: 0 });
+    const successfulIssueEvents = events.items.filter((event) =>
+      event.outcome === 'success'
+      && ['issue-lost-recovery', 'issue-replacement-recovery'].includes(event.requestId));
+    assert.equal(successfulIssueEvents.filter((event) =>
+      event.action === 'access.recovery_created').length, 2);
+    const superseded = successfulIssueEvents.filter((event) =>
+      event.action === 'access.recovery_revoked');
+    assert.equal(superseded.length, 1);
+    assert.equal(superseded[0]?.subjectId, 'lost-recovery');
+    assert.deepEqual(superseded[0]?.metadata, { reason: 'superseded' });
+    assert.equal(new Set(events.items.map((event) => event.id)).size, events.items.length);
+    assert.equal(await auth.flushSecurityAuditOutbox(audit), 0);
+  } finally {
+    auth.close();
+    auditRepository.close();
+  }
+});
+
 test('access state rolls back when its transactional audit outbox insert fails', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'access-audit-rollback-'));
   const databasePath = join(directory, 'auth.sqlite');
@@ -268,6 +350,15 @@ test('access state rolls back when its transactional audit outbox insert fails',
   const passwords = new ScryptPasswordHasher(fastScrypt);
   await createUser(auth, passwords, 'admin-1', 'admin@example.test', ['admin']);
   await createUser(auth, passwords, 'user-1', 'user@example.test', ['reviewer']);
+  const retainedRecoveryToken = 'p'.repeat(43);
+  await auth.createRecovery({
+    createdAt: '2026-08-10T00:00:00.000Z',
+    createdByUserId: 'admin-1',
+    expiresAt: '2026-08-10T01:00:00.000Z',
+    id: 'retained-recovery',
+    tokenHash: hashSessionToken(retainedRecoveryToken),
+    userId: 'user-1',
+  });
   const control = new DatabaseSync(databasePath);
   control.exec(`
     CREATE TRIGGER reject_access_audit_outbox
@@ -281,9 +372,9 @@ test('access state rolls back when its transactional audit outbox insert fails',
     passwords,
     new InMemoryLoginRateLimiter(),
     { invitationTtlMs: 60_000, publicOrigin, recoveryTtlMs: 60_000 },
-    undefined,
-    undefined,
-    undefined,
+    () => new Date('2026-08-10T00:00:00.000Z'),
+    () => 'n'.repeat(43),
+    () => 'rolled-back-recovery',
     new SecurityAuditService(auditRepository),
   );
   try {
@@ -310,12 +401,26 @@ test('access state rolls back when its transactional audit outbox insert fails',
       /injected audit outbox failure/u,
     );
     assert.equal((await auth.findUserById('user-1'))?.enabled, true);
+    await assert.rejects(
+      access.createRecovery('admin-1', 'user-1', 'request-recovery-rollback'),
+      (error: unknown) => error instanceof AppError
+        && error.code === 'SECURITY_AUDIT_UNAVAILABLE'
+        && error.status === 503,
+    );
+    assert.equal(
+      (await auth.findRecoveryByTokenHash(hashSessionToken(retainedRecoveryToken)))?.revokedAt,
+      null,
+    );
+    assert.equal(
+      await auth.findRecoveryByTokenHash(hashSessionToken('n'.repeat(43))),
+      undefined,
+    );
     const fallback = await new SecurityAuditService(auditRepository).list({
       category: 'access', limit: 10, offset: 0,
     });
-    assert.equal(fallback.items[0]?.requestId, 'request-rollback');
-    assert.equal(fallback.items[0]?.outcome, 'failure');
-    assert.deepEqual(fallback.items[0]?.metadata, { reason: 'storage_failure' });
+    const rollbackFailure = fallback.items.find((event) => event.requestId === 'request-rollback');
+    assert.equal(rollbackFailure?.outcome, 'failure');
+    assert.deepEqual(rollbackFailure?.metadata, { reason: 'storage_failure' });
   } finally {
     auth.close();
     auditRepository.close();
@@ -453,11 +558,26 @@ test('successful redemption transactionally revokes every active sibling with on
     assert.equal(invitationSibling?.actorUserId, null);
     assert.deepEqual(invitationSibling?.metadata, { reason: 'sibling_redeemed' });
     const recoverySibling = events.items.find((event) =>
-      event.requestId === 'redeem-recovery-siblings'
+      event.requestId === 'create-recovery-2'
       && event.action === 'access.recovery_revoked');
     assert.equal(recoverySibling?.subjectId, firstRecovery.id);
-    assert.equal(recoverySibling?.actorUserId, null);
-    assert.deepEqual(recoverySibling?.metadata, { reason: 'sibling_redeemed' });
+    assert.equal(recoverySibling?.actorUserId, 'admin-1');
+    assert.deepEqual(recoverySibling?.metadata, { reason: 'superseded' });
+    const secondIssueEvents = events.items.filter((event) =>
+      event.requestId === 'create-recovery-2' && event.outcome === 'success');
+    assert.deepEqual(
+      secondIssueEvents.map((event) => [event.action, event.subjectId]).sort(),
+      [
+        ['access.recovery_created', secondRecovery.id],
+        ['access.recovery_revoked', firstRecovery.id],
+      ].sort(),
+    );
+    const serializedIssueEvents = JSON.stringify(secondIssueEvents);
+    for (const forbidden of [
+      'user@example.test',
+      secret(firstRecovery.link, 'recovery'),
+      secret(secondRecovery.link, 'recovery'),
+    ]) assert.equal(serializedIssueEvents.includes(forbidden), false);
   } finally {
     auth.close();
     auditRepository.close();
@@ -526,6 +646,72 @@ test('invalid and duplicate create/update attempts enqueue minimized denied even
   } finally {
     auth.close();
     auditRepository.close();
+  }
+});
+
+test('competing recovery issues leave one active token and audit the actual supersession', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'access-audit-recovery-race-'));
+  const authPath = join(directory, 'auth.sqlite');
+  const auditPath = join(directory, 'audit.sqlite');
+  const auditKey = randomBytes(32);
+  const passwords = new ScryptPasswordHasher(fastScrypt);
+  const auth = new SqliteAuthRepository(authPath);
+  await createUser(auth, passwords, 'admin-1', 'admin@example.test', ['admin']);
+  await createUser(auth, passwords, 'user-1', 'user@example.test', ['reviewer']);
+  auth.close();
+  new SqliteSecurityAuditRepository(
+    auditPath, new Map([['v1', auditKey]]), 'v1',
+  ).close();
+  const operations = [
+    {
+      id: 'raced-recovery-a', kind: 'recovery', requestId: 'issue-race-a',
+      token: 'a'.repeat(43), userId: 'user-1',
+    },
+    {
+      id: 'raced-recovery-b', kind: 'recovery', requestId: 'issue-race-b',
+      token: 'b'.repeat(43), userId: 'user-1',
+    },
+  ] as const;
+  try {
+    await runConcurrentAccessOperations(authPath, auditPath, auditKey, operations);
+    const reopenedAuth = new SqliteAuthRepository(authPath);
+    const auditRepository = new SqliteSecurityAuditRepository(
+      auditPath, new Map([['v1', auditKey]]), 'v1',
+    );
+    try {
+      const recoveries = await Promise.all(operations.map((operation) =>
+        reopenedAuth.findRecoveryByTokenHash(hashSessionToken(operation.token)),
+      ));
+      const activeIndex = recoveries.findIndex((recovery) => recovery?.revokedAt === null);
+      const revokedIndex = recoveries.findIndex((recovery) => recovery?.revokedAt !== null);
+      assert.notEqual(activeIndex, -1);
+      assert.notEqual(revokedIndex, -1);
+      assert.notEqual(activeIndex, revokedIndex);
+
+      const audit = new SecurityAuditService(auditRepository);
+      const events = (await audit.list({ category: 'access', limit: 20, offset: 0 })).items;
+      const issueEvents = events.filter((event) => event.requestId.startsWith('issue-race-'));
+      assert.equal(issueEvents.filter((event) =>
+        event.action === 'access.recovery_created').length, 2);
+      const revokedEvents = issueEvents.filter((event) =>
+        event.action === 'access.recovery_revoked');
+      assert.equal(revokedEvents.length, 1);
+      assert.equal(revokedEvents[0]?.subjectId, operations[revokedIndex]!.id);
+      assert.equal(revokedEvents[0]?.requestId, operations[activeIndex]!.requestId);
+      assert.equal(revokedEvents[0]?.actorUserId, 'admin-1');
+      assert.deepEqual(revokedEvents[0]?.metadata, { reason: 'superseded' });
+      const serialized = JSON.stringify(issueEvents);
+      for (const forbidden of [
+        'user@example.test', operations[0].token, operations[1].token,
+      ]) assert.equal(serialized.includes(forbidden), false);
+      assert.equal(new Set(issueEvents.map((event) => event.id)).size, issueEvents.length);
+      assert.equal(await reopenedAuth.flushSecurityAuditOutbox(audit), 0);
+    } finally {
+      reopenedAuth.close();
+      auditRepository.close();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });
 
@@ -738,6 +924,12 @@ type ConcurrentAccessOperation = {
   kind: 'enabled';
   requestId: string;
   userId: string;
+} | {
+  id: string;
+  kind: 'recovery';
+  requestId: string;
+  token: string;
+  userId: string;
 };
 
 async function runConcurrentAccessOperations(
@@ -798,8 +990,8 @@ function accessOperationWorker(
         limiter,
         { invitationTtlMs: 60_000, publicOrigin: 'http://app.local.test', recoveryTtlMs: 60_000 },
         () => new Date('2026-08-10T00:00:00.000Z'),
-        undefined,
-        undefined,
+        () => workerData.operation.token ?? 'unused-access-token'.padEnd(43, 'x'),
+        () => workerData.operation.id ?? 'unused-access-id',
         new SecurityAuditService(auditRepository),
       );
       const state = new Int32Array(workerData.barrier);
@@ -811,10 +1003,14 @@ function accessOperationWorker(
             'admin-1', workerData.operation.userId, workerData.operation.input,
             workerData.operation.requestId,
           );
-        } else {
+        } else if (workerData.operation.kind === 'enabled') {
           await access.setEnabled(
             'admin-1', workerData.operation.userId, workerData.operation.enabled,
             workerData.operation.requestId,
+          );
+        } else {
+          await access.createRecovery(
+            'admin-1', workerData.operation.userId, workerData.operation.requestId,
           );
         }
       } finally {

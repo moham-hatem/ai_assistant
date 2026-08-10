@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type {
   AccessUserDetails,
   AccessUserPage,
+  AccessInvitationPage,
   SecretLinkResponse,
 } from '../../shared/contracts/access-management.ts';
 import type { SecurityAuditService } from '../modules/security-audit/service.ts';
@@ -98,6 +99,10 @@ export class AccessService {
     requestId: string = randomUUID(),
   ): Promise<SecretLinkResponse> {
     return this.tokens.createInvitation(actorId, input, requestId);
+  }
+
+  listInvitations(cursor: unknown, limit: unknown): Promise<AccessInvitationPage> {
+    return this.tokens.listInvitations(cursor, limit);
   }
 
   redeemInvitation(

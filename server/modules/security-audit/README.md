@@ -49,6 +49,9 @@ user subject only after the transactional redemption succeeds. Successful no-op 
 `changed=false`, and session revocation records the actual `sessionCount`, including zero; these
 values distinguish a successful API attempt from a state transition. Redeeming a token also
 transactionally revokes active sibling tokens and emits one minimized revocation event per sibling.
+Issuing a recovery token likewise revokes active recovery siblings and enqueues one
+`access.recovery_revoked` event with reason `superseded` per sibling alongside the new
+`access.recovery_created` event in the same auth transaction.
 User update and enablement events are built from the authoritative mutation result while the auth
 database holds `BEGIN IMMEDIATE`; no pre-transaction user snapshot determines `changed`, role
 counts, or the number of revoked sessions.

@@ -12,6 +12,7 @@ import {
   type AccessRepository,
 } from './access-repository.ts';
 import { InvalidAccessInputError } from './access-errors.ts';
+import { parseAccessCursor, parseAccessLimit } from './access-pagination.ts';
 import {
   isAuthRole,
   normalizeDisplayName,
@@ -36,8 +37,8 @@ export class AccessUserService {
   }
 
   async list(cursor: unknown, limit: unknown): Promise<AccessUserPage> {
-    const parsedCursor = parseCursor(cursor);
-    const parsedLimit = parseLimit(limit);
+    const parsedCursor = parseAccessCursor(cursor);
+    const parsedLimit = parseAccessLimit(limit);
     const users = await this.repository.listUsers(parsedCursor, parsedLimit + 1);
     const hasMore = users.length > parsedLimit;
     const items = users.slice(0, parsedLimit);
@@ -232,23 +233,6 @@ function parseRoles(value: unknown): AuthRole[] | undefined {
     return undefined;
   }
   return normalizeRoles(value as AuthRole[]);
-}
-
-function parseCursor(value: unknown): string | undefined {
-  if (value === null || value === undefined || value === '') return undefined;
-  if (typeof value !== 'string' || value.length > 128 || /[\p{Cc}\p{Cf}]/u.test(value)) {
-    throw new InvalidAccessInputError();
-  }
-  return value;
-}
-
-function parseLimit(value: unknown): number {
-  if (value === null || value === undefined || value === '') return 25;
-  const parsed = typeof value === 'string' && /^\d{1,3}$/u.test(value) ? Number(value) : NaN;
-  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 100) {
-    throw new InvalidAccessInputError();
-  }
-  return parsed;
 }
 
 function requireId(value: string): void {

@@ -21,6 +21,7 @@ const protectedRoutes: readonly ProtectedRoute[] = [
     'settings:manage',
   ),
   route('POST', /^\/api\/internal\/access\/invitations$/u, 'settings:manage'),
+  route('GET', /^\/api\/internal\/access\/invitations$/u, 'settings:manage'),
   route(
     'POST',
     /^\/api\/internal\/access\/(?:invitations|recoveries)\/[^/]+\/revoke$/u,

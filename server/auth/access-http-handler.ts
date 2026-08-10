@@ -80,7 +80,18 @@ export function createAccessHandler(
       }
 
       if (url.pathname === ACCESS_API_PATHS.invitations) {
-        if (!requireMethod(request, response, 'POST', requestId)) return;
+        if (request.method === 'GET') {
+          requireOnlyAccessQuery(url, ['cursor', 'limit']);
+          const page = await service.listInvitations(
+            url.searchParams.get('cursor'), url.searchParams.get('limit'),
+          );
+          sendJson(response, 200, { ...page, requestId });
+          return;
+        }
+        if (request.method !== 'POST') {
+          methodNotAllowed(response, 'GET, POST', requestId);
+          return;
+        }
         const body = await readStrictAccessJson(request, ['displayName', 'email', 'roles']);
         const secret = await service.createInvitation(principal.id, {
           displayName: body.displayName,

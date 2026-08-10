@@ -1,9 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { AppError } from '../errors.ts';
 import type { SecurityAuditCommand } from '../modules/security-audit/domain.ts';
 import { enqueueSecurityAudit } from '../modules/security-audit/sqlite-outbox.ts';
 import {
   AccessUserNotFoundError,
   type CreateRecoveryRecord,
+  type RecoveryIssueMutationResult,
 } from './access-repository.ts';
 import type { AuthRecovery, AuthUser } from './domain.ts';
 import { SqliteAuthUserReader } from './sqlite-auth-user-reader.ts';
@@ -29,9 +31,22 @@ export class SqliteRecoveryRepository {
     this.users = new SqliteAuthUserReader(database);
   }
 
-  async create(record: CreateRecoveryRecord, audit?: SecurityAuditCommand): Promise<AuthRecovery> {
-    withImmediateTransaction(this.database, () => {
+  create(
+    record: CreateRecoveryRecord,
+    audit?: (result: RecoveryIssueMutationResult) => readonly SecurityAuditCommand[],
+  ): Promise<RecoveryIssueMutationResult> {
+    return Promise.resolve(withImmediateTransaction(this.database, () => {
       if (!this.users.find(record.userId)) throw new AccessUserNotFoundError();
+      const revokedRecoveryIds = (this.database.prepare(`
+        SELECT id FROM auth_recovery_tokens
+        WHERE user_id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?
+        ORDER BY id
+      `).all(record.userId, record.createdAt) as unknown as Array<{ id: string }>)
+        .map((item) => item.id);
+      this.database.prepare(`
+        UPDATE auth_recovery_tokens SET revoked_at = ?
+        WHERE user_id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?
+      `).run(record.createdAt, record.userId, record.createdAt);
       this.database.prepare(`
         INSERT INTO auth_recovery_tokens (
           id, token_hash, user_id, created_by_user_id, created_at, expires_at
@@ -40,9 +55,26 @@ export class SqliteRecoveryRepository {
         record.id, record.tokenHash, record.userId, record.createdByUserId,
         record.createdAt, record.expiresAt,
       );
-      if (audit) enqueueSecurityAudit(this.database, audit);
-    });
-    return (await this.find(record.tokenHash))!;
+      const recovery: AuthRecovery = {
+        ...record,
+        revokedAt: null,
+        usedAt: null,
+      };
+      const result = { recovery, revokedRecoveryIds };
+      if (audit) {
+        try {
+          for (const event of audit(result)) enqueueSecurityAudit(this.database, event);
+        } catch (error) {
+          throw new AppError(
+            'SECURITY_AUDIT_UNAVAILABLE',
+            'Security audit is temporarily unavailable.',
+            503,
+            { cause: error },
+          );
+        }
+      }
+      return result;
+    }));
   }
 
   async find(tokenHash: string): Promise<AuthRecovery | undefined> {

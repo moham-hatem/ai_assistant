@@ -102,7 +102,7 @@ const administrativeAccessActions = new Set<SecurityAuditAction>([
 const accessReasons = new Set([
   'administrative', 'conflict', 'invalid_or_expired', 'invalid_request', 'last_admin',
   'not_found', 'rate_limited', 'recovery_redeemed', 'self_lockout', 'storage_failure',
-  'sibling_redeemed', 'user_access_changed', 'user_disabled',
+  'sibling_redeemed', 'superseded', 'user_access_changed', 'user_disabled',
 ]);
 const forbiddenMetadataName = /(email|password|passphrase|secret|token|cookie|link|hash|question|answer|content|bookText|text)/iu;
 

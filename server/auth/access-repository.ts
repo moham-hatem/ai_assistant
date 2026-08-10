@@ -1,5 +1,8 @@
 import type { AuthRole } from '../../shared/contracts/auth.ts';
-import type { AccessUserSummary } from '../../shared/contracts/access-management.ts';
+import type {
+  AccessInvitationSummary,
+  AccessUserSummary,
+} from '../../shared/contracts/access-management.ts';
 import type { AuthInvitation, AuthRecovery, AuthUser } from './domain.ts';
 import type { SecurityAuditCommand } from '../modules/security-audit/domain.ts';
 import type { SecurityAuditSink } from '../modules/security-audit/repository.ts';
@@ -39,13 +42,26 @@ export interface AccessUserEnabledMutationResult {
   user: AuthUser;
 }
 
+export interface RecoveryIssueMutationResult {
+  recovery: AuthRecovery;
+  revokedRecoveryIds: readonly string[];
+}
+
 export interface AccessRepository {
   enqueueSecurityAudit?(command: SecurityAuditCommand): Promise<void>;
   flushSecurityAuditOutbox?(sink: SecurityAuditSink): Promise<number>;
   createInvitation(record: CreateInvitationRecord, audit?: SecurityAuditCommand): Promise<AuthInvitation>;
-  createRecovery(record: CreateRecoveryRecord, audit?: SecurityAuditCommand): Promise<AuthRecovery>;
+  createRecovery(
+    record: CreateRecoveryRecord,
+    audit?: (result: RecoveryIssueMutationResult) => readonly SecurityAuditCommand[],
+  ): Promise<RecoveryIssueMutationResult>;
   findInvitationByTokenHash(tokenHash: string): Promise<AuthInvitation | undefined>;
   findRecoveryByTokenHash(tokenHash: string): Promise<AuthRecovery | undefined>;
+  listInvitations(
+    afterId: string | undefined,
+    limit: number,
+    timestamp: string,
+  ): Promise<AccessInvitationSummary[]>;
   listUsers(afterId: string | undefined, limit: number): Promise<AccessUserSummary[]>;
   redeemInvitation(
     tokenHash: string,

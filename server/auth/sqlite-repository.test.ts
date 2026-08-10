@@ -247,6 +247,71 @@ test('active invitations are unique per normalized email across sequential and c
   }
 });
 
+test('recovery issuance atomically supersedes every active token across competing connections', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'ila-active-recovery-'));
+  const path = join(directory, 'auth.sqlite');
+  const timestamp = '2026-08-10T00:00:00.000Z';
+  const repository = new SqliteAuthRepository(path);
+  try {
+    const passwords = new ScryptPasswordHasher({
+      cost: 1_024, keyLength: 32, maxMemory: 4 * 1024 * 1024,
+    });
+    await repository.createUser({
+      displayName: 'Admin',
+      email: 'admin@example.test',
+      id: 'admin-1',
+      passwordHash: await passwords.hash('concurrency test password'),
+      roles: ['admin'],
+      timestamp,
+    });
+    await repository.createUser({
+      displayName: 'User',
+      email: 'user@example.test',
+      id: 'user-1',
+      passwordHash: await passwords.hash('concurrency test password'),
+      roles: ['reviewer'],
+      timestamp,
+    });
+    const first = recoveryRecord('sequential-recovery-1');
+    const second = recoveryRecord('sequential-recovery-2');
+    await repository.createRecovery(first);
+    const result = await repository.createRecovery(second);
+    assert.deepEqual(result.revokedRecoveryIds, [first.id]);
+    assert.equal((await repository.findRecoveryByTokenHash(first.tokenHash))?.revokedAt, timestamp);
+    assert.equal((await repository.findRecoveryByTokenHash(second.tokenHash))?.revokedAt, null);
+  } finally {
+    repository.close();
+  }
+
+  const rawTokens = ['concurrent-recovery-1', 'concurrent-recovery-2']
+    .map((id) => id.padEnd(43, 'x').slice(0, 43));
+  const results = await Promise.allSettled(rawTokens.map((token, index) =>
+    createRecoveryFromWorker(path, recoveryRecord(`concurrent-recovery-${index + 1}`, token)),
+  ));
+  assert.equal(results.every((item) => item.status === 'fulfilled'), true);
+
+  const control = new DatabaseSync(path);
+  try {
+    const active = control.prepare(`
+      SELECT id FROM auth_recovery_tokens
+      WHERE user_id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?
+    `).all('user-1', timestamp) as unknown as Array<{ id: string }>;
+    assert.equal(active.length, 1);
+    const revokedCount = control.prepare(`
+      SELECT count(*) AS count FROM auth_recovery_tokens
+      WHERE user_id = ? AND revoked_at = ?
+    `).get('user-1', timestamp) as unknown as { count: number };
+    assert.equal(revokedCount.count, 3);
+    const bytes = readdirSync(directory)
+      .map((file) => readFileSync(join(directory, file)))
+      .reduce((combined, item) => Buffer.concat([combined, item]), Buffer.alloc(0));
+    for (const rawToken of rawTokens) assert.equal(bytes.includes(Buffer.from(rawToken)), false);
+  } finally {
+    control.close();
+    await rm(directory, { force: true, recursive: true });
+  }
+});
+
 function invitationRecord(id: string, email: string) {
   return {
     createdAt: '2026-08-10T00:00:00.000Z',
@@ -257,6 +322,17 @@ function invitationRecord(id: string, email: string) {
     id,
     roles: ['reviewer' as const],
     tokenHash: hashSessionToken(id.padEnd(43, 'x').slice(0, 43)),
+  };
+}
+
+function recoveryRecord(id: string, token = id.padEnd(43, 'r').slice(0, 43)) {
+  return {
+    createdAt: '2026-08-10T00:00:00.000Z',
+    createdByUserId: 'admin-1',
+    expiresAt: '2026-08-11T00:00:00.000Z',
+    id,
+    tokenHash: hashSessionToken(token),
+    userId: 'user-1',
   };
 }
 
@@ -280,6 +356,31 @@ function createInvitationFromWorker(
     worker.once('message', (message: { error?: string; ok?: boolean }) => {
       if (message.ok) resolve();
       else reject(new Error(message.error ?? 'Invitation worker failed.'));
+    });
+    worker.once('error', reject);
+  });
+}
+
+function createRecoveryFromWorker(
+  path: string,
+  record: ReturnType<typeof recoveryRecord>,
+): Promise<void> {
+  const moduleUrl = new URL('./sqlite-repository.ts', import.meta.url).href;
+  const source = `
+    const { parentPort, workerData } = require('node:worker_threads');
+    (async () => {
+      const { SqliteAuthRepository } = await import(workerData.moduleUrl);
+      const repository = new SqliteAuthRepository(workerData.path);
+      try { await repository.createRecovery(workerData.record); }
+      finally { repository.close(); }
+      parentPort.postMessage({ ok: true });
+    })().catch((error) => parentPort.postMessage({ error: error.constructor.name }));
+  `;
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(source, { eval: true, workerData: { moduleUrl, path, record } });
+    worker.once('message', (message: { error?: string; ok?: boolean }) => {
+      if (message.ok) resolve();
+      else reject(new Error(message.error ?? 'Recovery worker failed.'));
     });
     worker.once('error', reject);
   });

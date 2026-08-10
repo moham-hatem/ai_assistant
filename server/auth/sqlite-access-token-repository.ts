@@ -1,8 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite';
+import type { AccessInvitationSummary } from '../../shared/contracts/access-management.ts';
 import type { SecurityAuditCommand } from '../modules/security-audit/domain.ts';
 import type {
   CreateInvitationRecord,
   CreateRecoveryRecord,
+  RecoveryIssueMutationResult,
 } from './access-repository.ts';
 import type { AuthInvitation, AuthRecovery, AuthUser } from './domain.ts';
 import { SqliteInvitationRepository } from './sqlite-invitation-repository.ts';
@@ -28,6 +30,14 @@ export class SqliteAccessTokenRepository {
     return this.invitations.find(tokenHash);
   }
 
+  listInvitations(
+    afterId: string | undefined,
+    limit: number,
+    timestamp: string,
+  ): Promise<AccessInvitationSummary[]> {
+    return Promise.resolve(this.invitations.list(afterId, limit, timestamp));
+  }
+
   redeemInvitation(
     tokenHash: string,
     passwordHash: string,
@@ -48,7 +58,10 @@ export class SqliteAccessTokenRepository {
     return this.invitations.revoke(id, timestamp, audit);
   }
 
-  createRecovery(record: CreateRecoveryRecord, audit?: SecurityAuditCommand): Promise<AuthRecovery> {
+  createRecovery(
+    record: CreateRecoveryRecord,
+    audit?: (result: RecoveryIssueMutationResult) => readonly SecurityAuditCommand[],
+  ): Promise<RecoveryIssueMutationResult> {
     return this.recoveries.create(record, audit);
   }
 

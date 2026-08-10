@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { AuthRole } from '../../shared/contracts/auth.ts';
+import type { AccessInvitationSummary } from '../../shared/contracts/access-management.ts';
 import type { SecurityAuditCommand } from '../modules/security-audit/domain.ts';
 import { enqueueSecurityAudit } from '../modules/security-audit/sqlite-outbox.ts';
 import {
@@ -91,6 +92,24 @@ export class SqliteInvitationRepository {
       tokenHash: row.token_hash,
       usedAt: row.used_at,
     } : undefined;
+  }
+
+  list(afterId: string | undefined, limit: number, timestamp: string): AccessInvitationSummary[] {
+    const rows = this.database.prepare(`
+      SELECT * FROM auth_invitations
+      WHERE used_at IS NULL AND revoked_at IS NULL AND expires_at > ?
+        AND (? IS NULL OR id > ?)
+      ORDER BY id LIMIT ?
+    `).all(timestamp, afterId ?? null, afterId ?? null, limit) as unknown as InvitationRow[];
+    return rows.map((row) => ({
+      createdAt: row.created_at,
+      displayName: row.display_name,
+      email: row.email,
+      expiresAt: row.expires_at,
+      id: row.id,
+      roles: this.roles(row.id),
+      status: 'active',
+    }));
   }
 
   async redeem(

@@ -41,14 +41,16 @@ test('local access API enforces settings permission and origin without leaking s
   );
   const origin = new SameOriginAuthPolicy(publicOrigin);
   const cookie = createAuthCookiePolicy({ production: false, publicOrigin });
+  const accessTokens = ['i', 'j', 'k', 'r'].map((value) => value.repeat(43));
+  let accessId = 0;
   const access = new AccessService(
     repository,
     passwords,
     new InMemoryLoginRateLimiter(20, 60_000),
     { invitationTtlMs: 60_000, publicOrigin, recoveryTtlMs: 60_000 },
     undefined,
-    () => 'i'.repeat(43),
-    () => 'invitation-1',
+    () => accessTokens.shift()!,
+    () => `access-${++accessId}`,
     audit,
   );
   const handler = createLocalApiRequestHandler(
@@ -62,12 +64,18 @@ test('local access API enforces settings permission and origin without leaking s
     await withServer(handler, async (baseUrl) => {
       const anonymous = await fetch(`${baseUrl}/api/internal/access/users`);
       assert.equal(anonymous.status, 401);
+      const anonymousInvitations = await fetch(`${baseUrl}/api/internal/access/invitations`);
+      assert.equal(anonymousInvitations.status, 401);
 
       const reviewerCookie = await login(baseUrl, 'reviewer@example.org');
       const forbidden = await fetch(`${baseUrl}/api/internal/access/users`, {
         headers: { Cookie: reviewerCookie },
       });
       assert.equal(forbidden.status, 403);
+      const forbiddenInvitations = await fetch(`${baseUrl}/api/internal/access/invitations`, {
+        headers: { Cookie: reviewerCookie },
+      });
+      assert.equal(forbiddenInvitations.status, 403);
 
       const adminCookie = await login(baseUrl, 'admin@example.org');
       const invalidPage = await fetch(`${baseUrl}/api/internal/access/users?limit=101`, {
@@ -112,6 +120,33 @@ test('local access API enforces settings permission and origin without leaking s
       assert.equal(createdText.includes('tokenHash'), false);
       assert.equal(createdText.includes('passwordHash'), false);
 
+      const invalidInvitationCursor = await fetch(
+        `${baseUrl}/api/internal/access/invitations?cursor=${encodeURIComponent('\u0001')}`,
+        { headers: { Cookie: adminCookie } },
+      );
+      assert.equal(invalidInvitationCursor.status, 400);
+      const listedInvitations = await fetch(
+        `${baseUrl}/api/internal/access/invitations?limit=1`,
+        { headers: { Cookie: adminCookie } },
+      );
+      assert.equal(listedInvitations.status, 200);
+      const listedText = await listedInvitations.text();
+      const listed = JSON.parse(listedText) as {
+        items: Array<Record<string, unknown>>;
+        nextCursor: string | null;
+      };
+      assert.deepEqual(listed.items, [{
+        createdAt: listed.items[0]?.createdAt,
+        displayName: body.displayName,
+        email: body.email,
+        expiresAt: listed.items[0]?.expiresAt,
+        id: 'access-1',
+        roles: body.roles,
+        status: 'active',
+      }]);
+      assert.equal(listed.nextCursor, null);
+      assert.equal(/token|link|hash/iu.test(listedText), false);
+
       const existingEmail = await postJson(
         `${baseUrl}/api/internal/access/invitations`,
         { ...body, email: 'admin@example.org' },
@@ -126,6 +161,22 @@ test('local access API enforces settings permission and origin without leaking s
         'ACCESS_OPERATION_REJECTED',
       );
 
+      const revokedInvitation = await postJson(
+        `${baseUrl}/api/internal/access/invitations/access-1/revoke`,
+        {}, adminCookie, publicOrigin,
+      );
+      assert.equal(revokedInvitation.status, 204);
+      const afterRevoke = await fetch(`${baseUrl}/api/internal/access/invitations`, {
+        headers: { Cookie: adminCookie },
+      });
+      assert.deepEqual((await afterRevoke.json() as { items: unknown[] }).items, []);
+      const recreated = await postJson(
+        `${baseUrl}/api/internal/access/invitations`, body, adminCookie, publicOrigin,
+      );
+      assert.equal(recreated.status, 201);
+      const recreatedInvitation = await recreated.json() as { link: string };
+      assertSecretOnlyInFragment(recreatedInvitation.link, 'invitation', 'k'.repeat(43));
+
       const list = await fetch(`${baseUrl}/api/internal/access/users?limit=1`, {
         headers: { Cookie: adminCookie },
       });
@@ -136,21 +187,21 @@ test('local access API enforces settings permission and origin without leaking s
 
       const crossOriginRedeem = await postJson(
         `${baseUrl}/api/auth/invitations/redeem`,
-        { password: 'invited secure password', token: 'i'.repeat(43) },
+        { password: 'invited secure password', token: 'k'.repeat(43) },
         undefined,
         'http://evil.test',
       );
       assert.equal(crossOriginRedeem.status, 403);
       const oversized = await postJson(
         `${baseUrl}/api/auth/invitations/redeem`,
-        { password: 'p'.repeat(5_000), token: 'i'.repeat(43) },
+        { password: 'p'.repeat(5_000), token: 'k'.repeat(43) },
         undefined,
         publicOrigin,
       );
       assert.equal(oversized.status, 400);
       const redeemed = await postJson(
         `${baseUrl}/api/auth/invitations/redeem`,
-        { password: 'invited secure password', token: 'i'.repeat(43) },
+        { password: 'invited secure password', token: 'k'.repeat(43) },
         undefined,
         publicOrigin,
       );
@@ -167,7 +218,7 @@ test('local access API enforces settings permission and origin without leaking s
 
       const repeated = await postJson(
         `${baseUrl}/api/auth/invitations/redeem`,
-        { password: 'another secure password', token: 'i'.repeat(43) },
+        { password: 'another secure password', token: 'k'.repeat(43) },
         undefined,
         publicOrigin,
       );
@@ -182,7 +233,7 @@ test('local access API enforces settings permission and origin without leaking s
       );
       assert.equal(recovery.status, 201);
       const recoveryBody = await recovery.json() as { link: string };
-      assertSecretOnlyInFragment(recoveryBody.link, 'recovery', 'i'.repeat(43));
+      assertSecretOnlyInFragment(recoveryBody.link, 'recovery', 'r'.repeat(43));
       const recoveryToken = secretFromFragment(recoveryBody.link, 'recovery');
       const recovered = await postJson(
         `${baseUrl}/api/auth/recovery/redeem`,

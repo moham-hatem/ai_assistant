@@ -1,7 +1,10 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { AccessUserSummary } from '../../shared/contracts/access-management.ts';
+import type {
+  AccessInvitationSummary,
+  AccessUserSummary,
+} from '../../shared/contracts/access-management.ts';
 import type { AuthRole } from '../../shared/contracts/auth.ts';
 import type {
   AccessRepository,
@@ -9,6 +12,7 @@ import type {
   AccessUserUpdateMutationResult,
   CreateInvitationRecord,
   CreateRecoveryRecord,
+  RecoveryIssueMutationResult,
 } from './access-repository.ts';
 import {
   isAuthRole,
@@ -230,7 +234,18 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
     return this.accessTokens.revokeInvitation(id, timestamp, audit);
   }
 
-  createRecovery(record: CreateRecoveryRecord, audit?: SecurityAuditCommand): Promise<AuthRecovery> {
+  listInvitations(
+    afterId: string | undefined,
+    limit: number,
+    timestamp: string,
+  ): Promise<AccessInvitationSummary[]> {
+    return this.accessTokens.listInvitations(afterId, limit, timestamp);
+  }
+
+  createRecovery(
+    record: CreateRecoveryRecord,
+    audit?: (result: RecoveryIssueMutationResult) => readonly SecurityAuditCommand[],
+  ): Promise<RecoveryIssueMutationResult> {
     return this.accessTokens.createRecovery(record, audit);
   }
 

@@ -17,6 +17,21 @@ export interface AccessUserPage {
 
 export interface AccessUserDetails extends AccessUserSummary {}
 
+export interface AccessInvitationSummary {
+  createdAt: string;
+  displayName: string;
+  email: string;
+  expiresAt: string;
+  id: string;
+  roles: AuthRole[];
+  status: 'active';
+}
+
+export interface AccessInvitationPage {
+  items: AccessInvitationSummary[];
+  nextCursor: string | null;
+}
+
 export interface CreateInvitationRequest {
   displayName: string;
   email: string;

@@ -64,10 +64,17 @@ export class RecoveryService {
         id,
         tokenHash: hashSessionToken(token),
         userId,
-      }, this.audit.success(
-        'access.recovery_created', requestId, timestamp, actorId,
-        { id, type: 'recovery' },
-      ));
+      }, this.audit.enabled ? (result) => {
+        const events = [this.audit.success(
+          'access.recovery_created', requestId, timestamp, actorId,
+          { id, type: 'recovery' },
+        )!];
+        for (const siblingId of result.revokedRecoveryIds) events.push(this.audit.success(
+          'access.recovery_revoked', requestId, timestamp, actorId,
+          { id: siblingId, type: 'recovery' }, { reason: 'superseded' },
+        )!);
+        return events;
+      } : undefined);
     } catch (error) {
       await this.audit.bestEffort(
         'access.recovery_created',

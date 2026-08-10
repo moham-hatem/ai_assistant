@@ -1,9 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import type { SecretLinkResponse } from '../../shared/contracts/access-management.ts';
+import type {
+  AccessInvitationPage,
+  SecretLinkResponse,
+} from '../../shared/contracts/access-management.ts';
 import { AccessAuditEmitter } from './access-audit.ts';
 import type { AccessRepository } from './access-repository.ts';
 import { AccessRedemptionService } from './access-redemption-service.ts';
 import { InvitationService } from './invitation-service.ts';
+import { InvitationListService } from './invitation-list-service.ts';
 import type { PasswordHasher } from './password.ts';
 import type { LoginRateLimiter } from './rate-limit.ts';
 import { RecoveryService } from './recovery-service.ts';
@@ -14,6 +18,7 @@ export type { AccessTokenServiceOptions } from './access-token-helpers.ts';
 
 export class AccessTokenService {
   private readonly invitations: InvitationService;
+  private readonly invitationList: InvitationListService;
   private readonly recoveries: RecoveryService;
 
   constructor(
@@ -38,6 +43,7 @@ export class AccessTokenService {
     this.invitations = new InvitationService(
       repository, redemption, audit, options, now, tokenFactory, idFactory,
     );
+    this.invitationList = new InvitationListService(repository, now);
     this.recoveries = new RecoveryService(
       repository, redemption, audit, options, now, tokenFactory, idFactory,
     );
@@ -49,6 +55,10 @@ export class AccessTokenService {
     requestId: string = randomUUID(),
   ): Promise<SecretLinkResponse> {
     return this.invitations.create(actorId, input, requestId);
+  }
+
+  listInvitations(cursor: unknown, limit: unknown): Promise<AccessInvitationPage> {
+    return this.invitationList.list(cursor, limit);
   }
 
   redeemInvitation(
