@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -11,6 +12,51 @@ import { DuplicateAuthUserError } from './repository.ts';
 import { AccessConflictError } from './access-repository.ts';
 import { SqliteAuthRepository } from './sqlite-repository.ts';
 import { hashSessionToken } from './token.ts';
+
+for (const scenario of [
+  { name: 'row 3 only', versions: [3] },
+  { name: 'a version gap', versions: [1, 3] },
+  { name: 'a too-new version', versions: [1, 2, 3, 4] },
+] as const) {
+  test(`auth preflight rejects ${scenario.name} read-only and closes every handle`, async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'ila-auth-preflight-'));
+    const path = join(directory, 'auth.sqlite');
+    const control = new DatabaseSync(path);
+    control.exec(`
+      CREATE TABLE auth_schema_migrations (
+        version INTEGER PRIMARY KEY CHECK (version > 0), applied_at TEXT NOT NULL
+      ) STRICT;
+    `);
+    const insert = control.prepare(
+      'INSERT INTO auth_schema_migrations(version, applied_at) VALUES (?, ?)',
+    );
+    for (const version of scenario.versions) insert.run(version, '2026-08-10T00:00:00.000Z');
+    control.close();
+    const before = await readFile(path);
+    const child = startRejectedAuthRepository(path);
+    try {
+      await waitForChildSignal(child, 'rejected');
+      assert.deepEqual(await readFile(path), before);
+      assert.deepEqual(await readdir(directory), ['auth.sqlite']);
+      const inspection = new DatabaseSync(path, { readOnly: true });
+      try {
+        const journal = inspection.prepare('PRAGMA journal_mode').get() as unknown as {
+          journal_mode: string;
+        };
+        assert.equal(journal.journal_mode, 'delete');
+      } finally {
+        inspection.close();
+      }
+      const moved = join(directory, 'auth-renamed.sqlite');
+      await rename(path, moved);
+      await rename(moved, path);
+    } finally {
+      child.kill();
+      if (child.exitCode === null) await new Promise((resolve) => child.once('exit', resolve));
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+}
 
 test('SQLite migrations are ordered, idempotent, and enforce normalized security data', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'ila-auth-test-'));
@@ -236,5 +282,53 @@ function createInvitationFromWorker(
       else reject(new Error(message.error ?? 'Invitation worker failed.'));
     });
     worker.once('error', reject);
+  });
+}
+
+function startRejectedAuthRepository(path: string) {
+  const moduleUrl = new URL('./sqlite-repository.ts', import.meta.url).href;
+  const source = `
+    import { SqliteAuthRepository } from ${JSON.stringify(moduleUrl)};
+    try {
+      new SqliteAuthRepository(${JSON.stringify(path)});
+      process.stdout.write('unexpected\\n');
+    } catch {
+      process.stdout.write('rejected\\n');
+      setInterval(() => undefined, 1_000);
+    }
+  `;
+  return spawn(process.execPath, [
+    '--no-warnings', '--experimental-strip-types', '--input-type=module', '--eval', source,
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
+function waitForChildSignal(
+  child: ReturnType<typeof spawn>,
+  expected: string,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => reject(new Error(
+      `Timed out waiting for auth preflight child. stderr=${stderr}`,
+    )), 10_000);
+    const finish = (operation: () => void) => {
+      clearTimeout(timer);
+      operation();
+    };
+    child.stderr?.on('data', (chunk) => { stderr += String(chunk); });
+    child.stdout?.on('data', (chunk) => {
+      stdout += String(chunk);
+      if (stdout.includes(`${expected}\n`)) finish(resolve);
+      else if (stdout.includes('unexpected\n')) finish(() => reject(
+        new Error('Invalid auth migration history unexpectedly opened.'),
+      ));
+    });
+    child.once('error', (error) => finish(() => reject(error)));
+    child.once('exit', (code) => {
+      if (!stdout.includes(`${expected}\n`)) finish(() => reject(new Error(
+        `Auth preflight child exited early (${code}). stderr=${stderr}`,
+      )));
+    });
   });
 }

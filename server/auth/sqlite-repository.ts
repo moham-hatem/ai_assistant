@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { AccessUserSummary } from '../../shared/contracts/access-management.ts';
@@ -27,7 +27,7 @@ import {
 } from './repository.ts';
 import { SqliteAccessTokenRepository } from './sqlite-access-token-repository.ts';
 import { SqliteAccessUserRepository } from './sqlite-access-user-repository.ts';
-import { migrateAuthDatabase } from './sqlite-migrations.ts';
+import { migrateAuthDatabase, validateAuthMigrationHistory } from './sqlite-migrations.ts';
 import { SqliteSessionRepository } from './sqlite-session-repository.ts';
 import type { SecurityAuditCommand } from '../modules/security-audit/domain.ts';
 import type { SecurityAuditSink } from '../modules/security-audit/repository.ts';
@@ -56,14 +56,21 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
 
   constructor(path: string) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
-    this.database = new DatabaseSync(path);
-    this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
-    if (path !== ':memory:') this.database.exec('PRAGMA journal_mode = WAL;');
-    migrateAuthDatabase(this.database);
-    migrateSecurityAuditOutbox(this.database);
-    this.accessTokens = new SqliteAccessTokenRepository(this.database);
-    this.accessUsers = new SqliteAccessUserRepository(this.database);
-    this.sessions = new SqliteSessionRepository(this.database);
+    if (path !== ':memory:' && existsSync(path)) validateExistingAuthDatabase(path);
+    const database = new DatabaseSync(path);
+    try {
+      database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
+      if (path !== ':memory:') database.exec('PRAGMA journal_mode = WAL;');
+      migrateAuthDatabase(database);
+      migrateSecurityAuditOutbox(database);
+      this.accessTokens = new SqliteAccessTokenRepository(database);
+      this.accessUsers = new SqliteAccessUserRepository(database);
+      this.sessions = new SqliteSessionRepository(database);
+      this.database = database;
+    } catch (error) {
+      database.close();
+      throw error;
+    }
   }
 
   async createUser(command: SaveUserCommand): Promise<AuthUser> {
@@ -285,6 +292,15 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
       roles: this.rolesFor(row.id),
       updatedAt: row.updated_at,
     };
+  }
+}
+
+function validateExistingAuthDatabase(path: string): void {
+  const database = new DatabaseSync(path, { readOnly: true });
+  try {
+    validateAuthMigrationHistory(database);
+  } finally {
+    database.close();
   }
 }
 

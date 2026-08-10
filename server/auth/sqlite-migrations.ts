@@ -97,22 +97,14 @@ const migrations = [
 ] as const;
 
 export function migrateAuthDatabase(database: DatabaseSync): void {
+  const version = validateAuthMigrationHistory(database);
   database.exec(`
     CREATE TABLE IF NOT EXISTS auth_schema_migrations (
       version INTEGER PRIMARY KEY CHECK (version > 0),
       applied_at TEXT NOT NULL
     ) STRICT;
   `);
-  const versions = (database.prepare(
-    'SELECT version FROM auth_schema_migrations ORDER BY version',
-  ).all() as unknown as Array<{ version: number }>).map((row) => row.version);
-  if (versions.some((version, index) => version !== index + 1)) {
-    throw new Error('Auth database migration history is incomplete or unsupported.');
-  }
-  if (versions.length > migrations.length) {
-    throw new Error(`Auth database schema version ${versions.length} is newer than supported.`);
-  }
-  for (let index = versions.length; index < migrations.length; index += 1) {
+  for (let index = version; index < migrations.length; index += 1) {
     database.exec('BEGIN IMMEDIATE;');
     try {
       database.exec(migrations[index]);
@@ -126,4 +118,22 @@ export function migrateAuthDatabase(database: DatabaseSync): void {
       throw error;
     }
   }
+}
+
+export function validateAuthMigrationHistory(database: DatabaseSync): number {
+  const exists = database.prepare(`
+    SELECT 1 AS present FROM sqlite_master
+    WHERE type = 'table' AND name = 'auth_schema_migrations'
+  `).get() as unknown as { present: number } | undefined;
+  if (!exists) return 0;
+  const versions = (database.prepare(`
+    SELECT version FROM auth_schema_migrations ORDER BY version
+  `).all() as unknown as Array<{ version: number }>).map((row) => row.version);
+  if (versions.some((version, index) => version !== index + 1)) {
+    throw new Error('Auth database migration history is incomplete or unsupported.');
+  }
+  if (versions.length > migrations.length) {
+    throw new Error(`Auth database schema version ${versions.length} is newer than supported.`);
+  }
+  return versions.length;
 }
