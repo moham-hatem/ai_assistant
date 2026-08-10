@@ -9,12 +9,13 @@ interface InvitationDialogProps {
   copy: AccessCopy;
   error: string | null;
   inviting: boolean;
+  onAfterClose?: () => void;
   onClose: () => void;
   onInvite: (input: { displayName: string; email: string; roles: AuthRole[] }) => Promise<boolean>;
   onReviewActiveInvitations: () => void;
 }
 
-export function InvitationDialog({ copy, error, inviting, onClose, onInvite, onReviewActiveInvitations }: InvitationDialogProps) {
+export function InvitationDialog({ copy, error, inviting, onAfterClose, onClose, onInvite, onReviewActiveInvitations }: InvitationDialogProps) {
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [roles, setRoles] = useState<AuthRole[]>([]);
@@ -32,7 +33,7 @@ export function InvitationDialog({ copy, error, inviting, onClose, onInvite, onR
   }
 
   return (
-    <AccessDialog closeLabel={copy.actions.close} descriptionId="invitation-description" dismissible={policy.dismissible} onClose={onClose} title={copy.invitation.title}>
+    <AccessDialog closeLabel={copy.actions.close} descriptionId="invitation-description" dismissible={policy.dismissible} onAfterClose={onAfterClose} onClose={onClose} title={copy.invitation.title}>
       <p id="invitation-description">{copy.invitation.body}</p>
       <form aria-busy={policy.ariaBusy} className="access-form" onSubmit={(event) => void submit(event)}>
         <label htmlFor="invitation-name">{copy.displayName}</label>

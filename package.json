@@ -11,7 +11,7 @@
     "rebuild:documents": "node server/scripts/rebuild-documents.ts",
     "auth:user": "node server/auth/cli.ts",
     "telegram:poll": "node --env-file-if-exists=.env.local server/channels/telegram/run.ts",
-    "test:local": "node --test \"src/**/*.test.js\" \"tests/admin/*.test.ts\" \"tests/chat/*.test.ts\" \"tests/pwa/*.test.ts\" \"server/**/*.test.ts\"",
+    "test:local": "tsx --tsconfig tsconfig.app.json --test \"src/**/*.test.js\" \"tests/admin/*.test.ts\" \"tests/chat/*.test.ts\" \"tests/pwa/*.test.ts\" \"server/**/*.test.ts\"",
     "test:acceptance": "node --test --test-reporter=spec tests/acceptance/answer-service.acceptance.test.ts",
     "typecheck": "tsc -b"
   },
@@ -28,6 +28,8 @@
     "@types/react": "19.1.16",
     "@types/react-dom": "19.1.9",
     "@vitejs/plugin-react": "4.3.4",
+    "linkedom": "0.18.13",
+    "tsx": "4.23.12",
     "typescript": "5.9.3",
     "vite": "6.4.3"
   },

@@ -13,7 +13,7 @@ import {
   initialActiveInvitationsState,
 } from '../../src/features/access-management/active-invitations-state.ts';
 import { accessCopies } from '../../src/features/access-management/access-copy.ts';
-import { revealActiveInvitations } from '../../src/features/access-management/invitation-recovery.ts';
+import { createDialogFocusCoordinator } from '../../src/features/access-management/invitation-recovery.ts';
 
 const invitation: ActiveInvitation = {
   createdAt: '2026-08-10T10:00:00.000Z',
@@ -25,13 +25,72 @@ const invitation: ActiveInvitation = {
   status: 'active',
 };
 
-test('active invitation parser accepts metadata and rejects secret-bearing or invalid records', () => {
-  assert.deepEqual(parseActiveInvitationPage({ items: [invitation], nextCursor: 'next', requestId: 'ignored' }), {
+test('active invitation parser accepts only the literal backend envelope and item contract', () => {
+  const envelope = { items: [invitation], nextCursor: 'next', requestId: 'request-1' };
+  assert.deepEqual(parseActiveInvitationPage(envelope), {
     items: [invitation], nextCursor: 'next',
   });
-  assert.throws(() => parseActiveInvitationPage({ items: [{ ...invitation, link: '#/password-setup?invitation=secret' }], nextCursor: null }), AccessApiError);
-  assert.throws(() => parseActiveInvitationPage({ items: [{ ...invitation, token: 'secret' }], nextCursor: null }), AccessApiError);
-  assert.throws(() => parseActiveInvitationPage({ items: [{ ...invitation, status: 'revoked' }], nextCursor: null }), AccessApiError);
+
+  for (const missing of ['items', 'nextCursor', 'requestId'] as const) {
+    const invalidEnvelope = { ...envelope } as Record<string, unknown>;
+    delete invalidEnvelope[missing];
+    assert.throws(() => parseActiveInvitationPage(invalidEnvelope), AccessApiError);
+  }
+  for (const requestId of ['', 1, null, undefined]) {
+    assert.throws(() => parseActiveInvitationPage({ ...envelope, requestId }), AccessApiError);
+  }
+  assert.throws(() => parseActiveInvitationPage({ ...envelope, nextCursor: 1 }), AccessApiError);
+  assert.throws(() => parseActiveInvitationPage({ ...envelope, extra: true }), AccessApiError);
+
+  for (const missing of Object.keys(invitation)) {
+    const invalidItem = { ...invitation } as Record<string, unknown>;
+    delete invalidItem[missing];
+    assert.throws(() => parseActiveInvitationPage({ ...envelope, items: [invalidItem] }), AccessApiError);
+  }
+  for (const extra of ['secret', 'tokenHash', 'link', 'token', 'hash', 'unexpected']) {
+    assert.throws(() => parseActiveInvitationPage({
+      ...envelope,
+      items: [{ ...invitation, [extra]: 'forbidden' }],
+    }), AccessApiError);
+  }
+  for (const [field, value] of Object.entries({
+    createdAt: 1,
+    displayName: null,
+    email: false,
+    expiresAt: {},
+    id: [],
+    roles: 'operator',
+    status: 1,
+  })) {
+    assert.throws(() => parseActiveInvitationPage({
+      ...envelope,
+      items: [{ ...invitation, [field]: value }],
+    }), AccessApiError);
+  }
+  assert.throws(() => parseActiveInvitationPage({
+    ...envelope,
+    items: [{ ...invitation, status: 'revoked' }],
+  }), AccessApiError);
+});
+
+test('active invitation parser rejects prototype and accessor surprises without invoking them', () => {
+  const inheritedEnvelope = Object.assign(Object.create({ extra: 'inherited' }), {
+    items: [invitation], nextCursor: null, requestId: 'request-1',
+  });
+  assert.throws(() => parseActiveInvitationPage(inheritedEnvelope), AccessApiError);
+  const inheritedItem = Object.assign(Object.create({ tokenHash: 'inherited' }), invitation);
+  assert.throws(() => parseActiveInvitationPage({
+    items: [inheritedItem], nextCursor: null, requestId: 'request-1',
+  }), AccessApiError);
+
+  let getterRead = false;
+  const accessorEnvelope = { nextCursor: null, requestId: 'request-1' } as Record<string, unknown>;
+  Object.defineProperty(accessorEnvelope, 'items', {
+    enumerable: true,
+    get() { getterRead = true; return [invitation]; },
+  });
+  assert.throws(() => parseActiveInvitationPage(accessorEnvelope), AccessApiError);
+  assert.equal(getterRead, false);
 });
 
 test('invitation reducer ignores stale loads and cancellation completions while locking pagination', () => {
@@ -69,18 +128,16 @@ test('real cancellation handler is single-flight and reports the settled request
   assert.deepEqual(events, [`started:1:${invitation.id}`, `succeeded:1:${invitation.id}`]);
 });
 
-test('lost-link recovery handler closes the dialog then focuses and reveals the active list', async () => {
+test('dialog focus coordinator consumes one intent after dialog restoration', () => {
   const events: string[] = [];
-  revealActiveInvitations(
-    () => events.push('closed'),
-    {
-      focus: (options) => events.push(`focused:${String(options?.preventScroll)}`),
-      scrollIntoView: (options) => events.push(`scrolled:${options?.block}`),
-    },
-  );
-  assert.deepEqual(events, ['closed']);
-  await Promise.resolve();
-  assert.deepEqual(events, ['closed', 'scrolled:start', 'focused:true']);
+  const coordinator = createDialogFocusCoordinator();
+  coordinator.request({
+    focus: (options) => events.push(`focused:${String(options?.preventScroll)}`),
+    scrollIntoView: (options) => events.push(`scrolled:${options?.block}`),
+  });
+  coordinator.afterClose();
+  coordinator.afterClose();
+  assert.deepEqual(events, ['scrolled:start', 'focused:true']);
 });
 
 test('active invitation client uses cursor GET and contract revoke POST without secret request data', async () => {
@@ -89,7 +146,7 @@ test('active invitation client uses cursor GET and contract revoke POST without 
   globalThis.fetch = async (input, init) => {
     calls.push({ body: init?.body, method: init?.method ?? 'GET', url: String(input) });
     if (init?.method === 'POST') return new Response(null, { status: 204 });
-    return Response.json({ items: [invitation], nextCursor: null });
+    return Response.json({ items: [invitation], nextCursor: null, requestId: 'request-1' });
   };
   try {
     await fetchActiveInvitations('cursor/value', 10);
@@ -101,6 +158,23 @@ test('active invitation client uses cursor GET and contract revoke POST without 
     { body: undefined, method: 'GET', url: '/api/internal/access/invitations?limit=10&cursor=cursor%2Fvalue' },
     { body: '{}', method: 'POST', url: '/api/internal/access/invitations/invite%2Fid/revoke' },
   ]);
+});
+
+test('invitation revoke rejects every non-204 success status as a contract error', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const status of [200, 201, 202, 205]) {
+      globalThis.fetch = async () => new Response(status === 205 ? null : '{}', { status });
+      await assert.rejects(
+        cancelActiveInvitation(invitation.id),
+        (error: unknown) => error instanceof AccessApiError
+          && error.code === 'INVALID_RESPONSE'
+          && error.status === status,
+      );
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('all locales provide executable lost-link recovery and recovery invalidation copy', () => {

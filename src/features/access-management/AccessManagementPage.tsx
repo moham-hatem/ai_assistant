@@ -13,7 +13,7 @@ import { ActiveInvitationList } from './components/ActiveInvitationList';
 import { CancelInvitationDialog } from './components/CancelInvitationDialog';
 import type { ActiveInvitation } from './active-invitation';
 import { useActiveInvitations } from './hooks/useActiveInvitations';
-import { revealActiveInvitations } from './invitation-recovery';
+import { createDialogFocusCoordinator } from './invitation-recovery';
 
 export function AccessManagementPage({ language }: { language: AppLanguage }) {
   const copy = accessCopies[language];
@@ -23,6 +23,7 @@ export function AccessManagementPage({ language }: { language: AppLanguage }) {
   const [confirmation, setConfirmation] = useState<'enable' | 'disable' | 'sessions' | null>(null);
   const [cancelInvitation, setCancelInvitation] = useState<ActiveInvitation | null>(null);
   const activeInvitationsRef = useRef<HTMLElement | null>(null);
+  const dialogFocus = useRef(createDialogFocusCoordinator()).current;
   const secretTrigger = useRef<HTMLButtonElement | null>(null);
 
   function closeInvitation() {
@@ -49,7 +50,10 @@ export function AccessManagementPage({ language }: { language: AppLanguage }) {
 
   async function confirmInvitationCancellation() {
     if (!cancelInvitation) return;
-    if (await activeInvitations.cancel(cancelInvitation.id)) setCancelInvitation(null);
+    if (await activeInvitations.cancel(cancelInvitation.id)) {
+      dialogFocus.request(activeInvitationsRef.current);
+      setCancelInvitation(null);
+    }
   }
 
   function confirmAction() {
@@ -111,9 +115,9 @@ export function AccessManagementPage({ language }: { language: AppLanguage }) {
         ref={activeInvitationsRef}
         status={activeInvitations.state.status}
       />
-      {invitationOpen && <InvitationDialog copy={copy} error={access.invitationError} inviting={access.inviting} onClose={closeInvitation} onInvite={invite} onReviewActiveInvitations={() => revealActiveInvitations(closeInvitation, activeInvitationsRef.current)} />}
+      {invitationOpen && <InvitationDialog copy={copy} error={access.invitationError} inviting={access.inviting} onAfterClose={dialogFocus.afterClose} onClose={closeInvitation} onInvite={invite} onReviewActiveInvitations={() => { dialogFocus.request(activeInvitationsRef.current); closeInvitation(); }} />}
       {confirmation && <ConfirmActionDialog action={confirmation} busy={access.busyAction} copy={copy} onClose={() => setConfirmation(null)} onConfirm={confirmAction} />}
-      {cancelInvitation && <CancelInvitationDialog busy={activeInvitations.state.cancelingId !== null} copy={copy} invitation={cancelInvitation} onClose={() => { if (!activeInvitations.state.cancelingId) setCancelInvitation(null); }} onConfirm={() => void confirmInvitationCancellation()} />}
+      {cancelInvitation && <CancelInvitationDialog busy={activeInvitations.state.cancelingId !== null} copy={copy} invitation={cancelInvitation} onAfterClose={dialogFocus.afterClose} onClose={() => { if (!activeInvitations.state.cancelingId) setCancelInvitation(null); }} onConfirm={() => void confirmInvitationCancellation()} />}
       {access.secret && <SecretLinkDialog copy={copy} kind={access.secret.kind} onClose={closeSecret} secret={access.secret.value} />}
     </>
   );

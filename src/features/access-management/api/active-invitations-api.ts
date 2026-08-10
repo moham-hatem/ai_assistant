@@ -26,7 +26,10 @@ export async function cancelActiveInvitation(id: string): Promise<void> {
     headers: { 'Content-Type': 'application/json' },
     method: 'POST',
   });
-  if (response.ok) return;
+  if (response.status === 204) return;
+  if (response.ok) {
+    throw new AccessApiError('Invitation revoke returned an unexpected success status.', response.status);
+  }
   let payload: unknown = null;
   try { payload = await response.json(); } catch { /* Keep the error opaque. */ }
   throw responseError(response, payload);

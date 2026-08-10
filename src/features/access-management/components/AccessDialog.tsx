@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react';
 import { X } from 'lucide-react';
 
 interface AccessDialogProps {
@@ -6,22 +6,30 @@ interface AccessDialogProps {
   closeLabel: string;
   descriptionId?: string;
   dismissible?: boolean;
+  initialFocusRef?: RefObject<HTMLElement | null>;
+  onAfterClose?: () => void;
   onClose: () => void;
   title: string;
 }
 
-export function AccessDialog({ children, closeLabel, descriptionId, dismissible = true, onClose, title }: AccessDialogProps) {
+export function AccessDialog({ children, closeLabel, descriptionId, dismissible = true, initialFocusRef, onAfterClose, onClose, title }: AccessDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const afterCloseRef = useRef(onAfterClose);
+  const initialFocus = useRef(initialFocusRef);
   const titleId = useId();
+  afterCloseRef.current = onAfterClose;
+  initialFocus.current = initialFocusRef;
 
   useEffect(() => {
     const dialog = dialogRef.current;
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (dialog && !dialog.open) dialog.showModal();
+    initialFocus.current?.current?.focus();
     return () => {
       if (dialog?.open) dialog.close();
       queueMicrotask(() => {
         if (trigger?.isConnected && !document.querySelector('dialog[open]')) trigger.focus();
+        afterCloseRef.current?.();
       });
     };
   }, []);
