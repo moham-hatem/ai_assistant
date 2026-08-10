@@ -1,0 +1,62 @@
+# Local security audit
+
+This module stores minimized, allowlisted security events in a dedicated local SQLite database.
+Rows are append-only under normal application access and form a `previousHash`/`eventHash` HMAC
+chain. A singleton authenticated local head is updated in the same transaction as each append, so
+integrity verification detects deletion of the tail while that head remains. The HMAC key is
+supplied only through runtime environment variables and is never stored in SQLite. This is
+**tamper-evident, not tamper-proof**. `local_authenticated_head` is deliberately not called an
+external checkpoint: rollback or replacement of both the database events and its local head cannot
+be detected without an independently stored anchor, and an operator who has the key can replace
+history. Upgrading a v1 database verifies every historical event with its recorded key version
+inside the upgrade transaction before creating the authenticated head. The v3 access-event schema
+also verifies the full chain and authenticated head before replacing any table. Missing or
+mismatched keys and invalid history leave the previous schema unchanged.
+
+Before using authenticated administration locally, run `npm run audit:init`. It generates a fresh
+256-bit key, writes it to the Git-ignored `.env.local`, and never prints it. The command fills an
+empty placeholder but refuses to overwrite an existing key. Keep the key secret and backed up: it
+is required to verify the audit chain. Public answer and version endpoints remain available when
+the audit configuration is absent, while sensitive operations and successful login fail closed.
+The file is replaced atomically from a synced sibling temporary file, followed by a directory
+metadata sync on platforms that support it. Each initializer owns a uniquely named lock ticket,
+so stale cleanup and final cleanup cannot remove another process's lock. A ticket younger than ten
+minutes is treated as an active initializer; an older ticket is recovered automatically. Before
+removing a lock manually, verify that no `audit:init` process is running. On Windows the command
+prints a fixed warning because POSIX mode bits do not verify NTFS ACLs; inspect the `.env.local`
+Security properties and ensure only the intended account and trusted administrators can read it.
+Windows also receives a fixed warning that directory metadata `fsync` is unavailable.
+
+Sensitive changes in the auth, books, and reviews SQLite databases enqueue their audit command in
+`security_audit_outbox` in the same transaction as the business change. Delivery to the separate
+audit database is idempotent and retried during runtime startup and after writes. SQLite cannot make
+one atomic transaction span these database connections, so a committed business change may briefly
+precede its appearance in the audit database; the durable outbox is the source of recovery. OCR
+state is also stored on the filesystem and cannot be atomic with SQLite. Before approving the file
+state, the books database stores an approval intent; retry accepts the already-ready file and
+atomically changes the edition plus enqueues its audit event. The HTTP operation fails closed when
+audit delivery is unavailable, while the durable intent/outbox preserves recovery.
+
+Public answers and the public version endpoint do not depend on audit readiness. Missing key or a
+corrupt audit database leaves those routes available, but login success, audit reads, and sensitive
+administrative writes fail with `503` until audit delivery recovers. Use `npm run audit:init`; it
+updates `.env.local` directly and never exposes the generated key in terminal output.
+
+The access lifecycle records profile and role update attempts, enable/disable operations, session
+revocation, and invitation/recovery creation, revocation, and redemption. Administrative events
+take their actor from the authenticated principal. Public redemption uses a null actor and records a
+user subject only after the transactional redemption succeeds. Successful no-op updates use
+`changed=false`, and session revocation records the actual `sessionCount`, including zero; these
+values distinguish a successful API attempt from a state transition. Redeeming a token also
+transactionally revokes active sibling tokens and emits one minimized revocation event per sibling.
+Issuing a recovery token likewise revokes active recovery siblings and enqueues one
+`access.recovery_revoked` event with reason `superseded` per sibling alongside the new
+`access.recovery_created` event in the same auth transaction.
+User update and enablement events are built from the authoritative mutation result while the auth
+database holds `BEGIN IMMEDIATE`; no pre-transaction user snapshot determines `changed`, role
+counts, or the number of revoked sessions.
+
+Never add arbitrary metadata. The domain allowlist deliberately excludes emails, passwords, session
+tokens, links, raw hashes, cookies, full questions or answers, book/document text, and other content.
+`actorUserId = null` represents an unauthenticated or server-initiated event; user-triggered actions
+take the actor only from the authenticated principal, never from request content.

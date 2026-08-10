@@ -8,6 +8,7 @@ import {
   AccessLockoutError,
   AccessService,
   AccessTokenRejectedError,
+  InvalidAccessInputError,
 } from './access-service.ts';
 import { ScryptPasswordHasher } from './password.ts';
 import { InMemoryLoginRateLimiter } from './rate-limit.ts';
@@ -69,7 +70,7 @@ test('invitation links keep hashed, expiring, revocable, single-use tokens in fr
     const revoked = await service.createInvitation('admin-1', {
       displayName: 'Revoked Invite', email: 'revoked@example.org', roles: ['reviewer'],
     });
-    await service.revokeInvitation(revoked.id);
+    await service.revokeInvitation('admin-1', revoked.id);
     await assert.rejects(
       () => service.redeemInvitation(
         secretFromFragment(revoked.link, 'invitation'), 'revoked secure password', 'client-3',
@@ -131,17 +132,16 @@ test('disabled users cannot login or refresh sessions and recovery is single-use
   const siblingRecovery = await access.createRecovery('admin-1', 'user-1');
   assertSecretFragment(recovery.link, 'password-recovery', 'recovery', 'r'.repeat(43));
   const rawToken = secretFromFragment(recovery.link, 'recovery');
-  await access.redeemRecovery(rawToken, 'replacement secure password', 'recovery-client');
   await assert.rejects(
-    () => access.redeemRecovery(rawToken, 'second replacement password', 'recovery-client'),
+    () => access.redeemRecovery(rawToken, 'superseded recovery password', 'recovery-client'),
     AccessTokenRejectedError,
   );
+  const latestToken = secretFromFragment(siblingRecovery.link, 'recovery');
+  await access.redeemRecovery(
+    latestToken, 'replacement secure password', 'sibling-recovery-client',
+  );
   await assert.rejects(
-    () => access.redeemRecovery(
-      secretFromFragment(siblingRecovery.link, 'recovery'),
-      'sibling replacement password',
-      'sibling-recovery-client',
-    ),
+    () => access.redeemRecovery(latestToken, 'second replacement password', 'recovery-client'),
     AccessTokenRejectedError,
   );
   await assert.rejects(() => auth.login({
@@ -160,7 +160,7 @@ test('disabled users cannot login or refresh sessions and recovery is single-use
     'expired-recovery-client',
   ), AccessTokenRejectedError);
   const revoked = await access.createRecovery('admin-1', 'user-1');
-  await access.revokeRecovery(revoked.id);
+  await access.revokeRecovery('admin-1', revoked.id);
   await assert.rejects(() => access.redeemRecovery(
     secretFromFragment(revoked.link, 'recovery'),
     'revoked recovery password',
@@ -203,6 +203,51 @@ test('concurrent recovery redemptions for one user allow exactly one token', asy
     assert.equal(rejected.reason instanceof AccessTokenRejectedError, true);
   }
   repository.close();
+});
+
+test('active invitation listing is cursor-bounded, revocable, and never exposes secrets', async () => {
+  const repository = new SqliteAuthRepository(':memory:');
+  const passwords = new ScryptPasswordHasher(fastScrypt);
+  await createUser(repository, passwords, 'admin-1', 'admin@example.org', ['admin']);
+  const tokens = ['x', 'y', 'z'].map((value) => value.repeat(43));
+  let nextId = 0;
+  const access = new AccessService(
+    repository,
+    passwords,
+    new InMemoryLoginRateLimiter(),
+    { invitationTtlMs: 60_000, publicOrigin, recoveryTtlMs: 60_000 },
+    () => new Date('2026-08-10T00:00:00.000Z'),
+    () => tokens.shift()!,
+    () => `invite-${++nextId}`,
+  );
+  try {
+    for (const suffix of ['a', 'b', 'c']) {
+      await access.createInvitation('admin-1', {
+        displayName: `Invite ${suffix}`,
+        email: `${suffix}@example.test`,
+        roles: ['reviewer'],
+      });
+    }
+    const first = await access.listInvitations(undefined, '2');
+    assert.deepEqual(first.items.map((item) => item.id), ['invite-1', 'invite-2']);
+    assert.equal(first.nextCursor, 'invite-2');
+    const second = await access.listInvitations(first.nextCursor, '2');
+    assert.deepEqual(second.items.map((item) => item.id), ['invite-3']);
+    assert.equal(second.nextCursor, null);
+    for (const item of [...first.items, ...second.items]) {
+      assert.equal(item.status, 'active');
+      assert.equal('token' in item || 'tokenHash' in item || 'link' in item, false);
+    }
+    await access.revokeInvitation('admin-1', 'invite-2');
+    assert.deepEqual(
+      (await access.listInvitations(undefined, '10')).items.map((item) => item.id),
+      ['invite-1', 'invite-3'],
+    );
+    await assert.rejects(access.listInvitations('\u0001', '10'), InvalidAccessInputError);
+    await assert.rejects(access.listInvitations(undefined, '101'), InvalidAccessInputError);
+  } finally {
+    repository.close();
+  }
 });
 
 test('access updates prevent last-admin and self lockout and return bounded safe pages', async () => {

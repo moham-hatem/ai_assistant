@@ -1,14 +1,62 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
+import { Worker } from 'node:worker_threads';
 import { ScryptPasswordHasher } from './password.ts';
 import { DuplicateAuthUserError } from './repository.ts';
+import { AccessConflictError } from './access-repository.ts';
 import { SqliteAuthRepository } from './sqlite-repository.ts';
 import { hashSessionToken } from './token.ts';
+
+for (const scenario of [
+  { name: 'row 3 only', versions: [3] },
+  { name: 'a version gap', versions: [1, 3] },
+  { name: 'a too-new version', versions: [1, 2, 3, 4] },
+] as const) {
+  test(`auth preflight rejects ${scenario.name} read-only and closes every handle`, async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'ila-auth-preflight-'));
+    const path = join(directory, 'auth.sqlite');
+    const control = new DatabaseSync(path);
+    control.exec(`
+      CREATE TABLE auth_schema_migrations (
+        version INTEGER PRIMARY KEY CHECK (version > 0), applied_at TEXT NOT NULL
+      ) STRICT;
+    `);
+    const insert = control.prepare(
+      'INSERT INTO auth_schema_migrations(version, applied_at) VALUES (?, ?)',
+    );
+    for (const version of scenario.versions) insert.run(version, '2026-08-10T00:00:00.000Z');
+    control.close();
+    const before = await readFile(path);
+    const child = startRejectedAuthRepository(path);
+    try {
+      await waitForChildSignal(child, 'rejected');
+      assert.deepEqual(await readFile(path), before);
+      assert.deepEqual(await readdir(directory), ['auth.sqlite']);
+      const inspection = new DatabaseSync(path, { readOnly: true });
+      try {
+        const journal = inspection.prepare('PRAGMA journal_mode').get() as unknown as {
+          journal_mode: string;
+        };
+        assert.equal(journal.journal_mode, 'delete');
+      } finally {
+        inspection.close();
+      }
+      const moved = join(directory, 'auth-renamed.sqlite');
+      await rename(path, moved);
+      await rename(moved, path);
+    } finally {
+      child.kill();
+      if (child.exitCode === null) await new Promise((resolve) => child.once('exit', resolve));
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+}
 
 test('SQLite migrations are ordered, idempotent, and enforce normalized security data', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'ila-auth-test-'));
@@ -147,3 +195,241 @@ test('schema v1 users migrate to a safe explicit display-name fallback', async (
     await rm(directory, { force: true, recursive: true });
   }
 });
+
+test('active invitations are unique per normalized email across sequential and competing connections', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'ila-active-invitation-'));
+  const path = join(directory, 'auth.sqlite');
+  const timestamp = '2026-08-10T00:00:00.000Z';
+  const repository = new SqliteAuthRepository(path);
+  try {
+    const passwords = new ScryptPasswordHasher({
+      cost: 1_024, keyLength: 32, maxMemory: 4 * 1024 * 1024,
+    });
+    await repository.createUser({
+      displayName: 'Admin',
+      email: 'admin@example.test',
+      id: 'admin-1',
+      passwordHash: await passwords.hash('concurrency test password'),
+      roles: ['admin'],
+      timestamp,
+    });
+    await repository.createInvitation(invitationRecord('sequential-1', 'retry@example.test'));
+    await assert.rejects(
+      repository.createInvitation(invitationRecord('sequential-2', 'retry@example.test')),
+      AccessConflictError,
+    );
+  } finally {
+    repository.close();
+  }
+
+  const results = await Promise.allSettled([
+    createInvitationFromWorker(path, invitationRecord('concurrent-1', 'race@example.test')),
+    createInvitationFromWorker(path, invitationRecord('concurrent-2', 'race@example.test')),
+  ]);
+  assert.equal(results.filter((item) => item.status === 'fulfilled').length, 1);
+  const rejected = results.find((item) => item.status === 'rejected');
+  assert.match(String(rejected && rejected.status === 'rejected' && rejected.reason), /AccessConflictError/u);
+
+  const control = new DatabaseSync(path);
+  try {
+    const rows = control.prepare(`
+      SELECT email, count(*) AS count FROM auth_invitations
+      WHERE used_at IS NULL AND revoked_at IS NULL AND expires_at > ?
+      GROUP BY email ORDER BY email
+    `).all(timestamp) as unknown as Array<{ count: number; email: string }>;
+    assert.deepEqual(rows.map((row) => ({ count: row.count, email: row.email })), [
+      { count: 1, email: 'race@example.test' },
+      { count: 1, email: 'retry@example.test' },
+    ]);
+  } finally {
+    control.close();
+    await rm(directory, { force: true, recursive: true });
+  }
+});
+
+test('recovery issuance atomically supersedes every active token across competing connections', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'ila-active-recovery-'));
+  const path = join(directory, 'auth.sqlite');
+  const timestamp = '2026-08-10T00:00:00.000Z';
+  const repository = new SqliteAuthRepository(path);
+  try {
+    const passwords = new ScryptPasswordHasher({
+      cost: 1_024, keyLength: 32, maxMemory: 4 * 1024 * 1024,
+    });
+    await repository.createUser({
+      displayName: 'Admin',
+      email: 'admin@example.test',
+      id: 'admin-1',
+      passwordHash: await passwords.hash('concurrency test password'),
+      roles: ['admin'],
+      timestamp,
+    });
+    await repository.createUser({
+      displayName: 'User',
+      email: 'user@example.test',
+      id: 'user-1',
+      passwordHash: await passwords.hash('concurrency test password'),
+      roles: ['reviewer'],
+      timestamp,
+    });
+    const first = recoveryRecord('sequential-recovery-1');
+    const second = recoveryRecord('sequential-recovery-2');
+    await repository.createRecovery(first);
+    const result = await repository.createRecovery(second);
+    assert.deepEqual(result.revokedRecoveryIds, [first.id]);
+    assert.equal((await repository.findRecoveryByTokenHash(first.tokenHash))?.revokedAt, timestamp);
+    assert.equal((await repository.findRecoveryByTokenHash(second.tokenHash))?.revokedAt, null);
+  } finally {
+    repository.close();
+  }
+
+  const rawTokens = ['concurrent-recovery-1', 'concurrent-recovery-2']
+    .map((id) => id.padEnd(43, 'x').slice(0, 43));
+  const results = await Promise.allSettled(rawTokens.map((token, index) =>
+    createRecoveryFromWorker(path, recoveryRecord(`concurrent-recovery-${index + 1}`, token)),
+  ));
+  assert.equal(results.every((item) => item.status === 'fulfilled'), true);
+
+  const control = new DatabaseSync(path);
+  try {
+    const active = control.prepare(`
+      SELECT id FROM auth_recovery_tokens
+      WHERE user_id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?
+    `).all('user-1', timestamp) as unknown as Array<{ id: string }>;
+    assert.equal(active.length, 1);
+    const revokedCount = control.prepare(`
+      SELECT count(*) AS count FROM auth_recovery_tokens
+      WHERE user_id = ? AND revoked_at = ?
+    `).get('user-1', timestamp) as unknown as { count: number };
+    assert.equal(revokedCount.count, 3);
+    const bytes = readdirSync(directory)
+      .map((file) => readFileSync(join(directory, file)))
+      .reduce((combined, item) => Buffer.concat([combined, item]), Buffer.alloc(0));
+    for (const rawToken of rawTokens) assert.equal(bytes.includes(Buffer.from(rawToken)), false);
+  } finally {
+    control.close();
+    await rm(directory, { force: true, recursive: true });
+  }
+});
+
+function invitationRecord(id: string, email: string) {
+  return {
+    createdAt: '2026-08-10T00:00:00.000Z',
+    createdByUserId: 'admin-1',
+    displayName: 'Invited User',
+    email,
+    expiresAt: '2026-08-11T00:00:00.000Z',
+    id,
+    roles: ['reviewer' as const],
+    tokenHash: hashSessionToken(id.padEnd(43, 'x').slice(0, 43)),
+  };
+}
+
+function recoveryRecord(id: string, token = id.padEnd(43, 'r').slice(0, 43)) {
+  return {
+    createdAt: '2026-08-10T00:00:00.000Z',
+    createdByUserId: 'admin-1',
+    expiresAt: '2026-08-11T00:00:00.000Z',
+    id,
+    tokenHash: hashSessionToken(token),
+    userId: 'user-1',
+  };
+}
+
+function createInvitationFromWorker(
+  path: string,
+  record: ReturnType<typeof invitationRecord>,
+): Promise<void> {
+  const moduleUrl = new URL('./sqlite-repository.ts', import.meta.url).href;
+  const source = `
+    const { parentPort, workerData } = require('node:worker_threads');
+    (async () => {
+      const { SqliteAuthRepository } = await import(workerData.moduleUrl);
+      const repository = new SqliteAuthRepository(workerData.path);
+      try { await repository.createInvitation(workerData.record); }
+      finally { repository.close(); }
+      parentPort.postMessage({ ok: true });
+    })().catch((error) => parentPort.postMessage({ error: error.constructor.name }));
+  `;
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(source, { eval: true, workerData: { moduleUrl, path, record } });
+    worker.once('message', (message: { error?: string; ok?: boolean }) => {
+      if (message.ok) resolve();
+      else reject(new Error(message.error ?? 'Invitation worker failed.'));
+    });
+    worker.once('error', reject);
+  });
+}
+
+function createRecoveryFromWorker(
+  path: string,
+  record: ReturnType<typeof recoveryRecord>,
+): Promise<void> {
+  const moduleUrl = new URL('./sqlite-repository.ts', import.meta.url).href;
+  const source = `
+    const { parentPort, workerData } = require('node:worker_threads');
+    (async () => {
+      const { SqliteAuthRepository } = await import(workerData.moduleUrl);
+      const repository = new SqliteAuthRepository(workerData.path);
+      try { await repository.createRecovery(workerData.record); }
+      finally { repository.close(); }
+      parentPort.postMessage({ ok: true });
+    })().catch((error) => parentPort.postMessage({ error: error.constructor.name }));
+  `;
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(source, { eval: true, workerData: { moduleUrl, path, record } });
+    worker.once('message', (message: { error?: string; ok?: boolean }) => {
+      if (message.ok) resolve();
+      else reject(new Error(message.error ?? 'Recovery worker failed.'));
+    });
+    worker.once('error', reject);
+  });
+}
+
+function startRejectedAuthRepository(path: string) {
+  const moduleUrl = new URL('./sqlite-repository.ts', import.meta.url).href;
+  const source = `
+    import { SqliteAuthRepository } from ${JSON.stringify(moduleUrl)};
+    try {
+      new SqliteAuthRepository(${JSON.stringify(path)});
+      process.stdout.write('unexpected\\n');
+    } catch {
+      process.stdout.write('rejected\\n');
+      setInterval(() => undefined, 1_000);
+    }
+  `;
+  return spawn(process.execPath, [
+    '--no-warnings', '--experimental-strip-types', '--input-type=module', '--eval', source,
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
+function waitForChildSignal(
+  child: ReturnType<typeof spawn>,
+  expected: string,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => reject(new Error(
+      `Timed out waiting for auth preflight child. stderr=${stderr}`,
+    )), 10_000);
+    const finish = (operation: () => void) => {
+      clearTimeout(timer);
+      operation();
+    };
+    child.stderr?.on('data', (chunk) => { stderr += String(chunk); });
+    child.stdout?.on('data', (chunk) => {
+      stdout += String(chunk);
+      if (stdout.includes(`${expected}\n`)) finish(resolve);
+      else if (stdout.includes('unexpected\n')) finish(() => reject(
+        new Error('Invalid auth migration history unexpectedly opened.'),
+      ));
+    });
+    child.once('error', (error) => finish(() => reject(error)));
+    child.once('exit', (code) => {
+      if (!stdout.includes(`${expected}\n`)) finish(() => reject(new Error(
+        `Auth preflight child exited early (${code}). stderr=${stderr}`,
+      )));
+    });
+  });
+}

@@ -45,9 +45,11 @@ import { PdfExtractor } from './documents/extractors/pdf.ts';
 import { LocalPdfOcr } from './documents/ocr/local-pdf-ocr.ts';
 import { PdftoppmRasterizer } from './documents/ocr/pdftoppm-rasterizer.ts';
 import { TesseractOcrEngine } from './documents/ocr/tesseract-engine.ts';
+import type { SecurityAuditService } from './modules/security-audit/service.ts';
 
 export interface RuntimeDependencies {
   documentProcessor?: DocumentProcessorPort;
+  securityAudit?: SecurityAuditService;
 }
 
 export function createRuntime(config: LocalRuntimeConfig, dependencies: RuntimeDependencies = {}) {
@@ -69,7 +71,7 @@ export function createRuntime(config: LocalRuntimeConfig, dependencies: RuntimeD
   );
   const documentStore = new DocumentStore(config.documentDirectory, config.knowledgeDirectory);
   const bookRepository = createBookRepository(config.booksDatabaseFile);
-  const bookService = new BookService(bookRepository);
+  const bookService = new BookService(bookRepository, undefined, undefined, dependencies.securityAudit);
   const bookDocuments = new BookDocumentService(
     bookService,
     bookRepository,
@@ -130,6 +132,21 @@ export function createRuntime(config: LocalRuntimeConfig, dependencies: RuntimeD
       new LocalPublishedEvidenceSource(config.knowledgeDirectory, publishedEvidence),
     ),
   );
+  const reviewService = new ReviewService(
+    reviewRepository,
+    questionLogRepository,
+    undefined,
+    undefined,
+    dependencies.securityAudit,
+  );
+  if (dependencies.securityAudit) {
+    void bookRepository.flushSecurityAuditOutbox?.(dependencies.securityAudit).catch((error) => {
+      console.warn(`Book security audit outbox delivery failed: ${error instanceof Error ? error.name : 'Error'}`);
+    });
+    void reviewRepository.flushSecurityAuditOutbox?.(dependencies.securityAudit).catch((error) => {
+      console.warn(`Review security audit outbox delivery failed: ${error instanceof Error ? error.name : 'Error'}`);
+    });
+  }
   return {
     answerRequestService: new AnswerRequestService(answerService, questionLogService),
     answerService,
@@ -145,8 +162,19 @@ export function createRuntime(config: LocalRuntimeConfig, dependencies: RuntimeD
     qualityMetricsRepository,
     qualityMetricsService: new QualityMetricsService(qualityMetricsRepository),
     reviewRepository,
-    reviewService: new ReviewService(reviewRepository, questionLogRepository),
+    reviewService,
+    close() {
+      closeRepository(bookRepository);
+      closeRepository(feedbackRepository);
+      closeRepository(qualityMetricsRepository);
+      closeRepository(reviewRepository);
+      closeRepository(questionLogRepository);
+    },
   };
+}
+
+function closeRepository(repository: object): void {
+  if ('close' in repository && typeof repository.close === 'function') repository.close();
 }
 
 function createQualityMetricsRepository(path: string): QualityMetricsRepository {

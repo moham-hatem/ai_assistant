@@ -1,8 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { AccessUserSummary } from '../../shared/contracts/access-management.ts';
 import type { AuthRole } from '../../shared/contracts/auth.ts';
+import type { SecurityAuditCommand } from '../modules/security-audit/domain.ts';
+import { enqueueSecurityAudit } from '../modules/security-audit/sqlite-outbox.ts';
 import {
+  type AccessUserEnabledMutationResult,
   AccessLockoutError,
+  type AccessUserUpdateMutationResult,
   AccessUserNotFoundError,
 } from './access-repository.ts';
 import {
@@ -11,6 +15,7 @@ import {
   normalizeRoles,
   type AuthUser,
 } from './domain.ts';
+import { withImmediateTransaction } from './sqlite-transaction.ts';
 
 interface UserRow {
   created_at: string;
@@ -21,7 +26,6 @@ interface UserRow {
   password_hash: string;
   updated_at: string;
 }
-
 export class SqliteAccessUserRepository {
   private readonly database: DatabaseSync;
 
@@ -44,28 +48,51 @@ export class SqliteAccessUserRepository {
 
   async update(command: {
     actorId: string;
-    displayName: string;
-    roles: AuthRole[];
+    displayName?: string;
+    roles?: AuthRole[];
     timestamp: string;
     userId: string;
-  }): Promise<AuthUser> {
-    if (normalizeDisplayName(command.displayName) !== command.displayName) {
+  }, audit?: (
+    result: AccessUserUpdateMutationResult,
+  ) => readonly SecurityAuditCommand[]): Promise<AccessUserUpdateMutationResult> {
+    if (command.displayName !== undefined
+        && normalizeDisplayName(command.displayName) !== command.displayName) {
       throw new Error('Display name is not normalized.');
     }
-    return transaction(this.database, () => {
+    return withImmediateTransaction(this.database, () => {
       const current = this.findRow(command.userId);
       if (!current) throw new AccessUserNotFoundError();
-      const roles = normalizeRoles(command.roles);
-      if (command.actorId === command.userId && !roles.includes('admin')) {
+      const previousRoles = this.rolesFor(command.userId);
+      const nextRoles = command.roles === undefined
+        ? previousRoles
+        : normalizeRoles(command.roles);
+      const nextDisplayName = command.displayName ?? current.display_name;
+      const displayNameChanged = command.displayName !== undefined
+        && nextDisplayName !== current.display_name;
+      const rolesChanged = command.roles !== undefined
+        && !sameRoles(nextRoles, previousRoles);
+      if (command.actorId === command.userId && !nextRoles.includes('admin')) {
         throw new AccessLockoutError('Administrators cannot remove their own settings access.');
       }
-      this.assertLastAdminRemains(current, current.enabled === 1, roles);
-      this.database.prepare(`
-        UPDATE auth_users SET display_name = ?, updated_at = ? WHERE id = ?
-      `).run(command.displayName, command.timestamp, command.userId);
-      this.replaceRoles(command.userId, roles);
-      this.revokeSessions(command.userId, command.timestamp);
-      return this.requireUser(command.userId);
+      this.assertLastAdminRemains(current, current.enabled === 1, nextRoles);
+      let revokedSessionCount = 0;
+      if (displayNameChanged || rolesChanged) {
+        this.database.prepare(`
+          UPDATE auth_users SET display_name = ?, updated_at = ? WHERE id = ?
+        `).run(nextDisplayName, command.timestamp, command.userId);
+        if (rolesChanged) this.replaceRoles(command.userId, nextRoles);
+        revokedSessionCount = this.revokeSessions(command.userId, command.timestamp);
+      }
+      const result: AccessUserUpdateMutationResult = {
+        displayNameChanged,
+        nextRoleCount: nextRoles.length,
+        previousRoleCount: previousRoles.length,
+        revokedSessionCount,
+        rolesChanged,
+        user: this.requireUser(command.userId),
+      };
+      for (const event of audit?.(result) ?? []) enqueueSecurityAudit(this.database, event);
+      return result;
     });
   }
 
@@ -74,8 +101,9 @@ export class SqliteAccessUserRepository {
     userId: string,
     enabled: boolean,
     timestamp: string,
-  ): Promise<AuthUser> {
-    return transaction(this.database, () => {
+    audit?: (result: AccessUserEnabledMutationResult) => readonly SecurityAuditCommand[],
+  ): Promise<AccessUserEnabledMutationResult> {
+    return withImmediateTransaction(this.database, () => {
       const current = this.findRow(userId);
       if (!current) throw new AccessUserNotFoundError();
       if (actorId === userId && !enabled) {
@@ -83,11 +111,23 @@ export class SqliteAccessUserRepository {
       }
       const roles = this.rolesFor(userId);
       this.assertLastAdminRemains(current, enabled, roles);
-      this.database.prepare(`
-        UPDATE auth_users SET enabled = ?, updated_at = ? WHERE id = ?
-      `).run(enabled ? 1 : 0, timestamp, userId);
-      if (!enabled) this.revokeSessions(userId, timestamp);
-      return this.requireUser(userId);
+      const changed = (current.enabled === 1) !== enabled;
+      let revokedSessionCount = 0;
+      if (changed) {
+        this.database.prepare(`
+          UPDATE auth_users SET enabled = ?, updated_at = ? WHERE id = ?
+        `).run(enabled ? 1 : 0, timestamp, userId);
+        if (!enabled) revokedSessionCount = this.revokeSessions(userId, timestamp);
+      }
+      const result: AccessUserEnabledMutationResult = {
+        changed,
+        revokedSessionCount,
+        user: this.requireUser(userId),
+      };
+      for (const event of audit?.(result) ?? []) {
+        enqueueSecurityAudit(this.database, event);
+      }
+      return result;
     });
   }
 
@@ -108,10 +148,11 @@ export class SqliteAccessUserRepository {
     if (row.count <= 1) throw new AccessLockoutError('The last enabled administrator is required.');
   }
 
-  private revokeSessions(userId: string, timestamp: string): void {
-    this.database.prepare(`
+  private revokeSessions(userId: string, timestamp: string): number {
+    const result = this.database.prepare(`
       UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL
     `).run(timestamp, userId);
+    return Number(result.changes);
   }
 
   private replaceRoles(userId: string, roles: readonly AuthRole[]): void {
@@ -154,14 +195,9 @@ export class SqliteAccessUserRepository {
   }
 }
 
-function transaction<T>(database: DatabaseSync, operation: () => T): T {
-  database.exec('BEGIN IMMEDIATE;');
-  try {
-    const value = operation();
-    database.exec('COMMIT;');
-    return value;
-  } catch (error) {
-    database.exec('ROLLBACK;');
-    throw error;
-  }
+function sameRoles(left: readonly AuthRole[], right: readonly AuthRole[]): boolean {
+  const normalizedLeft = normalizeRoles(left);
+  const normalizedRight = normalizeRoles(right);
+  return normalizedLeft.length === normalizedRight.length
+    && normalizedLeft.every((role, index) => role === normalizedRight[index]);
 }

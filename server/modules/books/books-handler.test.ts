@@ -12,6 +12,9 @@ import { BookService } from './book-service.ts';
 import { createBooksHandler } from './books-handler.ts';
 import { SqliteBookRepository } from './sqlite-book-repository.ts';
 import { UnavailableBookRepository } from './unavailable-book-repository.ts';
+import { SecurityAuditService } from '../security-audit/service.ts';
+import { SqliteSecurityAuditRepository } from '../security-audit/sqlite-repository.ts';
+import { randomBytes } from 'node:crypto';
 
 test('internal book API validates input, paginates, and drives edition publication explicitly', async () => {
   const repository = new SqliteBookRepository(':memory:');
@@ -167,7 +170,6 @@ test('processing API reports state, reprocesses drafts, and refuses published ed
         },
       });
       assert.equal((await service.getEdition(book.id, uploaded.edition.id)).status, 'ready');
-
       await operations.transitionEdition(book.id, uploaded.edition.id, 'published');
       const forbidden = await jsonRequest(endpoint, 'POST');
       assert.equal(forbidden.response.status, 409);
@@ -184,7 +186,11 @@ test('processing API reports state, reprocesses drafts, and refuses published ed
 test('OCR review approval readies the document and edition without publishing', async () => {
   const root = await mkdtemp(join(tmpdir(), 'books-approval-handler-test-'));
   const repository = new SqliteBookRepository(join(root, 'books.sqlite'));
-  const service = new BookService(repository);
+  const auditRepository = new SqliteSecurityAuditRepository(
+    ':memory:', new Map([['v1', randomBytes(32)]]), 'v1',
+  );
+  const audit = new SecurityAuditService(auditRepository);
+  const service = new BookService(repository, undefined, undefined, audit);
   const processor: DocumentProcessorPort = {
     async process() {
       return {
@@ -243,6 +249,11 @@ test('OCR review approval readies the document and edition without publishing', 
       );
       assert.equal((approved.body.edition as { status: string }).status, 'ready');
       assert.equal((await service.getEdition(book.id, uploaded.edition.id)).status, 'ready');
+      const events = await audit.list({ action: 'document.ocr_approved', limit: 10, offset: 0 });
+      assert.equal(events.total, 1);
+      assert.equal(events.items[0]?.actorUserId, principal.id);
+      assert.deepEqual(events.items[0]?.metadata, { fromStatus: 'processing', toStatus: 'ready' });
+      assert.equal(JSON.stringify(events).includes('Reviewed OCR text'), false);
 
       await operations.transitionEdition(book.id, uploaded.edition.id, 'published');
       const published = await jsonRequest(endpoint, 'POST', { actorId: crypto.randomUUID() });
@@ -251,6 +262,7 @@ test('OCR review approval readies the document and edition without publishing', 
       assert.equal((await service.getEdition(book.id, uploaded.edition.id)).status, 'published');
     });
   } finally {
+    auditRepository.close();
     repository.close();
     await rm(root, { recursive: true, force: true });
   }

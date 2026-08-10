@@ -2,6 +2,9 @@ node_modules/
 dist/
 .env
 .env.local
+.env.local.audit-init.lock
+.env.local.audit-init.lock.*
+.env.local.audit-init.*.tmp
 .supabase/
 *.log
 data/documents/
@@ -12,4 +15,5 @@ data/models/
 data/question-log.sqlite*
 data/books.sqlite*
 data/auth.sqlite*
+data/security-audit.sqlite*
 data/telegram.sqlite*

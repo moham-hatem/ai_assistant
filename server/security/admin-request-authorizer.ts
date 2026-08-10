@@ -12,6 +12,7 @@ export interface AdminRequestAuthorizer {
   authorize(
     request: IncomingMessage,
     permission: AuthPermission,
+    requestId: string,
   ): Promise<AuthPrincipal>;
 }
 
@@ -19,10 +20,25 @@ export interface StateChangingRequestOriginGuard {
   assertAllowed(request: IncomingMessage): Promise<void>;
 }
 
-export function unauthenticated(): AppError {
-  return new AppError('UNAUTHENTICATED', 'Authentication is required.', 401);
+export class AdminAuthorizationError extends AppError {
+  readonly actorUserId: string | null;
+
+  constructor(
+    code: 'FORBIDDEN' | 'UNAUTHENTICATED',
+    message: string,
+    status: 401 | 403,
+    actorUserId: string | null,
+  ) {
+    super(code, message, status);
+    this.name = 'AdminAuthorizationError';
+    this.actorUserId = actorUserId;
+  }
 }
 
-export function forbidden(): AppError {
-  return new AppError('FORBIDDEN', 'Permission denied.', 403);
+export function unauthenticated(): AppError {
+  return new AdminAuthorizationError('UNAUTHENTICATED', 'Authentication is required.', 401, null);
+}
+
+export function forbidden(principal: AuthPrincipal | null = null): AppError {
+  return new AdminAuthorizationError('FORBIDDEN', 'Permission denied.', 403, principal?.id ?? null);
 }

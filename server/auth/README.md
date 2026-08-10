@@ -60,6 +60,20 @@ links expire after 24 hours; recovery links expire after one hour. They are 256-
 secrets, stored only as SHA-256 hashes, single-use, and revocable. No email is sent: the creating
 administrator receives the secret link exactly once in the creation response and must handle it
 as a password-equivalent secret. The server does not log it.
+Creating another active invitation for the same normalized email returns
+`409 ACCESS_OPERATION_REJECTED`, including concurrent or ambiguous retries. The API never returns
+an earlier one-time secret. An administrator can recover from a lost creation response with
+`GET /api/internal/access/invitations?cursor=<id>&limit=<1..100>`, which lists only active,
+unexpired invitations as `id`, `email`, `displayName`, `roles`, `createdAt`, `expiresAt`, and
+`status`; it never returns a token, link, or hash. Revoke the listed invitation with
+`POST /api/internal/access/invitations/:id/revoke`, then create a new one.
+
+Issuing a recovery link atomically revokes every other active recovery token for that user before
+creating the new token. Concurrent issuances are serialized with `BEGIN IMMEDIATE`, so only the
+last committed link remains usable. If audit delivery fails after the auth transaction commits,
+the HTTP request returns `503` and the event remains in the durable outbox; an administrator can
+issue a replacement, which safely invalidates the lost link. If outbox insertion itself fails, the
+entire issuance and sibling revocations roll back.
 
 Existing users migrate to `enabled`. Disabled users cannot log in or refresh a session, and all
 their active sessions are revoked. Role and enablement changes are transactional: the last

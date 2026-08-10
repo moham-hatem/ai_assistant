@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { DocumentStore } from '../../documents/document-store.ts';
+import { DocumentProcessingService } from '../../documents/document-processing-service.ts';
 import type { DocumentProcessorPort } from '../../documents/document-processor-port.ts';
 import { PdfDocumentProcessor } from '../../documents/pdf-document-processor.ts';
 import { AppError } from '../../errors.ts';
@@ -12,6 +14,8 @@ import { BookDocumentEvidenceSource } from './book-document-evidence.ts';
 import { BookDocumentService } from './book-document-service.ts';
 import { BookService } from './book-service.ts';
 import { SqliteBookRepository } from './sqlite-book-repository.ts';
+import { SecurityAuditService } from '../security-audit/service.ts';
+import { SqliteSecurityAuditRepository } from '../security-audit/sqlite-repository.ts';
 
 test('upload stages a ready edition, rejects duplicate fingerprints, and excludes it from search', async () => {
   await withApplication(async ({ application, books, knowledge, repository }) => {
@@ -129,6 +133,54 @@ test('reprocessing that requires OCR review keeps the edition processing', async
   }, processor);
 });
 
+test('OCR approval retries after the file becomes ready before the SQLite transition', async () => {
+  const processor: DocumentProcessorPort = {
+    async process() {
+      return {
+        text: 'Reviewed OCR output with enough safe text for the processing state.',
+        summary: {
+          averageConfidence: 0.65,
+          failureCode: null,
+          lowConfidencePageCount: 1,
+          method: 'ocr',
+          ocrPageCount: 1,
+          pageCount: 1,
+          processedAt: null,
+          status: 'review_required',
+        },
+      };
+    },
+  };
+
+  await withApplication(async ({ application, audit, books, documents }) => {
+    const book = await books.createBook({ language: 'en', title: 'Retry approval' });
+    const uploaded = await application.upload({
+      bookId: book.id,
+      buffer: lesson('ocr-retry-marker'),
+      name: 'lesson.txt',
+    });
+    await application.reprocessEdition(book.id, uploaded.edition.id);
+    const requestId = randomUUID();
+    await books.beginOcrApproval(book.id, uploaded.edition.id, uploaded.document.id, {
+      actorUserId: 'reviewer-1', requestId,
+    });
+    const fileProcessing = new DocumentProcessingService(documents, processor);
+    await fileProcessing.approveReview(uploaded.document.id);
+
+    assert.equal((await application.editionProcessing(book.id, uploaded.edition.id)).summary.status, 'ready');
+    assert.equal((await books.getEdition(book.id, uploaded.edition.id)).status, 'processing');
+
+    const recovered = await application.approveEditionProcessing(
+      book.id, uploaded.edition.id, 'reviewer-1', randomUUID(),
+    );
+    assert.equal(recovered.edition.status, 'ready');
+    const events = await audit.list({ action: 'document.ocr_approved', limit: 10, offset: 0 });
+    assert.equal(events.total, 1);
+    assert.equal(events.items[0]?.requestId, requestId);
+    assert.equal(JSON.stringify(events).includes('Reviewed OCR output'), false);
+  }, processor);
+});
+
 test('publishing atomically selects the edition for knowledge search', async () => {
   await withApplication(async ({ application, books, knowledge, repository }) => {
     const book = await books.createBook({ language: 'en', title: 'Published book' });
@@ -205,6 +257,7 @@ test('failed implicit upload leaves only a rejected attempt and no partial docum
 
 interface TestContext {
   application: BookDocumentService;
+  audit: SecurityAuditService;
   books: BookService;
   knowledge: LocalKnowledgeSource;
   repository: SqliteBookRepository;
@@ -217,8 +270,12 @@ async function withApplication(
 ): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'book-document-lifecycle-test-'));
   const repository = new SqliteBookRepository(join(root, 'books.sqlite'));
+  const auditRepository = new SqliteSecurityAuditRepository(
+    ':memory:', new Map([['v1', randomBytes(32)]]), 'v1',
+  );
+  const audit = new SecurityAuditService(auditRepository);
   const documents = new DocumentStore(join(root, 'documents'), join(root, 'knowledge'));
-  const books = new BookService(repository);
+  const books = new BookService(repository, undefined, undefined, audit);
   const application = new BookDocumentService(books, repository, documents, undefined, processor);
   const knowledge = new LocalKnowledgeSource(
     join(root, 'knowledge'),
@@ -227,8 +284,9 @@ async function withApplication(
   );
 
   try {
-    await run({ application, books, documents, knowledge, repository });
+    await run({ application, audit, books, documents, knowledge, repository });
   } finally {
+    auditRepository.close();
     repository.close();
     await rm(root, { recursive: true, force: true });
   }

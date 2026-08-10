@@ -13,7 +13,15 @@ import {
   ConcurrentEditionUpdateError,
   DuplicateEditionError,
   type BookRepository,
+  type OcrApprovalIntent,
 } from './book-repository.ts';
+import type { SecurityAuditService } from '../security-audit/service.ts';
+import type { SecurityAuditAction } from '../../../shared/contracts/security-audit.ts';
+import type { SecurityAuditCommand, SecurityAuditContext } from '../security-audit/domain.ts';
+
+export interface BookAuditContext extends SecurityAuditContext {
+  action?: Extract<SecurityAuditAction, 'document.ocr_approved'>;
+}
 
 export interface CreateBookInput {
   authorOrOrganization?: string;
@@ -33,15 +41,18 @@ export class BookService {
   private readonly repository: BookRepository;
   private readonly now: () => Date;
   private readonly createId: () => string;
+  private readonly audit?: SecurityAuditService;
 
   constructor(
     repository: BookRepository,
     now: () => Date = () => new Date(),
     createId: () => string = randomUUID,
+    audit?: SecurityAuditService,
   ) {
     this.repository = repository;
     this.now = now;
     this.createId = createId;
+    this.audit = audit;
   }
 
   async createBook(input: CreateBookInput): Promise<Book> {
@@ -102,6 +113,7 @@ export class BookService {
     bookId: string,
     editionId: string,
     targetStatus: EditionStatus,
+    auditContext?: BookAuditContext,
   ): Promise<BookEdition> {
     const edition = await this.getEdition(bookId, editionId);
 
@@ -121,12 +133,34 @@ export class BookService {
       expectedStatus: edition.status,
       targetStatus,
     };
-    return this.call(() => targetStatus === 'published'
-      ? this.repository.publishEdition(command)
-      : this.repository.transitionEdition(command));
+    const audit = auditContext && this.audit ? this.auditCommand(
+      auditContext,
+      edition.status,
+      targetStatus,
+      editionId,
+      command.at,
+    ) : undefined;
+    const archiveAudit = auditContext && this.audit && targetStatus === 'published'
+      ? withoutSubject(this.auditCommand(
+        auditContext,
+        'published',
+        'archived',
+        editionId,
+        command.at,
+      ))
+      : undefined;
+    const result = await this.call(() => targetStatus === 'published'
+      ? this.repository.publishEdition({ ...command, archiveAudit, audit })
+      : this.repository.transitionEdition({ ...command, audit }));
+    if (audit) await this.flushAudit();
+    return result;
   }
 
-  async reopenEditionProcessing(bookId: string, editionId: string): Promise<BookEdition> {
+  async reopenEditionProcessing(
+    bookId: string,
+    editionId: string,
+    auditContext?: BookAuditContext,
+  ): Promise<BookEdition> {
     const edition = await this.getEdition(bookId, editionId);
     if (edition.status !== 'ready') {
       throw new AppError(
@@ -135,13 +169,20 @@ export class BookService {
         409,
       );
     }
-    return this.call(() => this.repository.transitionEdition({
-      at: this.now().toISOString(),
+    const at = this.now().toISOString();
+    const audit = auditContext && this.audit
+      ? this.auditCommand(auditContext, 'ready', 'processing', editionId, at)
+      : undefined;
+    const result = await this.call(() => this.repository.transitionEdition({
+      at,
+      audit,
       bookId,
       editionId,
       expectedStatus: 'ready',
       targetStatus: 'processing',
     }));
+    if (audit) await this.flushAudit();
+    return result;
   }
 
   private async call<T>(operation: () => Promise<T>): Promise<T> {
@@ -160,4 +201,80 @@ export class BookService {
       throw error;
     }
   }
+
+  async beginOcrApproval(
+    bookId: string,
+    editionId: string,
+    documentId: string,
+    context: SecurityAuditContext,
+  ): Promise<OcrApprovalIntent> {
+    if (!this.audit || !this.repository.beginOcrApproval) throw auditUnavailable();
+    return this.call(() => this.repository.beginOcrApproval!({
+      actorUserId: context.actorUserId,
+      bookId,
+      createdAt: this.now().toISOString(),
+      documentId,
+      editionId,
+      requestId: context.requestId,
+    }));
+  }
+
+  async completeOcrApproval(intent: OcrApprovalIntent): Promise<BookEdition> {
+    if (!this.audit || !this.repository.completeOcrApproval) throw auditUnavailable();
+    const at = this.now().toISOString();
+    const audit = this.auditCommand({
+      action: 'document.ocr_approved',
+      actorUserId: intent.actorUserId,
+      requestId: intent.requestId,
+    }, 'processing', 'ready', intent.editionId, at);
+    const edition = await this.call(() => this.repository.completeOcrApproval!(intent, audit));
+    await this.flushAudit();
+    return edition;
+  }
+
+  private auditCommand(
+    context: BookAuditContext,
+    fromStatus: EditionStatus,
+    toStatus: EditionStatus,
+    editionId: string,
+    timestamp: string,
+  ): SecurityAuditCommand {
+    const action: SecurityAuditCommand['action'] = context.action ?? (toStatus === 'published'
+      ? 'book.edition_published'
+      : fromStatus === 'archived' ? 'book.edition_restored' : 'book.edition_status_changed');
+    const metadata = action === 'document.ocr_approved'
+      ? { fromStatus, toStatus }
+      : action === 'book.edition_status_changed' ? { fromStatus, toStatus } : { fromStatus };
+    return {
+      action,
+      actorUserId: context.actorUserId,
+      category: action === 'document.ocr_approved' ? 'documents' as const : 'books' as const,
+      id: this.createId(),
+      metadata,
+      outcome: 'success' as const,
+      requestId: context.requestId,
+      subjectId: editionId,
+      subjectType: 'book_edition',
+      timestamp,
+    };
+  }
+
+  private async flushAudit(): Promise<void> {
+    if (this.audit && this.repository.flushSecurityAuditOutbox) {
+      await this.repository.flushSecurityAuditOutbox(this.audit);
+    }
+  }
+}
+
+function withoutSubject(command: SecurityAuditCommand): Omit<SecurityAuditCommand, 'subjectId'> {
+  const { subjectId: _subjectId, ...rest } = command;
+  return rest;
+}
+
+function auditUnavailable(): AppError {
+  return new AppError(
+    'SECURITY_AUDIT_UNAVAILABLE',
+    'Security audit is required for this operation.',
+    503,
+  );
 }

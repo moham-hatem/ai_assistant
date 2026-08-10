@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import type { AuthPrincipal } from '../../shared/contracts/auth.ts';
 import type { Plugin } from 'vite';
 import type { AuthConfig } from '../auth/config.ts';
@@ -20,6 +21,12 @@ import {
   type AdminApiSecurity,
 } from '../security/admin-authorization-guard.ts';
 import { createRuntimeAdminSecurity } from '../security/runtime-admin-security.ts';
+import type { SecurityAuditConfigResolution } from '../modules/security-audit/config.ts';
+import { SqliteSecurityAuditRepository } from '../modules/security-audit/sqlite-repository.ts';
+import { SecurityAuditService } from '../modules/security-audit/service.ts';
+import { createSecurityAuditHandler } from '../modules/security-audit/security-audit-handler.ts';
+import type { SecurityAuditRepository } from '../modules/security-audit/repository.ts';
+import { UnavailableSecurityAuditRepository } from '../modules/security-audit/unavailable-repository.ts';
 
 type Next = (error?: unknown) => void;
 type ApiHandler = (
@@ -27,6 +34,7 @@ type ApiHandler = (
   response: ServerResponse,
   url: URL,
   principal: AuthPrincipal | null,
+  requestId: string,
 ) => void | Promise<void>;
 type AuthHandler = ReturnType<typeof createAuthHandler>;
 
@@ -39,25 +47,66 @@ export interface LocalApiHandlers {
   qualityMetrics: ApiHandler;
   questionLogs: ApiHandler;
   reviews: ApiHandler;
+  securityAudit?: ApiHandler;
   version: ApiHandler;
 }
 
 export function createLocalApiPlugin(
   config: LocalRuntimeConfig,
   authConfig: AuthConfig,
+  auditConfig: SecurityAuditConfigResolution,
 ): Plugin {
   return {
     name: 'local-answer-api',
     async configureServer(server) {
-      const runtime = createRuntime(config);
       const logError: ErrorLogger = (requestId, error) => {
         const loggedError = error instanceof Error ? error : new Error(String(error));
         server.config.logger.error(
           `Local API request failed (${requestId}): ${loggedError.name}`,
         );
       };
-      const auth = await createLocalAuthRuntime(authConfig, logError);
-      const security = createRuntimeAdminSecurity(auth.service, auth.cookie, auth.origin);
+      let auditRepository: SecurityAuditRepository;
+      if (auditConfig.config) {
+        try {
+          const candidate = new SqliteSecurityAuditRepository(
+            auditConfig.config.databasePath,
+            auditConfig.config.keys,
+            auditConfig.config.currentKeyVersion,
+          );
+          try {
+            const integrity = await candidate.verifyIntegrity(new Date().toISOString());
+            if (integrity.status !== 'valid') {
+              throw new Error('Security audit integrity verification did not pass.');
+            }
+            auditRepository = candidate;
+          } catch (error) {
+            candidate.close();
+            throw error;
+          }
+        } catch (error) {
+          server.config.logger.warn(
+            'Security audit storage is unavailable. Public answer/version APIs remain available; sensitive operations return 503.',
+          );
+          auditRepository = new UnavailableSecurityAuditRepository(error);
+        }
+      } else {
+        server.config.logger.warn(auditConfig.setupError);
+        auditRepository = new UnavailableSecurityAuditRepository(new Error('Audit setup incomplete.'));
+      }
+      const audit = new SecurityAuditService(auditRepository, undefined, undefined, (error) => {
+        logError('security-audit', error);
+      });
+      let runtime: ReturnType<typeof createRuntime> | undefined;
+      let auth: Awaited<ReturnType<typeof createLocalAuthRuntime>>;
+      try {
+        runtime = createRuntime(config, { securityAudit: audit });
+        auth = await createLocalAuthRuntime(authConfig, logError, audit);
+      } catch (error) {
+        runtime?.close();
+        auditRepository.close();
+        throw error;
+      }
+      const security = createRuntimeAdminSecurity(auth.service, auth.cookie, auth.origin, audit);
       const handler = createLocalApiRequestHandler({
         access: auth.accessHandler,
         answer: createAnswerHandler(runtime.answerRequestService, logError),
@@ -67,10 +116,15 @@ export function createLocalApiPlugin(
         qualityMetrics: createQualityMetricsHandler(runtime.qualityMetricsService, logError),
         questionLogs: createQuestionLogHandler(runtime.questionLogRepository, logError),
         reviews: createReviewsHandler(runtime.reviewService, logError),
+        securityAudit: createSecurityAuditHandler(audit, logError),
         version: handleApiVersionRequest,
       }, security, logError, auth.handler);
 
-      server.httpServer?.once('close', () => auth.repository.close());
+      server.httpServer?.once('close', () => {
+        auth.repository.close();
+        runtime.close();
+        auditRepository.close();
+      });
 
       server.middlewares.use((request, response, next) => {
         void handler(request, response, next).catch(next);
@@ -88,7 +142,10 @@ export function createLocalApiRequestHandler(
   return async (request: IncomingMessage, response: ServerResponse, next: Next): Promise<void> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
     if (authHandler && await authHandler(request, response, url.pathname)) return;
-    const guard = await guardAdminRequest(request, response, url, security, logError);
+    const requestId = randomUUID();
+    const guard = await guardAdminRequest(
+      request, response, url, security, logError, requestId,
+    );
     if (!guard.allowed) return;
 
     const handler = selectHandler(url.pathname, handlers);
@@ -96,7 +153,7 @@ export function createLocalApiRequestHandler(
       next();
       return;
     }
-    await handler(request, response, url, guard.principal);
+    await handler(request, response, url, guard.principal, requestId);
   };
 }
 
@@ -114,6 +171,7 @@ function selectHandler(pathname: string, handlers: LocalApiHandlers): ApiHandler
   if (pathname.startsWith('/api/internal/question-logs')) return handlers.questionLogs;
   if (pathname.startsWith('/api/internal/quality-metrics')) return handlers.qualityMetrics;
   if (pathname.startsWith('/api/internal/reviews')) return handlers.reviews;
+  if (pathname.startsWith('/api/internal/security-audit')) return handlers.securityAudit;
   if (pathname === '/api/knowledge/documents'
     || pathname.startsWith('/api/knowledge/documents/')) return handlers.documents;
   return undefined;

@@ -10,6 +10,8 @@ import type { PasswordHasher } from './password.ts';
 import type { LoginRateLimiter } from './rate-limit.ts';
 import type { AuthRepository } from './repository.ts';
 import { createSessionToken, hashSessionToken } from './token.ts';
+import type { SecurityAuditService } from '../modules/security-audit/service.ts';
+import type { SecurityAuditCommand } from '../modules/security-audit/domain.ts';
 
 export interface AuthServiceOptions {
   absoluteTtlMs: number;
@@ -21,6 +23,7 @@ export interface LoginCommand {
   password: unknown;
   previousSessionToken?: string;
   rateLimitKey: string;
+  requestId?: string;
 }
 
 export interface LoginResult {
@@ -47,6 +50,7 @@ export class AuthService {
   private readonly options: AuthServiceOptions;
   private readonly now: () => Date;
   private readonly tokenFactory: () => string;
+  private readonly audit?: SecurityAuditService;
 
   constructor(
     repository: AuthRepository,
@@ -56,6 +60,7 @@ export class AuthService {
     options: AuthServiceOptions,
     now: () => Date = () => new Date(),
     tokenFactory: () => string = createSessionToken,
+    audit?: SecurityAuditService,
   ) {
     if (options.idleTtlMs < 1 || options.absoluteTtlMs < options.idleTtlMs) {
       throw new Error('Absolute session TTL must be at least the idle TTL.');
@@ -67,9 +72,11 @@ export class AuthService {
     this.options = options;
     this.now = now;
     this.tokenFactory = tokenFactory;
+    this.audit = audit;
   }
 
   async login(command: LoginCommand): Promise<LoginResult> {
+    const requestId = command.requestId ?? randomUUID();
     const email = normalizeEmail(command.email);
     const password = typeof command.password === 'string' ? command.password : '';
     const rateKey = createHash('sha256')
@@ -77,30 +84,54 @@ export class AuthService {
       .digest('hex');
     const now = this.now();
     const decision = await this.rateLimiter.check(rateKey, now.getTime());
-    if (!decision.allowed) throw new TooManyLoginAttemptsError(decision.retryAfterSeconds);
+    if (!decision.allowed) {
+      await this.recordLoginAttempt('denied', requestId, now, 'rate_limited');
+      throw new TooManyLoginAttemptsError(decision.retryAfterSeconds);
+    }
 
     const user = email ? await this.repository.findUserByEmail(email) : undefined;
     const valid = await this.passwords.verify(password, user?.passwordHash ?? this.dummyPasswordHash);
     if (!user || !valid || !user.enabled) {
       if (user && !user.enabled) {
-        await this.repository.revokeAllUserSessions(user.id, now.toISOString());
+        await this.repository.revokeAllUserSessions(
+          user.id,
+          now.toISOString(),
+          this.audit ? () => withIdentity(
+            authEvent(
+              'auth.session_revoked', 'success', requestId, null, user.id,
+              { reason: 'disabled_user' },
+            ),
+            now.toISOString(),
+          ) : undefined,
+        );
       }
       const failure = await this.rateLimiter.recordFailure(rateKey, now.getTime());
       if (!failure.allowed) {
+        await this.recordLoginAttempt('denied', requestId, now, 'rate_limited');
         throw new TooManyLoginAttemptsError(failure.retryAfterSeconds);
       }
+      await this.recordLoginAttempt('failure', requestId, now, 'invalid_credentials');
       throw new InvalidCredentialsError('Invalid email or password.');
     }
 
-    if (command.previousSessionToken) {
-      await this.repository.revokeSession(
-        hashSessionToken(command.previousSessionToken),
-        now.toISOString(),
-      );
-    }
+    const previousHash = command.previousSessionToken
+      ? hashSessionToken(command.previousSessionToken)
+      : undefined;
+    const previous = previousHash ? await this.repository.findSession(previousHash) : undefined;
     const sessionToken = this.tokenFactory();
     const absoluteExpiresAt = now.getTime() + this.options.absoluteTtlMs;
-    await this.repository.saveSession({
+    const loginAudit = this.audit ? withIdentity(
+      authEvent('auth.login', 'success', requestId, user.id, user.id, {}), now.toISOString(),
+    ) : undefined;
+    const audit: SecurityAuditCommand[] = [];
+    if (this.audit && previous && !previous.revokedAt) audit.push(withIdentity(
+      authEvent('auth.session_revoked', 'success', requestId, user.id, previous.userId, {
+        reason: 'rotated',
+      }),
+      now.toISOString(),
+    ));
+    if (loginAudit) audit.push(loginAudit);
+    await this.repository.rotateSession(previousHash, {
       absoluteExpiresAt: new Date(absoluteExpiresAt).toISOString(),
       createdAt: now.toISOString(),
       idleExpiresAt: new Date(Math.min(
@@ -111,12 +142,13 @@ export class AuthService {
       revokedAt: null,
       tokenHash: hashSessionToken(sessionToken),
       userId: user.id,
-    });
+    }, audit);
+    await this.flushAudit();
     await this.rateLimiter.reset(rateKey);
     return { principal: toPrincipal(user), sessionToken };
   }
 
-  async getPrincipal(sessionToken: string | undefined): Promise<AuthPrincipal | null> {
+  async getPrincipal(sessionToken: string | undefined, requestId: string = randomUUID()): Promise<AuthPrincipal | null> {
     if (!sessionToken || sessionToken.length > 512) return null;
     const tokenHash = hashSessionToken(sessionToken);
     const session = await this.repository.findSession(tokenHash);
@@ -125,29 +157,57 @@ export class AuthService {
     const nowMs = now.getTime();
     const absoluteMs = Date.parse(session.absoluteExpiresAt);
     if (Date.parse(session.idleExpiresAt) <= nowMs || absoluteMs <= nowMs) {
-      await this.repository.revokeSession(tokenHash, now.toISOString());
+      await this.repository.revokeSession(tokenHash, now.toISOString(), this.audit ? withIdentity(
+        authEvent('auth.session_revoked', 'success', requestId, null, session.userId, { reason: 'expired' }),
+        now.toISOString(),
+      ) : undefined);
+      await this.flushAudit();
       return null;
     }
     const idleExpiresAt = new Date(Math.min(nowMs + this.options.idleTtlMs, absoluteMs)).toISOString();
     if (!await this.repository.touchSession(tokenHash, now.toISOString(), idleExpiresAt)) return null;
     const user = await this.repository.findUserById(session.userId);
     if (!user || !user.enabled) {
-      if (user && !user.enabled) {
-        await this.repository.revokeAllUserSessions(user.id, now.toISOString());
+      const reason = user ? 'disabled_user' : 'missing_user';
+      const audit = this.audit ? withIdentity(
+        authEvent('auth.session_revoked', 'success', requestId, null, session.userId, { reason }),
+        now.toISOString(),
+      ) : undefined;
+      if (user) {
+        await this.repository.revokeAllUserSessions(
+          user.id,
+          now.toISOString(),
+          audit ? () => audit : undefined,
+        );
+      } else {
+        await this.repository.revokeSession(tokenHash, now.toISOString(), audit);
       }
-      await this.repository.revokeSession(tokenHash, now.toISOString());
+      await this.flushAudit();
       return null;
     }
     return toPrincipal(user);
   }
 
-  async logout(sessionToken: string | undefined): Promise<void> {
+  async logout(sessionToken: string | undefined, requestId: string = randomUUID()): Promise<void> {
     if (!sessionToken || sessionToken.length > 512) return;
-    await this.repository.revokeSession(hashSessionToken(sessionToken), this.now().toISOString());
+    const tokenHash = hashSessionToken(sessionToken);
+    const session = await this.repository.findSession(tokenHash);
+    const at = this.now().toISOString();
+    const audit = this.audit && session ? withIdentity(
+      authEvent('auth.logout', 'success', requestId, session.userId, session.userId, {}), at,
+    ) : undefined;
+    await this.repository.revokeSession(tokenHash, at, audit);
+    await this.flushAudit();
   }
 
   async revokeAll(userId: string): Promise<void> {
-    await this.repository.revokeAllUserSessions(userId, this.now().toISOString());
+    const requestId = randomUUID();
+    const at = this.now().toISOString();
+    await this.repository.revokeAllUserSessions(userId, at, this.audit ? () => withIdentity(
+      authEvent('auth.session_revoked', 'success', requestId, null, userId, { reason: 'administrative' }),
+      at,
+    ) : undefined);
+    await this.flushAudit();
   }
 
   async updateUserSecurity(input: {
@@ -174,6 +234,35 @@ export class AuthService {
     });
     return toPrincipal(user);
   }
+
+  private async flushAudit(): Promise<void> {
+    if (this.audit && this.repository.flushSecurityAuditOutbox) {
+      await this.repository.flushSecurityAuditOutbox(this.audit);
+    }
+  }
+
+  private async recordLoginAttempt(
+    outcome: 'denied' | 'failure',
+    requestId: string,
+    at: Date,
+    reason: 'invalid_credentials' | 'rate_limited',
+  ): Promise<void> {
+    if (!this.audit) return;
+    const command = withIdentity(
+      authEvent('auth.login', outcome, requestId, null, null, { reason }),
+      at.toISOString(),
+    );
+    try {
+      if (this.repository.enqueueSecurityAudit) {
+        await this.repository.enqueueSecurityAudit(command);
+        await this.flushAudit();
+      } else {
+        await this.audit.bestEffort(command);
+      }
+    } catch {
+      // Authentication failures retain their uniform response while the durable outbox retries later.
+    }
+  }
 }
 
 export async function createAuthService(
@@ -181,7 +270,7 @@ export async function createAuthService(
   passwords: PasswordHasher,
   rateLimiter: LoginRateLimiter,
   options: AuthServiceOptions,
-  dependencies: { now?: () => Date; tokenFactory?: () => string } = {},
+  dependencies: { audit?: SecurityAuditService; now?: () => Date; tokenFactory?: () => string } = {},
 ): Promise<AuthService> {
   const dummyPasswordHash = await passwords.hash(randomBytes(32).toString('base64url'));
   return new AuthService(
@@ -192,7 +281,29 @@ export async function createAuthService(
     options,
     dependencies.now,
     dependencies.tokenFactory,
+    dependencies.audit,
   );
+}
+
+function authEvent(
+  action: 'auth.login' | 'auth.logout' | 'auth.session_revoked',
+  outcome: 'denied' | 'failure' | 'success',
+  requestId: string,
+  actorUserId: string | null,
+  subjectUserId: string | null,
+  metadata: Record<string, string>,
+): Omit<SecurityAuditCommand, 'id' | 'timestamp'> {
+  return {
+    action, actorUserId, category: 'authentication', metadata, outcome, requestId,
+    subjectId: subjectUserId, subjectType: subjectUserId ? 'user' : null,
+  };
+}
+
+function withIdentity(
+  command: Omit<SecurityAuditCommand, 'id' | 'timestamp'>,
+  timestamp: string,
+): SecurityAuditCommand {
+  return { ...command, id: randomUUID(), timestamp };
 }
 
 export function normalizeEmail(value: unknown): string | undefined {

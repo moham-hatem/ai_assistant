@@ -7,11 +7,14 @@ import type {
   AdminRequestAuthorizer,
   StateChangingRequestOriginGuard,
 } from './admin-request-authorizer.ts';
+import { AdminAuthorizationError } from './admin-request-authorizer.ts';
 import { adminRoutePolicy } from './admin-route-policy.ts';
+import type { SecurityAuditService } from '../modules/security-audit/service.ts';
 
 export interface AdminApiSecurity {
   authorizer: AdminRequestAuthorizer;
   originGuard: StateChangingRequestOriginGuard;
+  audit?: SecurityAuditService;
 }
 
 export type AdminGuardResult =
@@ -24,18 +27,25 @@ export async function guardAdminRequest(
   url: URL,
   security: AdminApiSecurity,
   logError: ErrorLogger,
+  boundaryRequestId: string = crypto.randomUUID(),
 ): Promise<AdminGuardResult> {
   const policy = adminRoutePolicy(request.method, url.pathname);
   if (policy.kind === 'public') return { allowed: true, principal: null };
 
-  const requestId = crypto.randomUUID();
+  const requestId = boundaryRequestId;
   if (policy.kind === 'denied') {
+    await security.audit?.bestEffort({
+      action: 'authorization.denied', actorUserId: null, category: 'authorization',
+      metadata: { method: request.method?.toUpperCase() ?? 'GET', permission: 'deny-by-default', reason: 'route_policy' },
+      outcome: 'denied', requestId, subjectId: null, subjectType: null,
+    });
     sendDenied(response, requestId, 403);
     return { allowed: false, principal: null };
   }
 
+  let principal: AuthPrincipal | null = null;
   try {
-    const principal = await security.authorizer.authorize(request, policy.permission);
+    principal = await security.authorizer.authorize(request, policy.permission, requestId);
     if (isStateChanging(request.method)) await security.originGuard.assertAllowed(request);
     return { allowed: true, principal };
   } catch (error) {
@@ -43,6 +53,16 @@ export async function guardAdminRequest(
     const status = error instanceof AppError && error.status === 401 ? 401
       : error instanceof AppError && error.status === 403 ? 403
       : 503;
+    const errorActor = error instanceof AdminAuthorizationError ? error.actorUserId : null;
+    const actorUserId = errorActor ?? principal?.id ?? null;
+    await security.audit?.bestEffort({
+      action: 'authorization.denied', actorUserId, category: 'authorization',
+      metadata: {
+        method: request.method?.toUpperCase() ?? 'GET', permission: policy.permission,
+        reason: status === 401 ? 'unauthenticated' : status === 403 ? 'forbidden' : 'unavailable',
+      },
+      outcome: status === 503 ? 'failure' : 'denied', requestId, subjectId: null, subjectType: null,
+    });
     sendDenied(response, requestId, status);
     return { allowed: false, principal: null };
   }

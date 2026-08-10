@@ -13,8 +13,12 @@ import {
   DuplicateEditionError,
   type BookRepository,
   type EditionTransitionCommand,
+  type OcrApprovalIntent,
 } from './book-repository.ts';
 import { migrateBookDatabase } from './sqlite-book-migrations.ts';
+import type { SecurityAuditSink } from '../security-audit/repository.ts';
+import type { SecurityAuditCommand } from '../security-audit/domain.ts';
+import { enqueueSecurityAudit, flushSecurityAuditOutbox, migrateSecurityAuditOutbox } from '../security-audit/sqlite-outbox.ts';
 
 interface BookRow {
   author_organization: string | null;
@@ -47,6 +51,7 @@ export class SqliteBookRepository implements BookRepository {
     this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
     if (path !== ':memory:') this.database.exec('PRAGMA journal_mode = WAL;');
     migrateBookDatabase(this.database);
+    migrateSecurityAuditOutbox(this.database);
   }
 
   async createBook(book: Book): Promise<void> {
@@ -162,6 +167,7 @@ export class SqliteBookRepository implements BookRepository {
       );
       if (result.changes !== 1) throw new ConcurrentEditionUpdateError();
       touchBook(this.database, command.bookId, command.at);
+      if (command.audit) enqueueSecurityAudit(this.database, command.audit);
       return this.requireEdition(command.bookId, command.editionId);
     });
   }
@@ -170,6 +176,11 @@ export class SqliteBookRepository implements BookRepository {
     return transaction(this.database, () => {
       const target = this.requireEdition(command.bookId, command.editionId);
       if (target.status !== command.expectedStatus) throw new ConcurrentEditionUpdateError();
+
+      const previous = this.database.prepare(`
+        SELECT id FROM book_editions
+        WHERE book_id = ? AND status = 'published' AND id <> ?
+      `).get(command.bookId, command.editionId) as unknown as { id: string } | undefined;
 
       this.database.prepare(`
         UPDATE book_editions SET status = 'archived', archived_at = ?
@@ -181,12 +192,64 @@ export class SqliteBookRepository implements BookRepository {
       `).run(command.at, command.editionId, command.bookId, command.expectedStatus);
       if (result.changes !== 1) throw new ConcurrentEditionUpdateError();
       touchBook(this.database, command.bookId, command.at);
+      if (previous && command.archiveAudit) {
+        enqueueSecurityAudit(this.database, { ...command.archiveAudit, subjectId: previous.id });
+      }
+      if (command.audit) enqueueSecurityAudit(this.database, command.audit);
       return this.requireEdition(command.bookId, command.editionId);
+    });
+  }
+
+  async beginOcrApproval(intent: OcrApprovalIntent): Promise<OcrApprovalIntent> {
+    return transaction(this.database, () => {
+      const edition = this.requireEdition(intent.bookId, intent.editionId);
+      if (edition.status !== 'processing') throw new ConcurrentEditionUpdateError();
+      this.database.prepare(`
+        INSERT OR IGNORE INTO book_ocr_approval_intents (
+          edition_id, book_id, document_id, actor_user_id, request_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        intent.editionId, intent.bookId, intent.documentId,
+        intent.actorUserId, intent.requestId, intent.createdAt,
+      );
+      const stored = this.readOcrApprovalIntent(intent.editionId);
+      if (!stored || stored.bookId !== intent.bookId || stored.documentId !== intent.documentId
+          || stored.actorUserId !== intent.actorUserId) {
+        throw new ConcurrentEditionUpdateError();
+      }
+      return stored;
+    });
+  }
+
+  async completeOcrApproval(
+    intent: OcrApprovalIntent,
+    audit: SecurityAuditCommand,
+  ): Promise<BookEdition> {
+    return transaction(this.database, () => {
+      const stored = this.readOcrApprovalIntent(intent.editionId);
+      if (!stored || !sameOcrApprovalIntent(stored, intent)) {
+        throw new ConcurrentEditionUpdateError();
+      }
+      const result = this.database.prepare(`
+        UPDATE book_editions SET status = 'ready', archived_at = NULL
+        WHERE id = ? AND book_id = ? AND status = 'processing'
+      `).run(intent.editionId, intent.bookId);
+      if (result.changes !== 1) throw new ConcurrentEditionUpdateError();
+      touchBook(this.database, intent.bookId, audit.timestamp);
+      enqueueSecurityAudit(this.database, audit);
+      this.database.prepare(
+        'DELETE FROM book_ocr_approval_intents WHERE edition_id = ?',
+      ).run(intent.editionId);
+      return this.requireEdition(intent.bookId, intent.editionId);
     });
   }
 
   close(): void {
     this.database.close();
+  }
+
+  flushSecurityAuditOutbox(sink: SecurityAuditSink): Promise<number> {
+    return flushSecurityAuditOutbox(this.database, sink);
   }
 
   private readEdition(bookId: string, editionId: string): BookEdition | undefined {
@@ -200,6 +263,23 @@ export class SqliteBookRepository implements BookRepository {
     const edition = this.readEdition(bookId, editionId);
     if (!edition) throw new ConcurrentEditionUpdateError();
     return edition;
+  }
+
+  private readOcrApprovalIntent(editionId: string): OcrApprovalIntent | undefined {
+    const row = this.database.prepare(`
+      SELECT * FROM book_ocr_approval_intents WHERE edition_id = ?
+    `).get(editionId) as unknown as {
+      actor_user_id: string; book_id: string; created_at: string;
+      document_id: string; edition_id: string; request_id: string;
+    } | undefined;
+    return row ? {
+      actorUserId: row.actor_user_id,
+      bookId: row.book_id,
+      createdAt: row.created_at,
+      documentId: row.document_id,
+      editionId: row.edition_id,
+      requestId: row.request_id,
+    } : undefined;
   }
 }
 
@@ -222,6 +302,15 @@ function touchBook(database: DatabaseSync, bookId: string, at: string): void {
 function isDuplicateContentHash(error: unknown): boolean {
   return error instanceof Error
     && error.message.includes('UNIQUE constraint failed: book_editions.book_id, book_editions.content_hash');
+}
+
+function sameOcrApprovalIntent(left: OcrApprovalIntent, right: OcrApprovalIntent): boolean {
+  return left.actorUserId === right.actorUserId
+    && left.bookId === right.bookId
+    && left.createdAt === right.createdAt
+    && left.documentId === right.documentId
+    && left.editionId === right.editionId
+    && left.requestId === right.requestId;
 }
 
 function toBook(row: BookRow): Book {

@@ -13,6 +13,7 @@ import {
   InvalidCredentialsError,
   TooManyLoginAttemptsError,
 } from './service.ts';
+import { AppError } from '../errors.ts';
 
 export const AUTH_API_PATHS = {
   login: '/api/auth/login',
@@ -51,6 +52,7 @@ export function createAuthHandler(
             password: login?.password,
             previousSessionToken: readSessionCookie(request.headers, cookie),
             rateLimitKey: request.socket.remoteAddress ?? 'unknown',
+            requestId,
           });
           response.setHeader(
             'Set-Cookie',
@@ -73,7 +75,7 @@ export function createAuthHandler(
       if (pathname === AUTH_API_PATHS.session) {
         if (!requireMethod(request, response, 'GET', requestId)) return true;
         const token = readSessionCookie(request.headers, cookie);
-        const principal = await service.getPrincipal(token);
+        const principal = await service.getPrincipal(token, requestId);
         if (token && !principal) {
           response.setHeader('Set-Cookie', serializeClearedSessionCookie(cookie));
         }
@@ -83,14 +85,17 @@ export function createAuthHandler(
 
       if (!requireMethod(request, response, 'POST', requestId) ||
           !requireSameOrigin(request, response, origin, requestId)) return true;
-      await service.logout(readSessionCookie(request.headers, cookie));
+      await service.logout(readSessionCookie(request.headers, cookie), requestId);
       response.setHeader('Set-Cookie', serializeClearedSessionCookie(cookie));
       response.statusCode = 204;
       response.end();
       return true;
     } catch (error) {
       logError(requestId, error);
-      if (!response.headersSent) sendJson(response, 500, { code: 'INTERNAL_ERROR', requestId });
+      if (!response.headersSent && error instanceof AppError
+          && error.code === 'SECURITY_AUDIT_UNAVAILABLE') {
+        sendJson(response, 503, { code: error.code, requestId });
+      } else if (!response.headersSent) sendJson(response, 500, { code: 'INTERNAL_ERROR', requestId });
       else response.destroy();
       return true;
     }

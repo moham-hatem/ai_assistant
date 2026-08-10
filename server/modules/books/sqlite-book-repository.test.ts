@@ -43,7 +43,7 @@ test('SQLite book repository migrates, paginates, prevents duplicate content, an
     const database = new DatabaseSync(path);
     const version = database.prepare('PRAGMA user_version').get() as unknown as { user_version: number };
     database.close();
-    assert.equal(version.user_version, 1);
+    assert.equal(version.user_version, 2);
   } finally {
     repository.close();
     await rm(directory, { recursive: true, force: true });
