@@ -12,6 +12,7 @@ data/cache/
 data/knowledge/*
 !data/knowledge/.gitkeep
 data/models/
+data/backups/
 data/question-log.sqlite*
 data/books.sqlite*
 data/auth.sqlite*

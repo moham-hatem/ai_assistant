@@ -19,7 +19,7 @@ const reviewer: AuthPrincipal = {
   permissions: ['content:review'], roles: ['reviewer'],
 };
 
-test('backup HTTP API is admin-only and supports create, list, validate, download, and restore', async () => {
+test('backup HTTP API is admin-only and supports create, list, validate, and download only', async () => {
   const root = await mkdtemp(join(tmpdir(), 'ila-backup-http-'));
   const data = join(root, 'data');
   const databasePath = join(data, 'books.sqlite');
@@ -73,11 +73,7 @@ test('backup HTTP API is admin-only and supports create, list, validate, downloa
     const restore = await fetch(`${base}/api/internal/backups/${created.backup.id}/restore`, {
       headers: { 'x-test-role': 'admin' }, method: 'POST',
     });
-    assert.equal(restore.status, 409);
-    assert.match(
-      ((await restore.json()) as { message: string }).message,
-      /shutdown and restart coordinator/u,
-    );
+    assert.equal(restore.status, 404);
 
     const wrongMethod = await fetch(`${base}/api/internal/backups/${created.backup.id}/download`, {
       headers: { 'x-test-role': 'admin' }, method: 'POST',

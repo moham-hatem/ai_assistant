@@ -6,6 +6,7 @@ export interface LocalRuntimeConfig {
   answerCacheFile: string;
   backupDirectory: string;
   booksDatabaseFile: string;
+  dataDirectory: string;
   documentDirectory: string;
   knowledgeDirectory: string;
   matchCount: number;
@@ -59,6 +60,7 @@ export function createLocalConfig(env: Record<string, string>, cwd: string): Loc
     answerCacheFile: resolve(cwd, env.ANSWER_CACHE_FILE?.trim() || 'data/cache/answers.json'),
     backupDirectory: resolve(cwd, env.BACKUP_DIRECTORY?.trim() || 'data/backups'),
     booksDatabaseFile: resolve(cwd, env.BOOKS_DATABASE_FILE?.trim() || 'data/books.sqlite'),
+    dataDirectory: resolve(cwd, 'data'),
     documentDirectory: resolve(cwd, env.DOCUMENT_DIRECTORY?.trim() || 'data/documents'),
     knowledgeDirectory: resolve(cwd, env.KNOWLEDGE_DIRECTORY?.trim() || 'data/knowledge'),
     matchCount: boundedInteger(env.KNOWLEDGE_MATCH_COUNT, 6, 12),

@@ -41,6 +41,10 @@ server/create-runtime         إنشاء وربط الاعتماديات
 
 تعتمد `AnswerService` على عقود `KnowledgeSource` و`AnswerModel` و`ApprovedAnswerRepository` و`ApprovedAnswerEvidenceValidator`، ولا تعرف Vite أو OpenCode أو SQLite أو نظام الملفات. لذلك يمكن إعادة استخدامها لاحقًا من Telegram أو خادم إنتاج دون نقل منطق الواجهة.
 
+تُحمّل لوحة الإدارة بعد نجاح بوابة المصادقة والصلاحية فقط، ثم تُحمّل كل صفحة إدارية كحزمة مستقلة داخل `Suspense` وError Boundary محلي. يبقى غلاف المتعلم ومسار الدخول منفصلين عن كود صفحات الإدارة الثقيلة.
+
+تستخدم العمليات التي تفتح مخازن محلية admission leases مشتركة داخل مجلد النسخ: runtime leases متعددة لـVite وTelegram وأوامر الكتابة، وmaintenance lease حصري للاستعادة والاحتفاظ. توجد بوابة ذرية لقرار الدخول، ويرفض runtime البدء عند وجود صيانة أو restore workspace غير محسوم. الاستعادة نفسها Offline فقط، وتفحص نسخة مؤقتة قبل swap ثم تسجل خطواتها في journal وتحتفظ بالrollback حتى نجاح التحقق.
+
 ## تدفق الإجابة
 
 ```text

@@ -9,7 +9,12 @@ import {
   type BackupManifestEntry,
 } from '../../../shared/contracts/backups.ts';
 import { AppError } from '../../errors.ts';
-import { assertNonOverlappingScopes, isSensitivePath, validateArchivePath } from './path-policy.ts';
+import {
+  archivePathComparisonKey,
+  assertNonOverlappingScopes,
+  isSensitivePath,
+  validateArchivePath,
+} from './path-policy.ts';
 
 const compress = promisify(gzip);
 const decompress = promisify(gunzip);
@@ -42,6 +47,13 @@ export async function readBackupArtifact(
 ): Promise<DecodedBackup> {
   const compressed = await readFile(path);
   if (compressed.length > maximumBytes) throw invalid('Backup artifact exceeds the configured size limit.');
+  return decodeBackupArtifact(compressed, maximumExpandedBytes);
+}
+
+export async function decodeBackupArtifact(
+  compressed: Buffer,
+  maximumExpandedBytes: number,
+): Promise<DecodedBackup> {
   let envelope: unknown;
   try {
     envelope = JSON.parse((await decompress(compressed, { maxOutputLength: maximumExpandedBytes })).toString('utf8')) as unknown;
@@ -100,7 +112,7 @@ function parseManifest(value: Record<string, unknown>): BackupManifest {
   const scopes = array(value.scopes, 'scopes').map((scope) => validateArchivePath(string(scope, 'scope')));
   assertNonOverlappingScopes(scopes);
   const files = array(value.files, 'files').map(parseEntry);
-  const paths = new Set(files.map((entry) => entry.path));
+  const paths = new Set(files.map((entry) => archivePathComparisonKey(entry.path)));
   if (paths.size !== files.length) throw invalid('Backup manifest contains duplicate files.');
   if (files.some((entry) => !scopes.some((scope) => entry.path === scope || entry.path.startsWith(`${scope}/`)))) {
     throw invalid('Backup file is outside its declared restore scopes.');

@@ -11,6 +11,8 @@
     "rebuild:documents": "node server/scripts/rebuild-documents.ts",
     "audit:init": "node server/scripts/audit-init.ts",
     "auth:user": "node server/auth/cli.ts",
+    "backup:restore": "node --env-file-if-exists=.env.local server/modules/backups/maintenance-cli.ts restore",
+    "backup:retention": "node --env-file-if-exists=.env.local server/modules/backups/maintenance-cli.ts retention",
     "telegram:poll": "node --env-file-if-exists=.env.local server/channels/telegram/run.ts",
     "test:local": "tsx --tsconfig tsconfig.app.json --test \"src/**/*.test.js\" \"tests/admin/*.test.ts\" \"tests/chat/*.test.ts\" \"tests/pwa/*.test.ts\" \"server/**/*.test.ts\"",
     "test:acceptance": "node --test --test-reporter=spec tests/acceptance/answer-service.acceptance.test.ts",

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -10,6 +10,9 @@ import { LOCAL_BACKUP_FILE_EXTENSION, LOCAL_BACKUP_FORMAT, LOCAL_BACKUP_FORMAT_V
 import { createManifest, sha256, writeBackupArtifact } from './archive-codec.ts';
 import { restoreAtomically } from './atomic-restore.ts';
 import { LocalBackupService } from './service.ts';
+import { withMaintenanceLock } from './maintenance-lock.ts';
+import { RestoreRecoveryRequiredError } from './recovery-required.ts';
+import { acquireRuntimeAdmission } from './runtime-admission.ts';
 
 const compress = promisify(gzip);
 const decompress = promisify(gunzip);
@@ -81,6 +84,23 @@ test('detects tampering before restore and leaves live data unchanged', async ()
 
     await assert.rejects(service.restore(created.id), /checksum validation failed/u);
     assert.equal(readDatabase(database), 'safe value');
+  });
+});
+
+test('restore rejects an artifact replaced after the checksum-bound confirmation', async () => {
+  await withFixture(async ({ data, database, service }) => {
+    createDatabase(database, 'confirmed value');
+    const created = await service.create();
+    createDatabase(database, 'live value');
+    await writeFile(
+      join(data, 'backups', `${created.id}${LOCAL_BACKUP_FILE_EXTENSION}`),
+      Buffer.from('replacement artifact'),
+    );
+    await assert.rejects(
+      service.restore(created.id, new Date(), created.artifactSha256),
+      /changed after confirmation/u,
+    );
+    assert.equal(readDatabase(database), 'live value');
   });
 });
 
@@ -158,6 +178,83 @@ test('service refuses live restore when no shutdown/restart coordinator is confi
       /disabled until an explicit runtime shutdown and restart coordinator/u,
     );
     assert.equal(readDatabase(database), 'must remain live');
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+test('post-swap validation failure rolls every restored scope back before completion', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ila-backup-post-validation-'));
+  const data = join(root, 'data');
+  const work = join(data, 'backups', '.restore-validation');
+  const target = join(data, 'documents');
+  await mkdir(target, { recursive: true });
+  await mkdir(work, { recursive: true });
+  await writeFile(join(target, 'value.txt'), 'live value');
+  const restored = Buffer.from('restored value');
+  const files = [{
+    kind: 'file' as const, path: 'documents/value.txt',
+    sha256: sha256(restored), size: restored.length,
+  }];
+  const manifest = createManifest({
+    appVersion: 'test', createdAt: new Date().toISOString(), fileCount: 1,
+    files, format: LOCAL_BACKUP_FORMAT, formatVersion: LOCAL_BACKUP_FORMAT_VERSION,
+    id: crypto.randomUUID(), scopes: ['documents'], totalBytes: restored.length,
+  });
+  try {
+    await assert.rejects(restoreAtomically(data, work, {
+      manifest, payload: new Map([['documents/value.txt', restored]]),
+    }, {
+      afterRestore: (succeeded) => { assert.equal(succeeded, false); },
+      beforeRestore: () => undefined,
+      validateRestored: () => { throw new Error('diagnostic failure'); },
+    }), /diagnostic failure/u);
+    assert.equal(await readFile(join(target, 'value.txt'), 'utf8'), 'live value');
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+test('rollback failure preserves the journal and maintenance lease even when afterRestore also throws', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ila-backup-recovery-required-'));
+  const data = join(root, 'data');
+  const backupDirectory = join(data, 'backups');
+  const documents = join(data, 'documents');
+  await Promise.all([
+    mkdir(backupDirectory, { recursive: true }),
+    mkdir(documents, { recursive: true }),
+  ]);
+  await writeFile(join(documents, 'value.txt'), 'backup value');
+  const base = {
+    appVersion: 'test', backupDirectory, dataDirectory: data,
+    directoryScopes: [documents], sqliteFiles: [],
+  };
+  const backup = await new LocalBackupService(base).create();
+  await writeFile(join(documents, 'value.txt'), 'live value');
+  const service = new LocalBackupService({
+    ...base,
+    restoreCoordinator: {
+      afterRestore: () => { throw new Error('must not mask recovery state'); },
+      beforeRestore: () => undefined,
+      validateRestored: async () => {
+        const workspace = (await readdir(backupDirectory)).find((name) => name.startsWith('.restore-'));
+        assert.ok(workspace);
+        await rm(join(backupDirectory, workspace, 'rollback', 'documents'), { recursive: true });
+        throw new Error('force rollback');
+      },
+    },
+  });
+  try {
+    await assert.rejects(
+      withMaintenanceLock(backupDirectory, 'restore', () => service.restore(backup.id)),
+      (error: unknown) => error instanceof RestoreRecoveryRequiredError,
+    );
+    const entries = await readdir(backupDirectory);
+    const workspace = entries.find((name) => name.startsWith('.restore-'));
+    assert.ok(workspace);
+    assert.ok(entries.includes('.maintenance.lock'));
+    assert.match(await readFile(join(backupDirectory, workspace, 'restore-journal.json'), 'utf8'), /rolling-back/u);
+    await assert.rejects(acquireRuntimeAdmission(backupDirectory), /incomplete restore workspace/u);
   } finally {
     await rm(root, { force: true, recursive: true });
   }

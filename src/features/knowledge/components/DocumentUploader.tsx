@@ -1,4 +1,4 @@
-import { FormEvent, useRef, useState } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { FileUp } from 'lucide-react';
 import { MAX_DOCUMENT_SIZE_MB } from '../../../../shared/document-limits';
 import type { KnowledgeCopy } from '../copy';

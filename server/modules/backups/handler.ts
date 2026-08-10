@@ -35,7 +35,7 @@ export function createBackupsHandler(service: LocalBackupService, logError: Erro
         return methodNotAllowed(response, requestId, 'GET, POST');
       }
 
-      const match = url.pathname.match(/^\/api\/internal\/backups\/([^/]+)\/(download|restore|validate)$/u);
+      const match = url.pathname.match(/^\/api\/internal\/backups\/([^/]+)\/(download|validate)$/u);
       if (!match) throw new AppError('ROUTE_NOT_FOUND', 'Backup route not found.', 404);
       const [, id, action] = match;
       if (action === 'download') {
@@ -46,11 +46,7 @@ export function createBackupsHandler(service: LocalBackupService, logError: Erro
       }
       if (request.method !== 'POST') return methodNotAllowed(response, requestId, 'POST');
       await discardRequestBody(request);
-      if (action === 'validate') {
-        sendJson(response, 200, { validation: await service.validate(decode(id)), requestId });
-        return;
-      }
-      sendJson(response, 200, { restore: await service.restore(decode(id)), requestId });
+      sendJson(response, 200, { validation: await service.validate(decode(id)), requestId });
     } catch (error) {
       sendError(response, requestId, error, logError);
     }

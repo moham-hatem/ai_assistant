@@ -1,0 +1,31 @@
+.async-route-fallback { min-height: 180px; }
+.async-route-fallback > div {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: inherit;
+  padding: 28px;
+  color: #52675b;
+  text-align: center;
+}
+.async-route-fallback svg {
+  flex: 0 0 auto;
+  color: #176345;
+  animation: async-route-loading-spin 1s linear infinite;
+}
+.async-route-error {
+  max-width: 620px;
+  margin: 28px auto;
+  padding: 28px;
+  color: #5e2929;
+  text-align: center;
+  background: #fff7f6;
+  border: 1px solid #edcfcb;
+  border-radius: 16px;
+}
+.async-route-error h1 { margin: 0; font-size: 1.2rem; }
+.async-route-error p { margin: 9px 0 18px; color: #714643; line-height: 1.7; }
+.async-route-error button { padding: 9px 15px; color: #fff; font-weight: 700; background: #8f3933; border: 0; border-radius: 9px; cursor: pointer; }
+@keyframes async-route-loading-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .async-route-fallback svg { animation: none; } }

@@ -1,7 +1,7 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
+﻿import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import type { AuthPrincipal } from '../../shared/contracts/auth.ts';
-import type { Plugin } from 'vite';
+import type { Plugin, ViteDevServer } from 'vite';
 import type { AuthConfig } from '../auth/config.ts';
 import type { createAuthHandler } from '../auth/http-handler.ts';
 import { createLocalAuthRuntime } from '../auth/runtime.ts';
@@ -28,9 +28,9 @@ import { createSecurityAuditHandler } from '../modules/security-audit/security-a
 import type { SecurityAuditRepository } from '../modules/security-audit/repository.ts';
 import { UnavailableSecurityAuditRepository } from '../modules/security-audit/unavailable-repository.ts';
 import { LocalBackupService, createBackupsHandler } from '../modules/backups/index.ts';
+import { runtimeAdmissionSession } from './runtime-admission-session.ts';
 import { createLocalSystemDiagnosticsService } from '../modules/system-diagnostics/factory.ts';
 import { createSystemDiagnosticsHandler } from '../modules/system-diagnostics/system-diagnostics-handler.ts';
-import { resolve } from 'node:path';
 
 type Next = (error?: unknown) => void;
 type ApiHandler = (
@@ -65,97 +65,146 @@ export function createLocalApiPlugin(
   return {
     name: 'local-answer-api',
     async configureServer(server) {
-      const logError: ErrorLogger = (requestId, error) => {
-        const loggedError = error instanceof Error ? error : new Error(String(error));
-        server.config.logger.error(
-          `Local API request failed (${requestId}): ${loggedError.name}`,
-        );
-      };
-      let auditRepository: SecurityAuditRepository;
-      if (auditConfig.config) {
-        try {
-          const candidate = new SqliteSecurityAuditRepository(
-            auditConfig.config.databasePath,
-            auditConfig.config.keys,
-            auditConfig.config.currentKeyVersion,
-          );
-          try {
-            const integrity = await candidate.verifyIntegrity(new Date().toISOString());
-            if (integrity.status !== 'valid') {
-              throw new Error('Security audit integrity verification did not pass.');
+      const session = await runtimeAdmissionSession(
+        server,
+        server.httpServer ?? server.watcher,
+        config.backupDirectory,
+        (error) => {
+          const detail = error instanceof Error ? error.name : 'UnknownError';
+          server.config.logger.error(`Failed to close the runtime admission session: ${detail}`);
+        },
+      );
+      return session.reconfigure(async () => {
+        let auditRepository: SecurityAuditRepository | undefined;
+        let auth: Awaited<ReturnType<typeof createLocalAuthRuntime>> | undefined;
+        let runtime: ReturnType<typeof createRuntime> | undefined;
+        let detachHandler: (() => void) | undefined;
+        let closed = false;
+        const closeResources = async () => {
+          if (closed) return;
+          closed = true;
+          detachHandler?.();
+          for (const close of [
+            () => auth?.repository.close(),
+            () => runtime?.close(),
+            () => auditRepository?.close(),
+          ]) {
+            try { close(); }
+            catch (error) {
+              const detail = error instanceof Error ? error.name : 'UnknownError';
+              server.config.logger.error(`Failed to close a local API resource: ${detail}`);
             }
-            auditRepository = candidate;
-          } catch (error) {
-            candidate.close();
-            throw error;
           }
+        };
+        try {
+          const logError: ErrorLogger = (requestId, error) => {
+            const loggedError = error instanceof Error ? error : new Error(String(error));
+            server.config.logger.error(
+              `Local API request failed (${requestId}): ${loggedError.name}`,
+            );
+          };
+          if (auditConfig.config) {
+            try {
+              const candidate = new SqliteSecurityAuditRepository(
+                auditConfig.config.databasePath,
+                auditConfig.config.keys,
+                auditConfig.config.currentKeyVersion,
+              );
+              try {
+                const integrity = await candidate.verifyIntegrity(new Date().toISOString());
+                if (integrity.status !== 'valid') {
+                  throw new Error('Security audit integrity verification did not pass.');
+                }
+                auditRepository = candidate;
+              } catch (error) {
+                candidate.close();
+                throw error;
+              }
+            } catch (error) {
+              server.config.logger.warn(
+                'Security audit storage is unavailable. Public answer/version APIs remain available; sensitive operations return 503.',
+              );
+              auditRepository = new UnavailableSecurityAuditRepository(error);
+            }
+          } else {
+            server.config.logger.warn(auditConfig.setupError);
+            auditRepository = new UnavailableSecurityAuditRepository(new Error('Audit setup incomplete.'));
+          }
+          const audit = new SecurityAuditService(auditRepository, undefined, undefined, (error) => {
+            logError('security-audit', error);
+          });
+          runtime = createRuntime(config, { securityAudit: audit });
+          auth = await createLocalAuthRuntime(authConfig, logError, audit);
+          const security = createRuntimeAdminSecurity(auth.service, auth.cookie, auth.origin, audit);
+          const dataDirectory = config.dataDirectory;
+          const backupService = new LocalBackupService({
+            appVersion: config.appVersion,
+            backupDirectory: config.backupDirectory,
+            dataDirectory,
+            directoryScopes: [config.documentDirectory, config.knowledgeDirectory],
+            sqliteFiles: [
+              config.booksDatabaseFile,
+              config.questionLogDatabaseFile,
+              authConfig.databasePath,
+              ...(auditConfig.config ? [auditConfig.config.databasePath] : []),
+            ],
+          });
+          const diagnostics = createLocalSystemDiagnosticsService(config, {
+            appVersion: config.appVersion,
+            auditConfigured: Boolean(auditConfig.config),
+            verifyAuditIntegrity: () => audit.verifyIntegrity(),
+          });
+          const handler = createLocalApiRequestHandler({
+            access: auth.accessHandler,
+            answer: createAnswerHandler(runtime.answerRequestService, logError),
+            backups: createBackupsHandler(backupService, logError),
+            books: createBooksHandler(runtime.bookService, logError, runtime.bookDocuments),
+            documents: createDocumentsHandler(runtime.bookDocuments, logError),
+            feedback: createFeedbackHandler(runtime.feedbackService, logError),
+            qualityMetrics: createQualityMetricsHandler(runtime.qualityMetricsService, logError),
+            questionLogs: createQuestionLogHandler(runtime.questionLogRepository, logError),
+            reviews: createReviewsHandler(runtime.reviewService, logError),
+            securityAudit: createSecurityAuditHandler(audit, logError),
+            systemDiagnostics: createSystemDiagnosticsHandler(diagnostics, logError),
+            version: handleApiVersionRequest,
+          }, security, logError, auth.handler);
+          detachHandler = installLocalApiHandler(server, handler);
+          return closeResources;
         } catch (error) {
-          server.config.logger.warn(
-            'Security audit storage is unavailable. Public answer/version APIs remain available; sensitive operations return 503.',
-          );
-          auditRepository = new UnavailableSecurityAuditRepository(error);
+          await closeResources();
+          throw error;
         }
-      } else {
-        server.config.logger.warn(auditConfig.setupError);
-        auditRepository = new UnavailableSecurityAuditRepository(new Error('Audit setup incomplete.'));
-      }
-      const audit = new SecurityAuditService(auditRepository, undefined, undefined, (error) => {
-        logError('security-audit', error);
-      });
-      let runtime: ReturnType<typeof createRuntime> | undefined;
-      let auth: Awaited<ReturnType<typeof createLocalAuthRuntime>>;
-      try {
-        runtime = createRuntime(config, { securityAudit: audit });
-        auth = await createLocalAuthRuntime(authConfig, logError, audit);
-      } catch (error) {
-        runtime?.close();
-        auditRepository.close();
-        throw error;
-      }
-      const security = createRuntimeAdminSecurity(auth.service, auth.cookie, auth.origin, audit);
-      const dataDirectory = resolve(process.cwd(), 'data');
-      const backupService = new LocalBackupService({
-        appVersion: config.appVersion,
-        backupDirectory: config.backupDirectory,
-        dataDirectory,
-        directoryScopes: [config.documentDirectory, config.knowledgeDirectory],
-        sqliteFiles: [
-          config.booksDatabaseFile,
-          config.questionLogDatabaseFile,
-          authConfig.databasePath,
-          ...(auditConfig.config ? [auditConfig.config.databasePath] : []),
-        ],
-      });
-      const diagnostics = createLocalSystemDiagnosticsService(config, {
-        appVersion: config.appVersion,
-        auditConfigured: Boolean(auditConfig.config),
-        verifyAuditIntegrity: () => audit.verifyIntegrity(),
-      });
-      const handler = createLocalApiRequestHandler({
-        access: auth.accessHandler,
-        answer: createAnswerHandler(runtime.answerRequestService, logError),
-        backups: createBackupsHandler(backupService, logError),
-        books: createBooksHandler(runtime.bookService, logError, runtime.bookDocuments),
-        documents: createDocumentsHandler(runtime.bookDocuments, logError),
-        feedback: createFeedbackHandler(runtime.feedbackService, logError),
-        qualityMetrics: createQualityMetricsHandler(runtime.qualityMetricsService, logError),
-        questionLogs: createQuestionLogHandler(runtime.questionLogRepository, logError),
-        reviews: createReviewsHandler(runtime.reviewService, logError),
-        securityAudit: createSecurityAuditHandler(audit, logError),
-        systemDiagnostics: createSystemDiagnosticsHandler(diagnostics, logError),
-        version: handleApiVersionRequest,
-      }, security, logError, auth.handler);
-
-      server.httpServer?.once('close', () => {
-        auth.repository.close();
-        runtime.close();
-        auditRepository.close();
-      });
-
-      server.middlewares.use((request, response, next) => {
-        void handler(request, response, next).catch(next);
       });
     },
+  };
+}
+
+type LocalApiRequestHandler = ReturnType<typeof createLocalApiRequestHandler>;
+const middlewareStateKey = Symbol.for('islamic-learning-assistant.vite-local-api-middleware');
+interface MiddlewareState {
+  active?: LocalApiRequestHandler;
+  installed: boolean;
+}
+type MiddlewareServer = ViteDevServer & { [middlewareStateKey]?: MiddlewareState };
+
+function installLocalApiHandler(
+  server: ViteDevServer,
+  handler: LocalApiRequestHandler,
+): () => void {
+  const owner = server as MiddlewareServer;
+  const state = owner[middlewareStateKey] ?? { installed: false };
+  owner[middlewareStateKey] = state;
+  if (!state.installed) {
+    server.middlewares.use((request, response, next) => {
+      const active = state.active;
+      if (!active) return next();
+      void active(request, response, next).catch(next);
+    });
+    state.installed = true;
+  }
+  state.active = handler;
+  return () => {
+    if (state.active === handler) state.active = undefined;
   };
 }
 

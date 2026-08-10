@@ -11,6 +11,8 @@ import { ScryptPasswordHasher, type PasswordHasher } from './password.ts';
 import type { AuthRepository } from './repository.ts';
 import { newAuthUserId, normalizeEmail } from './service.ts';
 import { SqliteAuthRepository } from './sqlite-repository.ts';
+import { createLocalConfig } from '../config.ts';
+import { acquireRuntimeAdmission } from '../modules/backups/runtime-admission.ts';
 
 export interface AuthUserCliOptions {
   databasePath: string;
@@ -104,8 +106,13 @@ async function readPassword(environment: NodeJS.ProcessEnv): Promise<string> {
 async function main(): Promise<void> {
   const options = parseAuthUserCliOptions(process.argv.slice(2));
   const password = await readPassword(process.env);
-  const repository = new SqliteAuthRepository(options.databasePath);
+  const admission = await acquireRuntimeAdmission(
+    createLocalConfig(process.env as Record<string, string>, process.cwd()).backupDirectory,
+    { scope: 'auth-user-cli' },
+  );
+  let repository: SqliteAuthRepository | undefined;
   try {
+    repository = new SqliteAuthRepository(options.databasePath);
     const result = await upsertLocalAuthUser(
       repository,
       new ScryptPasswordHasher(),
@@ -114,7 +121,16 @@ async function main(): Promise<void> {
     );
     output.write(`${result.action} local auth user ${result.principal.email} with roles: ${result.principal.roles.join(', ')}\n`);
   } finally {
-    repository.close();
+    let closeError: unknown;
+    try { repository?.close(); } catch (error) { closeError = error; }
+    let releaseError: unknown;
+    try { await admission.release(); } catch (error) { releaseError = error; }
+    if (closeError || releaseError) {
+      throw new AggregateError(
+        [closeError, releaseError].filter((error) => error !== undefined),
+        'Auth user command cleanup failed.',
+      );
+    }
   }
 }
 

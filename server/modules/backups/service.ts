@@ -13,14 +13,23 @@ import {
 import { AppError } from '../../errors.ts';
 import {
   createManifest,
+  decodeBackupArtifact,
   readBackupArtifact,
   sha256,
   writeBackupArtifact,
   type DecodedBackup,
 } from './archive-codec.ts';
 import { restoreAtomically, type BackupRestoreCoordinator } from './atomic-restore.ts';
-import { assertInsideData, assertNonOverlappingScopes, toArchivePath } from './path-policy.ts';
+import {
+  archivePathComparisonKey,
+  assertInsideData,
+  assertNonOverlappingScopes,
+  pathsOverlap,
+  toArchivePath,
+} from './path-policy.ts';
 import { collectSnapshot, type BackupSources } from './source-collector.ts';
+import { recoveryRequired } from './recovery-required.ts';
+import { syncDirectoryBestEffort } from './restore-journal.ts';
 
 const defaultMaximumArtifactBytes = 512 * 1024 * 1024;
 const defaultMaximumExpandedBytes = 1024 * 1024 * 1024;
@@ -55,10 +64,10 @@ export class LocalBackupService {
       ...config.directoryScopes.map((path) => toArchivePath(dataDirectory, path)),
     ];
     assertNonOverlappingScopes(scopes);
-    if (scopes.some((scope) => backupDirectory.startsWith(`${resolveArchive(dataDirectory, scope)}${separator()}`))) {
-      invalid('Backup storage cannot be inside a backed-up scope.');
+    if (scopes.some((scope) => pathsOverlap(backupDirectory, resolveArchive(dataDirectory, scope)))) {
+      invalid('Backup storage cannot overlap a backed-up scope.');
     }
-    this.allowedScopes = new Set(scopes);
+    this.allowedScopes = new Set(scopes.map(archivePathComparisonKey));
     const maximumArtifactBytes = positiveLimit(
       config.maximumArtifactBytes,
       defaultMaximumArtifactBytes,
@@ -131,8 +140,13 @@ export class LocalBackupService {
   }
 
   async list(): Promise<BackupSummary[]> {
-    await mkdir(this.config.backupDirectory, { recursive: true, mode: 0o700 });
-    const entries = await readdir(this.config.backupDirectory, { withFileTypes: true });
+    let entries;
+    try {
+      entries = await readdir(this.config.backupDirectory, { withFileTypes: true });
+    } catch (error) {
+      if (isMissing(error)) return [];
+      throw error;
+    }
     const summaries = await Promise.all(entries
       .filter((entry) => entry.isFile() && entry.name.endsWith(LOCAL_BACKUP_FILE_EXTENSION))
       .map(async (entry) => {
@@ -163,7 +177,11 @@ export class LocalBackupService {
     };
   }
 
-  async restore(id: string, now: Date = new Date()): Promise<BackupRestoreResult> {
+  async restore(
+    id: string,
+    now: Date = new Date(),
+    expectedArtifactSha256?: string,
+  ): Promise<BackupRestoreResult> {
     if (!this.config.restoreCoordinator?.beforeRestore || !this.config.restoreCoordinator.afterRestore) {
       throw new AppError(
         'INVALID_REQUEST',
@@ -173,8 +191,13 @@ export class LocalBackupService {
     }
     return this.exclusive(async () => {
       const backupId = validId(id);
-      const backup = await this.readAndAuthorize(this.artifactPath(backupId));
+      const backup = await this.readAndAuthorize(
+        this.artifactPath(backupId),
+        expectedArtifactSha256,
+      );
       const work = await mkdtemp(join(this.config.backupDirectory, '.restore-'));
+      await syncDirectoryBestEffort(this.config.backupDirectory);
+      let preserveForRecovery = false;
       try {
         await restoreAtomically(
           this.config.dataDirectory,
@@ -187,23 +210,37 @@ export class LocalBackupService {
           completedAt: now.toISOString(),
           restoredFiles: backup.manifest.fileCount,
         };
+      } catch (error) {
+        preserveForRecovery = recoveryRequired(error);
+        throw error;
       } finally {
-        await rm(work, { force: true, recursive: true });
+        if (!preserveForRecovery) {
+          await rm(work, { force: true, recursive: true });
+          await syncDirectoryBestEffort(this.config.backupDirectory);
+        }
       }
     });
   }
 
-  private async readAndAuthorize(path: string): Promise<DecodedBackup> {
+  private async readAndAuthorize(path: string, expectedArtifactSha256?: string): Promise<DecodedBackup> {
     try {
-      const backup = await readBackupArtifact(
-        path,
-        this.config.maximumArtifactBytes,
-        this.config.maximumExpandedBytes,
-      );
+      const metadata = await lstat(path);
+      if (!metadata.isFile() || metadata.isSymbolicLink()) {
+        invalid('Backup artifact must be a regular file inside backup storage.');
+      }
+      const artifact = await readFile(path);
+      if (artifact.length > this.config.maximumArtifactBytes) {
+        invalid('Backup artifact exceeds the configured size limit.');
+      }
+      const artifactSha256 = sha256(artifact);
+      if (expectedArtifactSha256 && artifactSha256 !== expectedArtifactSha256) {
+        invalid('Backup artifact changed after confirmation. Generate a new restore preview.');
+      }
+      const backup = await decodeBackupArtifact(artifact, this.config.maximumExpandedBytes);
       if (basename(path) !== `${backup.manifest.id}${LOCAL_BACKUP_FILE_EXTENSION}`) {
         invalid('Backup filename and manifest id do not match.');
       }
-      if (backup.manifest.scopes.some((scope) => !this.allowedScopes.has(scope))) {
+      if (backup.manifest.scopes.some((scope) => !this.allowedScopes.has(archivePathComparisonKey(scope)))) {
         invalid('Backup requests a restore scope that is not configured.');
       }
       return backup;
@@ -255,10 +292,6 @@ function isMissing(error: unknown): boolean {
 
 function resolveArchive(dataDirectory: string, scope: string): string {
   return resolve(dataDirectory, ...scope.split('/'));
-}
-
-function separator(): string {
-  return process.platform === 'win32' ? '\\' : '/';
 }
 
 function positiveLimit(value: number | undefined, fallback: number, name: string): number {

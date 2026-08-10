@@ -1,12 +1,13 @@
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { existsSync, realpathSync } from 'node:fs';
+import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { AppError } from '../../errors.ts';
 
 const forbiddenNames = /^(?:\.env(?:\..*)?|.*(?:secret|credential).*|.*\.(?:key|pem|p12|pfx))$/iu;
 
 export function assertInsideData(dataDirectory: string, candidate: string): string {
-  const data = resolve(dataDirectory);
-  const target = resolve(candidate);
-  const difference = relative(data, target);
+  const data = canonicalPath(dataDirectory);
+  const target = canonicalPath(candidate);
+  const difference = relative(comparisonPath(data), comparisonPath(target));
   if (difference === '' || (!difference.startsWith(`..${sep}`) && difference !== '..' && !isAbsolute(difference))) {
     return target;
   }
@@ -15,7 +16,7 @@ export function assertInsideData(dataDirectory: string, candidate: string): stri
 
 export function toArchivePath(dataDirectory: string, candidate: string): string {
   const target = assertInsideData(dataDirectory, candidate);
-  const archivePath = relative(resolve(dataDirectory), target).split(sep).join('/');
+  const archivePath = relative(canonicalPath(dataDirectory), target).split(sep).join('/');
   return validateArchivePath(archivePath);
 }
 
@@ -43,7 +44,9 @@ export function isSensitivePath(archivePath: string): boolean {
 }
 
 export function assertNonOverlappingScopes(scopes: readonly string[]): void {
-  const sorted = [...new Set(scopes.map(validateArchivePath))].sort();
+  const validated = scopes.map(validateArchivePath);
+  const keys = validated.map(archivePathComparisonKey);
+  const sorted = [...new Set(keys)].sort();
   if (sorted.length !== scopes.length) throw invalid('Backup scopes must be unique.');
   for (let index = 0; index < sorted.length; index += 1) {
     for (let nested = index + 1; nested < sorted.length; nested += 1) {
@@ -52,6 +55,33 @@ export function assertNonOverlappingScopes(scopes: readonly string[]): void {
       }
     }
   }
+}
+
+export function pathsOverlap(left: string, right: string): boolean {
+  const first = comparisonPath(canonicalPath(left));
+  const second = comparisonPath(canonicalPath(right));
+  return first === second || first.startsWith(`${second}${sep}`) || second.startsWith(`${first}${sep}`);
+}
+
+export function canonicalPath(value: string): string {
+  const pending: string[] = [];
+  let cursor = resolve(value);
+  while (!existsSync(cursor)) {
+    const parent = dirname(cursor);
+    if (parent === cursor) break;
+    pending.unshift(basename(cursor));
+    cursor = parent;
+  }
+  const existing = existsSync(cursor) ? realpathSync.native(cursor) : cursor;
+  return resolve(existing, ...pending);
+}
+
+function comparisonPath(value: string): string {
+  return process.platform === 'win32' ? value.toLocaleLowerCase('en-US') : value;
+}
+
+export function archivePathComparisonKey(value: string): string {
+  return process.platform === 'win32' ? value.toLocaleLowerCase('en-US') : value;
 }
 
 function invalid(message: string): AppError {
