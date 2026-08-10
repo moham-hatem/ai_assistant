@@ -10,8 +10,21 @@ test('hash routes keep chat public and admin pages explicit', () => {
     page: 'question-logs',
   });
   assert.deepEqual(parseHashRoute('#/admin/quality'), { area: 'admin', page: 'quality' });
+  assert.deepEqual(parseHashRoute('#/admin/access'), { area: 'admin', page: 'access' });
   assert.deepEqual(parseHashRoute('#/admin/login'), { area: 'admin-login', returnTo: 'dashboard' });
   assert.deepEqual(parseHashRoute('#/admin/login?returnTo=%2Fadmin%2Freviews'), { area: 'admin-login', returnTo: 'reviews' });
+});
+
+test('password setup and recovery routes remain public and keep their secret in memory', () => {
+  assert.deepEqual(parseHashRoute('#/password-setup?invitation=secret-value'), {
+    area: 'password', page: 'password-setup', token: 'secret-value',
+  });
+  assert.deepEqual(parseHashRoute('#/password-recovery?recovery=recovery-value'), {
+    area: 'password', page: 'password-recovery', token: 'recovery-value',
+  });
+  assert.deepEqual(parseHashRoute('#/password-setup'), {
+    area: 'password', page: 'password-setup', token: null,
+  });
 });
 
 test('legacy knowledge route opens the relocated books manager', () => {
@@ -27,6 +40,7 @@ test('unknown and malformed hashes fall back to public chat', () => {
 test('admin route builder produces canonical hashes', () => {
   assert.equal(adminRoute('settings'), '#/admin/settings');
   assert.equal(adminRoute('quality'), '#/admin/quality');
+  assert.equal(adminRoute('access'), '#/admin/access');
   assert.equal(adminLoginRoute('books'), '#/admin/login?returnTo=%2Fadmin%2Fbooks');
 });
 

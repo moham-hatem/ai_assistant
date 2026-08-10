@@ -51,6 +51,8 @@
 }
 
 .admin-navigation a:hover, .back-to-assistant:hover { color: white; background: #ffffff12; }
+.admin-sidebar a[aria-disabled='true'] { opacity: .55; cursor: not-allowed; }
+.admin-sidebar a[aria-disabled='true']:hover { color: #c9d9cf; background: transparent; }
 .admin-navigation a[aria-current='page'] { color: #123d2d; font-weight: 700; background: #e5f1e7; }
 .back-to-assistant { margin-top: auto; border: 1px solid #ffffff20; }
 [dir='rtl'] .back-to-assistant svg { transform: scaleX(-1); }
@@ -74,6 +76,7 @@
 .admin-identity strong, .admin-identity span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .admin-identity span { color: #61746a; font-size: .78rem; direction: ltr; }
 .admin-toolbar-actions { display: flex; align-items: center; gap: 9px; }
+.admin-navigation-blocked { max-width: 420px; margin: 0; color: #76551c; font-size: .78rem; line-height: 1.45; text-align: center; }
 .admin-logout { display: inline-flex; align-items: center; gap: 7px; min-height: 40px; padding: 8px 12px; color: #8a3030; background: #fff5f5; border: 1px solid #ebcccc; border-radius: 10px; cursor: pointer; }
 .admin-logout:disabled { opacity: .6; }
 .admin-security-note {
@@ -172,6 +175,7 @@
   .admin-security-note { font-size: .72rem; }
   .admin-toolbar .language-switch span { display: none; }
   .admin-logout span { display: none; }
+  .admin-navigation-blocked { font-size: .7rem; text-align: start; }
   .admin-content { width: min(100% - 28px, 1120px); padding-bottom: 42px; }
   .feature-status-grid { grid-template-columns: 1fr; }
   .settings-card { grid-template-columns: auto minmax(0, 1fr); }

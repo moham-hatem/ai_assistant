@@ -57,6 +57,8 @@ test('gate and navigation policy follow permissions while roles alone grant noth
   assert.equal(canOpenAdminPage({ ...principal, permissions: ['question_logs:read'] }, 'question-logs'), true);
   assert.equal(canOpenAdminPage({ ...principal, permissions: ['quality:read'] }, 'quality'), true);
   assert.equal(canOpenAdminPage({ ...principal, permissions: ['settings:manage'] }, 'settings'), true);
+  assert.equal(canOpenAdminPage({ ...principal, permissions: ['settings:manage'] }, 'access'), true);
+  assert.equal(canOpenAdminPage({ ...principal, permissions: [] }, 'access'), false);
   assert.equal(reviewerIdFromPrincipal(principal), 'teacher-17');
 });
 

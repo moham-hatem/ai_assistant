@@ -2,6 +2,7 @@ import { Bot, Languages, LockKeyhole } from 'lucide-react';
 import type { LanguageOption } from '../../../i18n/language';
 import type { AdminCopy } from '../adminCopy';
 import { AdminPageHeader } from '../components/AdminPageHeader';
+import { adminRoute } from '../../../app/routes';
 
 interface AdminSettingsPageProps {
   copy: AdminCopy;
@@ -21,7 +22,7 @@ export function AdminSettingsPage({ copy, languageDetails }: AdminSettingsPagePr
         <article className="settings-card">
           <LockKeyhole size={22} />
           <div><h2>{copy.settingsAccessTitle}</h2><p>{copy.settingsAccessBody}</p></div>
-          <span className="status-badge status-planned">{copy.planned}</span>
+          <a className="status-badge status-ready" href={adminRoute('access')}>{copy.ready}</a>
         </article>
         <article className="settings-card">
           <Bot size={22} />

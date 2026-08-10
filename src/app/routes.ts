@@ -4,6 +4,7 @@ export const ADMIN_PAGES = [
   'reviews',
   'question-logs',
   'quality',
+  'access',
   'settings',
 ] as const;
 
@@ -11,6 +12,7 @@ export type AdminPage = (typeof ADMIN_PAGES)[number];
 
 export type AppRoute =
   | { area: 'public'; page: 'chat' }
+  | { area: 'password'; page: 'password-setup' | 'password-recovery'; token: string | null }
   | { area: 'admin'; page: AdminPage }
   | { area: 'admin-login'; returnTo: AdminPage };
 
@@ -23,6 +25,11 @@ export function parseHashRoute(hash: string): AppRoute {
   if (path === 'admin/login') {
     const requested = new URLSearchParams(query).get('returnTo');
     return { area: 'admin-login', returnTo: parseAdminReturnPage(requested) ?? 'dashboard' };
+  }
+
+  if (path === 'password-setup' || path === 'password-recovery') {
+    const parameter = path === 'password-setup' ? 'invitation' : 'recovery';
+    return { area: 'password', page: path, token: new URLSearchParams(query).get(parameter) };
   }
 
   if (path === 'knowledge') {

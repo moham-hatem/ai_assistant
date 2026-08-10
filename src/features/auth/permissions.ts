@@ -3,7 +3,7 @@ import type { AuthPermission, AuthPrincipal } from '../../../shared/contracts/au
 
 export const pagePermission: Partial<Record<AdminPage, AuthPermission>> = {
   books: 'books:read', reviews: 'content:review', 'question-logs': 'question_logs:read',
-  quality: 'quality:read', settings: 'settings:manage',
+  quality: 'quality:read', access: 'settings:manage', settings: 'settings:manage',
 };
 
 export function hasPermission(principal: AuthPrincipal, permission: AuthPermission): boolean {
