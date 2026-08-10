@@ -5,6 +5,8 @@ import type { AccessUserSummary } from '../../shared/contracts/access-management
 import type { AuthRole } from '../../shared/contracts/auth.ts';
 import type {
   AccessRepository,
+  AccessUserEnabledMutationResult,
+  AccessUserUpdateMutationResult,
   CreateInvitationRecord,
   CreateRecoveryRecord,
 } from './access-repository.ts';
@@ -174,11 +176,13 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
 
   updateUserAccess(command: {
     actorId: string;
-    displayName: string;
-    roles: AuthRole[];
+    displayName?: string;
+    roles?: AuthRole[];
     timestamp: string;
     userId: string;
-  }, audit?: (sessionCount: number) => readonly SecurityAuditCommand[]): Promise<AuthUser> {
+  }, audit?: (
+    result: AccessUserUpdateMutationResult,
+  ) => readonly SecurityAuditCommand[]): Promise<AccessUserUpdateMutationResult> {
     return this.accessUsers.update(command, audit);
   }
 
@@ -187,8 +191,8 @@ export class SqliteAuthRepository implements AuthRepository, AccessRepository {
     userId: string,
     enabled: boolean,
     timestamp: string,
-    audit?: (changed: boolean, sessionCount: number) => readonly SecurityAuditCommand[],
-  ): Promise<AuthUser> {
+    audit?: (result: AccessUserEnabledMutationResult) => readonly SecurityAuditCommand[],
+  ): Promise<AccessUserEnabledMutationResult> {
     return this.accessUsers.setEnabled(actorId, userId, enabled, timestamp, audit);
   }
 

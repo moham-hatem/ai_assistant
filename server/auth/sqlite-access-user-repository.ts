@@ -4,7 +4,9 @@ import type { AuthRole } from '../../shared/contracts/auth.ts';
 import type { SecurityAuditCommand } from '../modules/security-audit/domain.ts';
 import { enqueueSecurityAudit } from '../modules/security-audit/sqlite-outbox.ts';
 import {
+  type AccessUserEnabledMutationResult,
   AccessLockoutError,
+  type AccessUserUpdateMutationResult,
   AccessUserNotFoundError,
 } from './access-repository.ts';
 import {
@@ -46,34 +48,51 @@ export class SqliteAccessUserRepository {
 
   async update(command: {
     actorId: string;
-    displayName: string;
-    roles: AuthRole[];
+    displayName?: string;
+    roles?: AuthRole[];
     timestamp: string;
     userId: string;
-  }, audit?: (sessionCount: number) => readonly SecurityAuditCommand[]): Promise<AuthUser> {
-    if (normalizeDisplayName(command.displayName) !== command.displayName) {
+  }, audit?: (
+    result: AccessUserUpdateMutationResult,
+  ) => readonly SecurityAuditCommand[]): Promise<AccessUserUpdateMutationResult> {
+    if (command.displayName !== undefined
+        && normalizeDisplayName(command.displayName) !== command.displayName) {
       throw new Error('Display name is not normalized.');
     }
     return withImmediateTransaction(this.database, () => {
       const current = this.findRow(command.userId);
       if (!current) throw new AccessUserNotFoundError();
-      const roles = normalizeRoles(command.roles);
-      if (command.actorId === command.userId && !roles.includes('admin')) {
+      const previousRoles = this.rolesFor(command.userId);
+      const nextRoles = command.roles === undefined
+        ? previousRoles
+        : normalizeRoles(command.roles);
+      const nextDisplayName = command.displayName ?? current.display_name;
+      const displayNameChanged = command.displayName !== undefined
+        && nextDisplayName !== current.display_name;
+      const rolesChanged = command.roles !== undefined
+        && !sameRoles(nextRoles, previousRoles);
+      if (command.actorId === command.userId && !nextRoles.includes('admin')) {
         throw new AccessLockoutError('Administrators cannot remove their own settings access.');
       }
-      this.assertLastAdminRemains(current, current.enabled === 1, roles);
-      const changed = command.displayName !== current.display_name
-        || !sameRoles(roles, this.rolesFor(command.userId));
-      let sessionCount = 0;
-      if (changed) {
+      this.assertLastAdminRemains(current, current.enabled === 1, nextRoles);
+      let revokedSessionCount = 0;
+      if (displayNameChanged || rolesChanged) {
         this.database.prepare(`
           UPDATE auth_users SET display_name = ?, updated_at = ? WHERE id = ?
-        `).run(command.displayName, command.timestamp, command.userId);
-        this.replaceRoles(command.userId, roles);
-        sessionCount = this.revokeSessions(command.userId, command.timestamp);
+        `).run(nextDisplayName, command.timestamp, command.userId);
+        if (rolesChanged) this.replaceRoles(command.userId, nextRoles);
+        revokedSessionCount = this.revokeSessions(command.userId, command.timestamp);
       }
-      for (const event of audit?.(sessionCount) ?? []) enqueueSecurityAudit(this.database, event);
-      return this.requireUser(command.userId);
+      const result: AccessUserUpdateMutationResult = {
+        displayNameChanged,
+        nextRoleCount: nextRoles.length,
+        previousRoleCount: previousRoles.length,
+        revokedSessionCount,
+        rolesChanged,
+        user: this.requireUser(command.userId),
+      };
+      for (const event of audit?.(result) ?? []) enqueueSecurityAudit(this.database, event);
+      return result;
     });
   }
 
@@ -82,8 +101,8 @@ export class SqliteAccessUserRepository {
     userId: string,
     enabled: boolean,
     timestamp: string,
-    audit?: (changed: boolean, sessionCount: number) => readonly SecurityAuditCommand[],
-  ): Promise<AuthUser> {
+    audit?: (result: AccessUserEnabledMutationResult) => readonly SecurityAuditCommand[],
+  ): Promise<AccessUserEnabledMutationResult> {
     return withImmediateTransaction(this.database, () => {
       const current = this.findRow(userId);
       if (!current) throw new AccessUserNotFoundError();
@@ -93,17 +112,22 @@ export class SqliteAccessUserRepository {
       const roles = this.rolesFor(userId);
       this.assertLastAdminRemains(current, enabled, roles);
       const changed = (current.enabled === 1) !== enabled;
-      let sessionCount = 0;
+      let revokedSessionCount = 0;
       if (changed) {
         this.database.prepare(`
           UPDATE auth_users SET enabled = ?, updated_at = ? WHERE id = ?
         `).run(enabled ? 1 : 0, timestamp, userId);
-        if (!enabled) sessionCount = this.revokeSessions(userId, timestamp);
+        if (!enabled) revokedSessionCount = this.revokeSessions(userId, timestamp);
       }
-      for (const event of audit?.(changed, sessionCount) ?? []) {
+      const result: AccessUserEnabledMutationResult = {
+        changed,
+        revokedSessionCount,
+        user: this.requireUser(userId),
+      };
+      for (const event of audit?.(result) ?? []) {
         enqueueSecurityAudit(this.database, event);
       }
-      return this.requireUser(userId);
+      return result;
     });
   }
 

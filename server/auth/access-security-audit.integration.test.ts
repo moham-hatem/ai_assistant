@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
+import { Worker } from 'node:worker_threads';
 import { AppError } from '../errors.ts';
 import { SecurityAuditService } from '../modules/security-audit/service.ts';
 import { SqliteSecurityAuditRepository } from '../modules/security-audit/sqlite-repository.ts';
@@ -528,6 +529,170 @@ test('invalid and duplicate create/update attempts enqueue minimized denied even
   }
 });
 
+test('independent concurrent updates audit the locked display-name, roles, enablement, and session results', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'access-audit-authoritative-'));
+  const authPath = join(directory, 'auth.sqlite');
+  const auditPath = join(directory, 'audit.sqlite');
+  const auditKey = randomBytes(32);
+  const passwords = new ScryptPasswordHasher(fastScrypt);
+  const auth = new SqliteAuthRepository(authPath);
+  await createUser(auth, passwords, 'admin-1', 'admin@example.test', ['admin']);
+  await createUser(auth, passwords, 'update-user', 'update@example.test', ['reviewer']);
+  await createUser(auth, passwords, 'enabled-user', 'enabled@example.test', ['reviewer']);
+  await saveActiveSession(auth, 'update-user', 'update-session');
+  await saveActiveSession(auth, 'enabled-user', 'enabled-session');
+  auth.close();
+  new SqliteSecurityAuditRepository(
+    auditPath, new Map([['v1', auditKey]]), 'v1',
+  ).close();
+
+  try {
+    await runConcurrentAccessOperations(authPath, auditPath, auditKey, [
+      {
+        input: { displayName: 'Changed Name', roles: ['operator', 'reviewer'] },
+        kind: 'update',
+        requestId: 'concurrent-change',
+        userId: 'update-user',
+      },
+      {
+        input: { displayName: 'update-user', roles: ['reviewer'] },
+        kind: 'update',
+        requestId: 'concurrent-reset',
+        userId: 'update-user',
+      },
+    ]);
+    await runConcurrentAccessOperations(authPath, auditPath, auditKey, [
+      {
+        enabled: false,
+        kind: 'enabled',
+        requestId: 'concurrent-disable',
+        userId: 'enabled-user',
+      },
+      {
+        enabled: true,
+        kind: 'enabled',
+        requestId: 'concurrent-enable',
+        userId: 'enabled-user',
+      },
+    ]);
+
+    const reopenedAuth = new SqliteAuthRepository(authPath);
+    const auditRepository = new SqliteSecurityAuditRepository(
+      auditPath, new Map([['v1', auditKey]]), 'v1',
+    );
+    try {
+      const updateUser = await reopenedAuth.findUserById('update-user');
+      const enabledUser = await reopenedAuth.findUserById('enabled-user');
+      const events = (await new SecurityAuditService(auditRepository).list({
+        category: 'access', limit: 100, offset: 0,
+      })).items;
+      const profile = (requestId: string) => events.find((event) =>
+        event.requestId === requestId && event.action === 'access.user_profile_changed');
+      const roles = (requestId: string) => events.find((event) =>
+        event.requestId === requestId && event.action === 'access.user_roles_changed');
+      const sessions = (requestId: string) => events.find((event) =>
+        event.requestId === requestId && event.action === 'access.user_sessions_revoked');
+
+      assert.deepEqual(profile('concurrent-change')?.metadata, { changed: true });
+      assert.equal(roles('concurrent-change')?.metadata.nextRoleCount, 2);
+      assert.equal(roles('concurrent-change')?.metadata.changed, true);
+      if (updateUser?.displayName === 'Changed Name') {
+        assert.deepEqual(updateUser.roles, ['operator', 'reviewer']);
+        assert.deepEqual(profile('concurrent-reset')?.metadata, { changed: false });
+        assert.deepEqual(roles('concurrent-reset')?.metadata, {
+          changed: false, nextRoleCount: 1, previousRoleCount: 1,
+        });
+        assert.equal(sessions('concurrent-reset'), undefined);
+        assert.equal(sessions('concurrent-change')?.metadata.sessionCount, 1);
+      } else {
+        assert.equal(updateUser?.displayName, 'update-user');
+        assert.deepEqual(updateUser?.roles, ['reviewer']);
+        assert.deepEqual(profile('concurrent-reset')?.metadata, { changed: true });
+        assert.deepEqual(roles('concurrent-reset')?.metadata, {
+          changed: true, nextRoleCount: 1, previousRoleCount: 2,
+        });
+        assert.deepEqual([
+          sessions('concurrent-change')?.metadata.sessionCount,
+          sessions('concurrent-reset')?.metadata.sessionCount,
+        ].sort(), [0, 1]);
+      }
+
+      const disabled = events.find((event) => event.requestId === 'concurrent-disable'
+        && event.action === 'access.user_disabled');
+      const enabled = events.find((event) => event.requestId === 'concurrent-enable'
+        && event.action === 'access.user_enabled');
+      assert.deepEqual(disabled?.metadata, { changed: true });
+      assert.equal(sessions('concurrent-disable')?.metadata.sessionCount, 1);
+      if (enabledUser?.enabled) {
+        assert.deepEqual(enabled?.metadata, { changed: true });
+      } else {
+        assert.deepEqual(enabled?.metadata, { changed: false });
+      }
+      assert.equal(JSON.stringify(events).includes('Changed Name'), false);
+      assert.equal(JSON.stringify(events).includes('update@example.test'), false);
+    } finally {
+      reopenedAuth.close();
+      auditRepository.close();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('authoritative update survives sink outage with exact retryable events and no duplicates', async () => {
+  const auth = new SqliteAuthRepository(':memory:');
+  const passwords = new ScryptPasswordHasher(fastScrypt);
+  await createUser(auth, passwords, 'admin-1', 'admin@example.test', ['admin']);
+  await createUser(auth, passwords, 'user-1', 'user@example.test', ['reviewer']);
+  await saveActiveSession(auth, 'user-1', 'outage-session');
+  const access = new AccessService(
+    auth,
+    passwords,
+    new InMemoryLoginRateLimiter(),
+    { invitationTtlMs: 60_000, publicOrigin, recoveryTtlMs: 60_000 },
+    undefined,
+    undefined,
+    undefined,
+    new SecurityAuditService(new UnavailableSecurityAuditRepository()),
+  );
+  try {
+    await assert.rejects(access.updateUser(
+      'admin-1', 'user-1', { displayName: 'Authoritative Name', roles: ['operator'] },
+      'authoritative-outage',
+    ), (error: unknown) => error instanceof AppError
+      && error.code === 'SECURITY_AUDIT_UNAVAILABLE' && error.status === 503);
+    const user = await auth.findUserById('user-1');
+    assert.equal(user?.displayName, 'Authoritative Name');
+    assert.deepEqual(user?.roles, ['operator']);
+    assert.equal((await auth.findSession(hashSessionToken('outage-session'.padEnd(43, 'x'))))?.revokedAt !== null, true);
+
+    const recoveredRepository = new SqliteSecurityAuditRepository(
+      ':memory:', new Map([['v1', randomBytes(32)]]), 'v1',
+    );
+    try {
+      const recovered = new SecurityAuditService(recoveredRepository);
+      assert.equal(await auth.flushSecurityAuditOutbox(recovered), 3);
+      assert.equal(await auth.flushSecurityAuditOutbox(recovered), 0);
+      const events = (await recovered.list({ category: 'access', limit: 10, offset: 0 })).items;
+      assert.equal(events.length, 3);
+      assert.deepEqual(events.find((event) =>
+        event.action === 'access.user_profile_changed')?.metadata, { changed: true });
+      assert.deepEqual(events.find((event) =>
+        event.action === 'access.user_roles_changed')?.metadata, {
+        changed: true, nextRoleCount: 1, previousRoleCount: 1,
+      });
+      assert.deepEqual(events.find((event) =>
+        event.action === 'access.user_sessions_revoked')?.metadata, {
+        reason: 'user_access_changed', sessionCount: 1,
+      });
+    } finally {
+      recoveredRepository.close();
+    }
+  } finally {
+    auth.close();
+  }
+});
+
 async function createUser(
   repository: SqliteAuthRepository,
   passwords: ScryptPasswordHasher,
@@ -543,6 +708,139 @@ async function createUser(
     passwordHash: await passwords.hash(password),
     roles,
     timestamp: '2026-08-10T00:00:00.000Z',
+  });
+}
+
+async function saveActiveSession(
+  repository: SqliteAuthRepository,
+  userId: string,
+  label: string,
+): Promise<void> {
+  const timestamp = '2026-08-10T00:00:00.000Z';
+  await repository.saveSession({
+    absoluteExpiresAt: '2026-08-11T00:00:00.000Z',
+    createdAt: timestamp,
+    idleExpiresAt: '2026-08-10T01:00:00.000Z',
+    lastSeenAt: timestamp,
+    revokedAt: null,
+    tokenHash: hashSessionToken(label.padEnd(43, 'x')),
+    userId,
+  });
+}
+
+type ConcurrentAccessOperation = {
+  input: { displayName: string; roles: string[] };
+  kind: 'update';
+  requestId: string;
+  userId: string;
+} | {
+  enabled: boolean;
+  kind: 'enabled';
+  requestId: string;
+  userId: string;
+};
+
+async function runConcurrentAccessOperations(
+  authPath: string,
+  auditPath: string,
+  auditKey: Buffer,
+  operations: readonly [ConcurrentAccessOperation, ConcurrentAccessOperation],
+): Promise<void> {
+  const state = new Int32Array(new SharedArrayBuffer(8));
+  const workers = operations.map((operation) => accessOperationWorker(
+    authPath, auditPath, auditKey, operation, state.buffer,
+  ));
+  while (Atomics.load(state, 0) < workers.length) {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  Atomics.store(state, 1, 1);
+  Atomics.notify(state, 1, workers.length);
+  await Promise.all(workers);
+}
+
+function accessOperationWorker(
+  authPath: string,
+  auditPath: string,
+  auditKey: Buffer,
+  operation: ConcurrentAccessOperation,
+  barrier: SharedArrayBuffer,
+): Promise<void> {
+  const modules = {
+    access: new URL('./access-service.ts', import.meta.url).href,
+    auditRepository: new URL('../modules/security-audit/sqlite-repository.ts', import.meta.url).href,
+    auditService: new URL('../modules/security-audit/service.ts', import.meta.url).href,
+    authRepository: new URL('./sqlite-repository.ts', import.meta.url).href,
+  };
+  const source = `
+    const { parentPort, workerData } = require('node:worker_threads');
+    (async () => {
+      const [{ AccessService }, { SqliteSecurityAuditRepository }, { SecurityAuditService }, { SqliteAuthRepository }] = await Promise.all([
+        import(workerData.modules.access),
+        import(workerData.modules.auditRepository),
+        import(workerData.modules.auditService),
+        import(workerData.modules.authRepository),
+      ]);
+      const auth = new SqliteAuthRepository(workerData.authPath);
+      const auditRepository = new SqliteSecurityAuditRepository(
+        workerData.auditPath,
+        new Map([['v1', Buffer.from(workerData.auditKey, 'base64')]]),
+        'v1',
+      );
+      const passwords = { hash: async () => '', verify: async () => false };
+      const limiter = {
+        check: async () => ({ allowed: true }),
+        recordFailure: async () => ({ allowed: true }),
+        reset: async () => undefined,
+      };
+      const access = new AccessService(
+        auth,
+        passwords,
+        limiter,
+        { invitationTtlMs: 60_000, publicOrigin: 'http://app.local.test', recoveryTtlMs: 60_000 },
+        () => new Date('2026-08-10T00:00:00.000Z'),
+        undefined,
+        undefined,
+        new SecurityAuditService(auditRepository),
+      );
+      const state = new Int32Array(workerData.barrier);
+      Atomics.add(state, 0, 1);
+      Atomics.wait(state, 1, 0);
+      try {
+        if (workerData.operation.kind === 'update') {
+          await access.updateUser(
+            'admin-1', workerData.operation.userId, workerData.operation.input,
+            workerData.operation.requestId,
+          );
+        } else {
+          await access.setEnabled(
+            'admin-1', workerData.operation.userId, workerData.operation.enabled,
+            workerData.operation.requestId,
+          );
+        }
+      } finally {
+        auth.close();
+        auditRepository.close();
+      }
+      parentPort.postMessage({ ok: true });
+    })().catch((error) => parentPort.postMessage({ error: error.stack ?? error.message }));
+  `;
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(source, {
+      eval: true,
+      workerData: {
+        auditKey: auditKey.toString('base64'),
+        auditPath,
+        authPath,
+        barrier,
+        modules,
+        operation,
+      },
+    });
+    worker.once('message', (message: { error?: string; ok?: boolean }) => {
+      if (message.ok) resolve();
+      else reject(new Error(message.error ?? 'Access operation worker failed.'));
+    });
+    worker.once('error', reject);
   });
 }
 

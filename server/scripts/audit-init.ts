@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import {
   chmod,
   open,
+  readdir,
   readFile,
   rename,
   rm,
@@ -16,15 +17,19 @@ const KEY_BYTES = 32;
 const DEFAULT_STALE_LOCK_MS = 10 * 60_000;
 export const WINDOWS_ACL_WARNING =
   'WARNING: Windows ACLs were not verified; manually restrict .env.local to your account.';
+export const WINDOWS_DIRECTORY_SYNC_WARNING =
+  'WARNING: Windows directory metadata fsync is unavailable; verify .env.local exists securely.';
 
 export interface AuditInitOptions {
   cwd?: string;
+  afterLockCreated?: () => Promise<void>;
   generateKey?: () => Buffer;
   log?: (message: string) => void;
   now?: () => number;
   platform?: NodeJS.Platform;
   renameFile?: (source: string, destination: string) => Promise<void>;
   staleLockMs?: number;
+  syncDirectory?: (directory: string) => Promise<void>;
   warn?: (message: string) => void;
   writeTemp?: (handle: FileHandle, contents: string) => Promise<void>;
 }
@@ -65,11 +70,11 @@ function replaceOrAppendKey(contents: string, key: string): string {
 export async function initializeSecurityAuditKey(options: AuditInitOptions = {}): Promise<void> {
   const cwd = options.cwd ?? process.cwd();
   const envPath = resolve(cwd, '.env.local');
-  const lockPath = resolve(cwd, '.env.local.audit-init.lock');
-  const lock = await acquireLock(
-    lockPath,
+  const lockPath = await acquireLock(
+    cwd,
     options.staleLockMs ?? DEFAULT_STALE_LOCK_MS,
     options.now ?? Date.now,
+    options.afterLockCreated,
   );
   const tempPath = resolve(cwd, `.env.local.audit-init.${process.pid}.${randomUUID()}.tmp`);
   let tempHandle: FileHandle | undefined;
@@ -100,6 +105,13 @@ export async function initializeSecurityAuditKey(options: AuditInitOptions = {})
     }
     await (options.renameFile ?? rename)(tempPath, envPath);
     replaced = true;
+    if (options.syncDirectory) {
+      await options.syncDirectory(cwd);
+    } else if (platform === 'win32') {
+      (options.warn ?? console.warn)(WINDOWS_DIRECTORY_SYNC_WARNING);
+    } else {
+      await syncDirectoryMetadata(cwd);
+    }
     (options.log ?? console.log)(`Initialized ${KEY_NAME} in .env.local. The key was not printed.`);
   } finally {
     try {
@@ -108,48 +120,56 @@ export async function initializeSecurityAuditKey(options: AuditInitOptions = {})
       try {
         if (!replaced) await rm(tempPath, { force: true });
       } finally {
-        try {
-          await lock.close();
-        } finally {
-          await rm(lockPath, { force: true });
-        }
+        await rm(lockPath, { force: true });
       }
     }
   }
 }
 
 async function acquireLock(
-  lockPath: string,
+  directory: string,
   staleLockMs: number,
   now: () => number,
-): Promise<FileHandle> {
+  afterCreated?: () => Promise<void>,
+): Promise<string> {
   if (!Number.isSafeInteger(staleLockMs) || staleLockMs < 1) {
     throw new Error('The stale audit:init lock timeout must be a positive integer.');
   }
+  const prefix = '.env.local.audit-init.lock';
+  const ownerPath = resolve(directory, `${prefix}.${randomUUID()}`);
+  const owner = await open(ownerPath, 'wx', 0o600);
   try {
-    return await open(lockPath, 'wx', 0o600);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    await owner.writeFile(`${process.pid}\n`, 'utf8');
+    await owner.sync();
+  } finally {
+    await owner.close();
   }
-  let lockAge: number;
   try {
-    lockAge = now() - (await stat(lockPath)).mtimeMs;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return await open(lockPath, 'wx', 0o600);
+    if (afterCreated) await afterCreated();
+    const ownStat = await stat(ownerPath, { bigint: true });
+    for (const name of await readdir(directory)) {
+      if (name !== prefix && !name.startsWith(`${prefix}.`)) continue;
+      const candidate = resolve(directory, name);
+      if (candidate === ownerPath) continue;
+      let candidateStat;
+      try {
+        candidateStat = await stat(candidate, { bigint: true });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+        throw error;
+      }
+      const ageMs = now() - Number(candidateStat.mtimeNs / 1_000_000n);
+      if (ageMs > staleLockMs) {
+        await rm(candidate, { force: true });
+        continue;
+      }
+      if (candidateStat.birthtimeNs <= ownStat.birthtimeNs) {
+        throw new Error('Another audit:init process is running; refusing to modify .env.local.');
+      }
     }
-    throw error;
-  }
-  if (lockAge <= staleLockMs) {
-    throw new Error('Another audit:init process is running; refusing to modify .env.local.');
-  }
-  await rm(lockPath);
-  try {
-    return await open(lockPath, 'wx', 0o600);
+    return ownerPath;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
-      throw new Error('Another audit:init process acquired the recovered lock; refusing to modify .env.local.');
-    }
+    await rm(ownerPath, { force: true });
     throw error;
   }
 }
@@ -157,6 +177,15 @@ async function acquireLock(
 async function writeAndSync(handle: FileHandle, contents: string): Promise<void> {
   await handle.writeFile(contents, { encoding: 'utf8' });
   await handle.sync();
+}
+
+async function syncDirectoryMetadata(directory: string): Promise<void> {
+  const handle = await open(directory, 'r');
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
 }
 
 async function main(): Promise<void> {

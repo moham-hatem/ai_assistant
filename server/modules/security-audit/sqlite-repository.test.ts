@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -38,6 +38,10 @@ for (const scenario of [
         scenario.message,
       );
       assert.deepEqual(await readFile(path), before);
+      assert.deepEqual(await readdir(directory), ['audit.sqlite']);
+      const moved = join(directory, 'audit-moved.sqlite');
+      await rename(path, moved);
+      await rename(moved, path);
       const reopened = new DatabaseSync(path);
       try {
         const tables = reopened.prepare(`

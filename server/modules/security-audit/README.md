@@ -18,11 +18,14 @@ Before using authenticated administration locally, run `npm run audit:init`. It 
 empty placeholder but refuses to overwrite an existing key. Keep the key secret and backed up: it
 is required to verify the audit chain. Public answer and version endpoints remain available when
 the audit configuration is absent, while sensitive operations and successful login fail closed.
-The file is replaced atomically from a synced sibling temporary file. A lock younger than ten
-minutes is treated as an active initializer; an older lock is recovered automatically. Before
+The file is replaced atomically from a synced sibling temporary file, followed by a directory
+metadata sync on platforms that support it. Each initializer owns a uniquely named lock ticket,
+so stale cleanup and final cleanup cannot remove another process's lock. A ticket younger than ten
+minutes is treated as an active initializer; an older ticket is recovered automatically. Before
 removing a lock manually, verify that no `audit:init` process is running. On Windows the command
 prints a fixed warning because POSIX mode bits do not verify NTFS ACLs; inspect the `.env.local`
 Security properties and ensure only the intended account and trusted administrators can read it.
+Windows also receives a fixed warning that directory metadata `fsync` is unavailable.
 
 Sensitive changes in the auth, books, and reviews SQLite databases enqueue their audit command in
 `security_audit_outbox` in the same transaction as the business change. Delivery to the separate
@@ -46,6 +49,9 @@ user subject only after the transactional redemption succeeds. Successful no-op 
 `changed=false`, and session revocation records the actual `sessionCount`, including zero; these
 values distinguish a successful API attempt from a state transition. Redeeming a token also
 transactionally revokes active sibling tokens and emits one minimized revocation event per sibling.
+User update and enablement events are built from the authoritative mutation result while the auth
+database holds `BEGIN IMMEDIATE`; no pre-transaction user snapshot determines `changed`, role
+counts, or the number of revoked sessions.
 
 Never add arbitrary metadata. The domain allowlist deliberately excludes emails, passwords, session
 tokens, links, raw hashes, cookies, full questions or answers, book/document text, and other content.

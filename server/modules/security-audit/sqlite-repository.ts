@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type {
@@ -49,12 +49,12 @@ export class SqliteSecurityAuditRepository implements SecurityAuditRepository {
   constructor(path: string, keys: ReadonlyMap<string, Buffer>, currentKeyVersion: string) {
     if (!keys.has(currentKeyVersion)) throw new Error('Current security audit HMAC key is unavailable.');
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
+    if (path !== ':memory:' && existsSync(path)) validateExistingDatabase(path);
     this.keys = keys;
     this.currentKeyVersion = currentKeyVersion;
     this.database = new DatabaseSync(path);
     try {
       this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
-      validateSecurityAuditMigrationHistory(this.database);
       if (path !== ':memory:') this.database.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
       migrateSecurityAuditDatabase(this.database, {
         keyVersion: currentKeyVersion,
@@ -240,6 +240,15 @@ function validateHistoricalChain(
       throw new Error(`Security audit history is invalid at sequence ${row.sequence}.`);
     }
     previousHash = row.event_hash;
+  }
+}
+
+function validateExistingDatabase(path: string): void {
+  const database = new DatabaseSync(path, { readOnly: true });
+  try {
+    validateSecurityAuditMigrationHistory(database);
+  } finally {
+    database.close();
   }
 }
 

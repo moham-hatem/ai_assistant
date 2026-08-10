@@ -74,61 +74,44 @@ export class AccessUserService {
       );
       throw new InvalidAccessInputError();
     }
-    let current: AuthUser | undefined;
-    try {
-      current = await this.repository.findUserById(userId);
-    } catch (error) {
-      await this.audit.bestEffort(
-        attemptedAction, 'failure', requestId, actorId, subject,
-        { reason: 'storage_failure' },
-      );
-      throw error;
-    }
-    if (!current) {
-      await this.audit.bestEffort(
-        attemptedAction, 'denied', requestId, actorId, subject, { reason: 'not_found' },
-      );
-      throw new AccessUserNotFoundError();
-    }
     const displayName = input.displayName === undefined
-      ? current.displayName
+      ? undefined
       : normalizeDisplayName(input.displayName);
-    const roles = input.roles === undefined ? current.roles : parseRoles(input.roles);
-    if (!displayName || !roles) {
+    const roles = input.roles === undefined ? undefined : parseRoles(input.roles);
+    if ((input.displayName !== undefined && !displayName)
+        || (input.roles !== undefined && !roles)) {
       await this.audit.durableDenied(
         attemptedAction, requestId, actorId, subject, { reason: 'invalid_request' },
       );
       throw new InvalidAccessInputError();
     }
-    const displayNameChanged = displayName !== current.displayName;
-    const rolesChanged = !sameRoles(roles, current.roles);
     const timestamp = this.now().toISOString();
     let user: AuthUser;
     try {
-      user = await this.repository.updateUserAccess({
+      const result = await this.repository.updateUserAccess({
         actorId, displayName, roles, timestamp, userId,
-      }, (sessionCount) => {
+      }, (mutation) => {
         const events: SecurityAuditCommand[] = [];
         if (input.displayName !== undefined) pushEvent(events, this.audit.success(
           'access.user_profile_changed', requestId, timestamp, actorId, subject,
-          { changed: displayNameChanged },
+          { changed: mutation.displayNameChanged },
         ));
         if (input.roles !== undefined) pushEvent(events, this.audit.success(
           'access.user_roles_changed', requestId, timestamp, actorId, subject,
           {
-            changed: rolesChanged,
-            nextRoleCount: roles.length,
-            previousRoleCount: current.roles.length,
+            changed: mutation.rolesChanged,
+            nextRoleCount: mutation.nextRoleCount,
+            previousRoleCount: mutation.previousRoleCount,
           },
         ));
-        if (displayNameChanged || rolesChanged) pushEvent(events, this.audit.success(
+        if (mutation.displayNameChanged || mutation.rolesChanged) pushEvent(events, this.audit.success(
           'access.user_sessions_revoked', requestId, timestamp, actorId, subject,
-          { reason: 'user_access_changed', sessionCount },
+          { reason: 'user_access_changed', sessionCount: mutation.revokedSessionCount },
         ));
         return events;
       });
+      user = result.user;
     } catch (error) {
-      const action = rolesChanged ? 'access.user_roles_changed' : 'access.user_profile_changed';
       const expected = error instanceof AccessLockoutError
         || error instanceof AccessUserNotFoundError;
       const outcome = expected ? 'denied' : 'failure';
@@ -136,7 +119,9 @@ export class AccessUserService {
         : error instanceof AccessLockoutError
         ? actorId === userId ? 'self_lockout' : 'last_admin'
         : 'storage_failure';
-      await this.audit.bestEffort(action, outcome, requestId, actorId, subject, { reason });
+      await this.audit.bestEffort(
+        attemptedAction, outcome, requestId, actorId, subject, { reason },
+      );
       throw error;
     }
     await this.audit.flush(this.repository);
@@ -161,23 +146,24 @@ export class AccessUserService {
     const timestamp = this.now().toISOString();
     let user: AuthUser;
     try {
-      user = await this.repository.setUserEnabled(
+      const result = await this.repository.setUserEnabled(
         actorId,
         userId,
         enabled,
         timestamp,
-        (changed, sessionCount) => {
+        (mutation) => {
           const events: SecurityAuditCommand[] = [];
           pushEvent(events, this.audit.success(
-            action, requestId, timestamp, actorId, subject, { changed },
+            action, requestId, timestamp, actorId, subject, { changed: mutation.changed },
           ));
-          if (!enabled && changed) pushEvent(events, this.audit.success(
+          if (!enabled && mutation.changed) pushEvent(events, this.audit.success(
             'access.user_sessions_revoked', requestId, timestamp, actorId, subject,
-            { reason: 'user_disabled', sessionCount },
+            { reason: 'user_disabled', sessionCount: mutation.revokedSessionCount },
           ));
           return events;
         },
       );
+      user = result.user;
     } catch (error) {
       const expected = error instanceof AccessLockoutError
         || error instanceof AccessUserNotFoundError;
@@ -227,13 +213,6 @@ export class AccessUserService {
     }
     await this.audit.flush(this.repository);
   }
-}
-
-function sameRoles(left: readonly AuthRole[], right: readonly AuthRole[]): boolean {
-  const normalizedLeft = normalizeRoles(left);
-  const normalizedRight = normalizeRoles(right);
-  return normalizedLeft.length === normalizedRight.length
-    && normalizedLeft.every((role, index) => role === normalizedRight[index]);
 }
 
 function safeUser(user: AuthUser): AccessUserDetails {

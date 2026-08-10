@@ -24,6 +24,21 @@ export interface CreateRecoveryRecord {
   userId: string;
 }
 
+export interface AccessUserUpdateMutationResult {
+  displayNameChanged: boolean;
+  nextRoleCount: number;
+  previousRoleCount: number;
+  revokedSessionCount: number;
+  rolesChanged: boolean;
+  user: AuthUser;
+}
+
+export interface AccessUserEnabledMutationResult {
+  changed: boolean;
+  revokedSessionCount: number;
+  user: AuthUser;
+}
+
 export interface AccessRepository {
   enqueueSecurityAudit?(command: SecurityAuditCommand): Promise<void>;
   flushSecurityAuditOutbox?(sink: SecurityAuditSink): Promise<number>;
@@ -58,18 +73,17 @@ export interface AccessRepository {
     userId: string,
     enabled: boolean,
     timestamp: string,
-    audit?: (
-      changed: boolean,
-      sessionCount: number,
-    ) => readonly SecurityAuditCommand[],
-  ): Promise<AuthUser>;
+    audit?: (result: AccessUserEnabledMutationResult) => readonly SecurityAuditCommand[],
+  ): Promise<AccessUserEnabledMutationResult>;
   updateUserAccess(command: {
     actorId: string;
-    displayName: string;
-    roles: AuthRole[];
+    displayName?: string;
+    roles?: AuthRole[];
     timestamp: string;
     userId: string;
-  }, audit?: (sessionCount: number) => readonly SecurityAuditCommand[]): Promise<AuthUser>;
+  }, audit?: (
+    result: AccessUserUpdateMutationResult,
+  ) => readonly SecurityAuditCommand[]): Promise<AccessUserUpdateMutationResult>;
 }
 
 export class AccessUserNotFoundError extends Error {}

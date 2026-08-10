@@ -3,7 +3,11 @@ import { mkdtemp, readdir, readFile, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
-import { initializeSecurityAuditKey, WINDOWS_ACL_WARNING } from './audit-init.ts';
+import {
+  initializeSecurityAuditKey,
+  WINDOWS_ACL_WARNING,
+  WINDOWS_DIRECTORY_SYNC_WARNING,
+} from './audit-init.ts';
 
 const knownBytes = Buffer.alloc(32, 0xa5);
 const knownKey = knownBytes.toString('base64url');
@@ -163,13 +167,80 @@ test('audit:init emits a stable secret-free Windows ACL warning', async (context
     warn: (message) => warnings.push(message),
   });
 
-  assert.deepEqual(warnings, [WINDOWS_ACL_WARNING]);
+  assert.deepEqual(warnings, [WINDOWS_ACL_WARNING, WINDOWS_DIRECTORY_SYNC_WARNING]);
   assert.equal(warnings[0]?.includes(knownKey), false);
+  assert.equal(warnings[1]?.includes(knownKey), false);
+});
+
+test('audit:init syncs sibling directory metadata after atomic replacement', async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), 'ila-audit-init-dir-sync-'));
+  context.after(async () => {
+    const { rm } = await import('node:fs/promises');
+    await rm(directory, { recursive: true, force: true });
+  });
+  const calls: string[] = [];
+  await initializeSecurityAuditKey({
+    cwd: directory,
+    generateKey: () => knownBytes,
+    log: () => undefined,
+    platform: 'linux',
+    syncDirectory: async (path) => { calls.push(path); },
+    warn: () => undefined,
+  });
+  assert.deepEqual(calls, [directory]);
+  assert.equal(await readFile(join(directory, '.env.local'), 'utf8'), `SECURITY_AUDIT_HMAC_KEY=${knownKey}\n`);
+});
+
+test('audit:init contenders never share ownership or remove the winner lock', async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), 'ila-audit-init-contenders-'));
+  context.after(async () => {
+    const { rm } = await import('node:fs/promises');
+    await rm(directory, { recursive: true, force: true });
+  });
+  let arrived = 0;
+  let release!: () => void;
+  const barrier = new Promise<void>((resolve) => { release = resolve; });
+  const afterLockCreated = async () => {
+    arrived += 1;
+    if (arrived === 2) release();
+    await barrier;
+  };
+  const first = initializeSecurityAuditKey({
+    afterLockCreated,
+    cwd: directory,
+    generateKey: () => knownBytes,
+    log: () => undefined,
+    warn: () => undefined,
+  });
+  while (arrived < 1) await new Promise((resolve) => setTimeout(resolve, 1));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const secondBytes = Buffer.alloc(32, 0xb6);
+  const second = initializeSecurityAuditKey({
+    afterLockCreated,
+    cwd: directory,
+    generateKey: () => secondBytes,
+    log: () => undefined,
+    warn: () => undefined,
+  });
+  const results = await Promise.allSettled([first, second]);
+  assert.equal(results.filter((item) => item.status === 'fulfilled').length, 1);
+  assert.equal(results.filter((item) => item.status === 'rejected').length, 1);
+  const contents = await readFile(join(directory, '.env.local'), 'utf8');
+  assert.equal(
+    contents === `SECURITY_AUDIT_HMAC_KEY=${knownKey}\n`
+      || contents === `SECURITY_AUDIT_HMAC_KEY=${secondBytes.toString('base64url')}\n`,
+    true,
+  );
+  assert.deepEqual(
+    (await readdir(directory)).filter((name) => name.includes('.audit-init.')),
+    [],
+  );
 });
 
 test('.env.local is ignored so generated keys cannot be committed accidentally', async () => {
   const ignore = await readFile(resolve(import.meta.dirname, '..', '..', '.gitignore'), 'utf8');
   assert.match(ignore, /^\.env\.local\s*$/mu);
   assert.match(ignore, /^\.env\.local\.audit-init\.lock\s*$/mu);
+  assert.match(ignore, /^\.env\.local\.audit-init\.lock\.\*\s*$/mu);
   assert.match(ignore, /^\.env\.local\.audit-init\.\*\.tmp\s*$/mu);
 });
