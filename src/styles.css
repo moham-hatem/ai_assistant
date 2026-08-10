@@ -13,3 +13,6 @@
 @import './styles/quality-metrics.css';
 @import './styles/pwa.css';
 @import './styles/access-management.css';
+@import './features/admin/security-audit/security-audit.css';
+@import './features/admin/backups/backups.css';
+@import './features/admin/system-diagnostics/system-diagnostics.css';

@@ -1,7 +1,10 @@
 import { resolve } from 'node:path';
+import { APP_VERSION } from '../shared/contracts/api-version.ts';
 
 export interface LocalRuntimeConfig {
+  appVersion: string;
   answerCacheFile: string;
+  backupDirectory: string;
   booksDatabaseFile: string;
   documentDirectory: string;
   knowledgeDirectory: string;
@@ -52,7 +55,9 @@ function boundedNumber(value: string | undefined, fallback: number, minimum: num
 
 export function createLocalConfig(env: Record<string, string>, cwd: string): LocalRuntimeConfig {
   return {
+    appVersion: APP_VERSION,
     answerCacheFile: resolve(cwd, env.ANSWER_CACHE_FILE?.trim() || 'data/cache/answers.json'),
+    backupDirectory: resolve(cwd, env.BACKUP_DIRECTORY?.trim() || 'data/backups'),
     booksDatabaseFile: resolve(cwd, env.BOOKS_DATABASE_FILE?.trim() || 'data/books.sqlite'),
     documentDirectory: resolve(cwd, env.DOCUMENT_DIRECTORY?.trim() || 'data/documents'),
     knowledgeDirectory: resolve(cwd, env.KNOWLEDGE_DIRECTORY?.trim() || 'data/knowledge'),

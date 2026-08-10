@@ -27,6 +27,10 @@ import { SecurityAuditService } from '../modules/security-audit/service.ts';
 import { createSecurityAuditHandler } from '../modules/security-audit/security-audit-handler.ts';
 import type { SecurityAuditRepository } from '../modules/security-audit/repository.ts';
 import { UnavailableSecurityAuditRepository } from '../modules/security-audit/unavailable-repository.ts';
+import { LocalBackupService, createBackupsHandler } from '../modules/backups/index.ts';
+import { createLocalSystemDiagnosticsService } from '../modules/system-diagnostics/factory.ts';
+import { createSystemDiagnosticsHandler } from '../modules/system-diagnostics/system-diagnostics-handler.ts';
+import { resolve } from 'node:path';
 
 type Next = (error?: unknown) => void;
 type ApiHandler = (
@@ -41,6 +45,7 @@ type AuthHandler = ReturnType<typeof createAuthHandler>;
 export interface LocalApiHandlers {
   access: ApiHandler;
   answer: ApiHandler;
+  backups?: ApiHandler;
   books: ApiHandler;
   documents: ApiHandler;
   feedback: ApiHandler;
@@ -48,6 +53,7 @@ export interface LocalApiHandlers {
   questionLogs: ApiHandler;
   reviews: ApiHandler;
   securityAudit?: ApiHandler;
+  systemDiagnostics?: ApiHandler;
   version: ApiHandler;
 }
 
@@ -107,9 +113,28 @@ export function createLocalApiPlugin(
         throw error;
       }
       const security = createRuntimeAdminSecurity(auth.service, auth.cookie, auth.origin, audit);
+      const dataDirectory = resolve(process.cwd(), 'data');
+      const backupService = new LocalBackupService({
+        appVersion: config.appVersion,
+        backupDirectory: config.backupDirectory,
+        dataDirectory,
+        directoryScopes: [config.documentDirectory, config.knowledgeDirectory],
+        sqliteFiles: [
+          config.booksDatabaseFile,
+          config.questionLogDatabaseFile,
+          authConfig.databasePath,
+          ...(auditConfig.config ? [auditConfig.config.databasePath] : []),
+        ],
+      });
+      const diagnostics = createLocalSystemDiagnosticsService(config, {
+        appVersion: config.appVersion,
+        auditConfigured: Boolean(auditConfig.config),
+        verifyAuditIntegrity: () => audit.verifyIntegrity(),
+      });
       const handler = createLocalApiRequestHandler({
         access: auth.accessHandler,
         answer: createAnswerHandler(runtime.answerRequestService, logError),
+        backups: createBackupsHandler(backupService, logError),
         books: createBooksHandler(runtime.bookService, logError, runtime.bookDocuments),
         documents: createDocumentsHandler(runtime.bookDocuments, logError),
         feedback: createFeedbackHandler(runtime.feedbackService, logError),
@@ -117,6 +142,7 @@ export function createLocalApiPlugin(
         questionLogs: createQuestionLogHandler(runtime.questionLogRepository, logError),
         reviews: createReviewsHandler(runtime.reviewService, logError),
         securityAudit: createSecurityAuditHandler(audit, logError),
+        systemDiagnostics: createSystemDiagnosticsHandler(diagnostics, logError),
         version: handleApiVersionRequest,
       }, security, logError, auth.handler);
 
@@ -172,6 +198,10 @@ function selectHandler(pathname: string, handlers: LocalApiHandlers): ApiHandler
   if (pathname.startsWith('/api/internal/quality-metrics')) return handlers.qualityMetrics;
   if (pathname.startsWith('/api/internal/reviews')) return handlers.reviews;
   if (pathname.startsWith('/api/internal/security-audit')) return handlers.securityAudit;
+  if (pathname === '/api/internal/system-diagnostics') return handlers.systemDiagnostics;
+  if (pathname === '/api/internal/backups' || pathname.startsWith('/api/internal/backups/')) {
+    return handlers.backups;
+  }
   if (pathname === '/api/knowledge/documents'
     || pathname.startsWith('/api/knowledge/documents/')) return handlers.documents;
   return undefined;

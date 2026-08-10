@@ -11,6 +11,9 @@ test('hash routes keep chat public and admin pages explicit', () => {
   });
   assert.deepEqual(parseHashRoute('#/admin/quality'), { area: 'admin', page: 'quality' });
   assert.deepEqual(parseHashRoute('#/admin/access'), { area: 'admin', page: 'access' });
+  assert.deepEqual(parseHashRoute('#/admin/security-audit'), { area: 'admin', page: 'security-audit' });
+  assert.deepEqual(parseHashRoute('#/admin/backups'), { area: 'admin', page: 'backups' });
+  assert.deepEqual(parseHashRoute('#/admin/system-diagnostics'), { area: 'admin', page: 'system-diagnostics' });
   assert.deepEqual(parseHashRoute('#/admin/login'), { area: 'admin-login', returnTo: 'dashboard' });
   assert.deepEqual(parseHashRoute('#/admin/login?returnTo=%2Fadmin%2Freviews'), { area: 'admin-login', returnTo: 'reviews' });
 });
@@ -41,6 +44,9 @@ test('admin route builder produces canonical hashes', () => {
   assert.equal(adminRoute('settings'), '#/admin/settings');
   assert.equal(adminRoute('quality'), '#/admin/quality');
   assert.equal(adminRoute('access'), '#/admin/access');
+  assert.equal(adminRoute('security-audit'), '#/admin/security-audit');
+  assert.equal(adminRoute('backups'), '#/admin/backups');
+  assert.equal(adminRoute('system-diagnostics'), '#/admin/system-diagnostics');
   assert.equal(adminLoginRoute('books'), '#/admin/login?returnTo=%2Fadmin%2Fbooks');
 });
 

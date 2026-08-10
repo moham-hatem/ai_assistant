@@ -10,6 +10,9 @@ import { AdminReviewsPage } from './pages/AdminReviewsPage';
 import { AdminSettingsPage } from './pages/AdminSettingsPage';
 import type { AuthPrincipal } from '../../../shared/contracts/auth';
 import { AccessManagementPage } from '../access-management/AccessManagementPage';
+import { AdminSecurityAuditPage } from './security-audit/AdminSecurityAuditPage';
+import { AdminBackupsPage } from './backups/AdminBackupsPage';
+import { AdminSystemDiagnosticsPage } from './system-diagnostics/AdminSystemDiagnosticsPage';
 
 interface AdminAppProps {
   language: AppLanguage;
@@ -42,6 +45,9 @@ function renderPage(page: AdminPage, copy: (typeof adminCopies)[AppLanguage], la
     case 'question-logs': return <AdminQuestionLogsPage copy={copy} language={language.code} />;
     case 'quality': return <AdminQualityPage copy={copy} language={language.code} />;
     case 'access': return <AccessManagementPage language={language.code} />;
+    case 'security-audit': return <AdminSecurityAuditPage copy={copy} language={language.code} />;
+    case 'backups': return <AdminBackupsPage copy={copy} language={language.code} />;
+    case 'system-diagnostics': return <AdminSystemDiagnosticsPage copy={copy} language={language.code} />;
     case 'settings': return <AdminSettingsPage copy={copy} languageDetails={language} />;
     default: return <AdminDashboardPage copy={copy} principal={principal} />;
   }

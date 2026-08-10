@@ -1,0 +1,32 @@
+export interface BackupsCopy {
+  appVersion: string;
+  artifactSize: string;
+  checkAgain: string;
+  checkedAt: string;
+  close: string;
+  create: string;
+  created: string;
+  createdAt: string;
+  creating: string;
+  download: string;
+  downloaded: string;
+  downloading: string;
+  emptyBody: string;
+  emptyTitle: string;
+  errorBody: string;
+  errorTitle: string;
+  failed: string;
+  fileCount: string;
+  formatVersion: string;
+  intro: string;
+  loading: string;
+  maintenanceBody: string;
+  maintenanceTitle: string;
+  refresh: string;
+  retry: string;
+  title: string;
+  totalSize: string;
+  validate: string;
+  validated: string;
+  validating: string;
+}

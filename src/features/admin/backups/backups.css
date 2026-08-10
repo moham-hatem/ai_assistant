@@ -1,0 +1,59 @@
+.backups-workspace { display: grid; gap: 18px; }
+.backups-maintenance-notice, .backups-toolbar, .backup-card, .backups-panel-state {
+  background: #fff; border: 1px solid #dce7df; border-radius: 17px;
+}
+.backups-maintenance-notice {
+  display: flex; align-items: flex-start; gap: 14px; padding: 18px 20px;
+  color: #72571b; background: #fffaf0; border-inline-start: 5px solid #b4872c;
+}
+.backups-maintenance-notice h2 { margin: 0 0 6px; font-size: .96rem; }
+.backups-maintenance-notice p { max-width: 850px; margin: 0; color: #72633f; font-size: .78rem; line-height: 1.75; }
+.backups-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 20px; }
+.backups-toolbar > div:first-child { display: flex; align-items: center; gap: 11px; color: #176345; }
+.backups-toolbar p { margin: 0; color: #5e7267; font-size: .79rem; }
+.backups-toolbar-actions, .backup-card footer { display: flex; flex-wrap: wrap; gap: 9px; }
+.backups-toolbar button, .backup-card button, .backups-panel-state button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 40px; padding: 8px 13px; color: #fff; font-weight: 750;
+  background: #176345; border: 1px solid #176345; border-radius: 9px; cursor: pointer;
+}
+.backups-toolbar button.is-secondary, .backup-card button.is-secondary { color: #176345; background: #fff; }
+.backups-toolbar button:disabled, .backup-card button:disabled { opacity: .48; cursor: default; }
+.backups-notice {
+  display: flex; align-items: center; gap: 9px; padding: 11px 14px;
+  color: #1b6545; background: #e8f4eb; border-radius: 10px; font-size: .79rem;
+}
+.backups-notice.is-error { color: #8d3732; background: #fae8e6; }
+.backups-notice button { margin-inline-start: auto; padding: 4px; color: inherit; background: transparent; border: 0; cursor: pointer; }
+.backups-list {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px;
+  margin: 0; padding: 0; list-style: none;
+}
+.backup-card { min-width: 0; padding: 18px; }
+.backup-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.backup-card header div { display: grid; gap: 4px; }
+.backup-card header span, .backup-card dt { color: #74847b; font-size: .67rem; }
+.backup-card header strong { color: #244637; font-size: .9rem; }
+.backup-card header code { padding: 5px 8px; color: #52675b; background: #f1f5f2; border-radius: 7px; font-size: .68rem; }
+.backup-card dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 15px 0; }
+.backup-card dl > div { min-width: 0; padding: 9px 10px; background: #f7f9f7; border-radius: 8px; }
+.backup-card dd { overflow-wrap: anywhere; margin: 4px 0 0; color: #345044; font-size: .76rem; font-weight: 750; }
+.backup-validation-status { display: flex; align-items: center; gap: 7px; margin: 0 0 13px; color: #1c704c; font-size: .72rem; }
+.backups-panel-state {
+  display: grid; justify-items: center; gap: 9px; padding: 44px 20px;
+  color: #61746a; text-align: center; border-style: dashed;
+}
+.backups-panel-state.is-error { color: #8d3732; }
+.backups-panel-state h2 { margin: 0; font-size: 1rem; }
+.backups-panel-state p { max-width: 480px; margin: 0; font-size: .8rem; line-height: 1.7; }
+.backups-spin { animation: backups-spin 1s linear infinite; }
+@keyframes backups-spin { to { transform: rotate(360deg); } }
+@media (max-width: 780px) {
+  .backups-toolbar { align-items: stretch; flex-direction: column; }
+  .backups-list { grid-template-columns: 1fr; }
+}
+@media (max-width: 480px) {
+  .backups-maintenance-notice, .backups-toolbar, .backup-card { padding: 15px; }
+  .backups-toolbar-actions, .backup-card footer { display: grid; grid-template-columns: 1fr; }
+  .backup-card dl { grid-template-columns: 1fr; }
+}

@@ -1,0 +1,116 @@
+.security-audit-workspace { display: grid; gap: 20px; }
+.security-audit-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  padding: 20px;
+  background: #fff;
+  border: 1px solid #dfe8e1;
+  border-radius: 18px;
+}
+.security-audit-filter-heading { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 18px; }
+.security-audit-filter-heading strong { color: #173f2c; }
+.security-audit-filter-heading span { color: #687a70; font-size: .78rem; }
+.security-audit-filters label { display: grid; gap: 6px; min-width: 0; color: #52675b; font-size: .76rem; font-weight: 700; }
+.security-audit-filters input,
+.security-audit-filters select {
+  min-width: 0;
+  min-height: 42px;
+  padding: 8px 10px;
+  color: #244637;
+  background: #fbfcfb;
+  border: 1px solid #cfdbd2;
+  border-radius: 9px;
+}
+.security-audit-filters button,
+.security-audit-panel-state button,
+.security-audit-pagination button {
+  min-height: 40px;
+  padding: 8px 14px;
+  color: #fff;
+  font-weight: 700;
+  background: #176345;
+  border: 0;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.security-audit-filters > button { align-self: end; }
+.security-audit-filter-error { grid-column: 1 / -1; margin: 0; color: #9a332e; font-size: .8rem; }
+
+.security-audit-integrity {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(240px, .7fr);
+  gap: 16px;
+  padding: 20px;
+  background: #fff;
+  border: 1px solid #dce6df;
+  border-inline-start: 5px solid #1d754f;
+  border-radius: 17px;
+}
+.security-audit-integrity.security-audit-integrity-invalid { border-inline-start-color: #a33d38; }
+.security-audit-integrity.security-audit-integrity-unverifiable { border-inline-start-color: #a07526; }
+.security-audit-integrity-icon { display: grid; place-items: center; width: 44px; height: 44px; color: #176345; background: #e7f2e9; border-radius: 12px; }
+.security-audit-integrity-invalid .security-audit-integrity-icon { color: #963a34; background: #f8e4e2; }
+.security-audit-integrity-unverifiable .security-audit-integrity-icon { color: #7d5e20; background: #f8eecf; }
+.security-audit-integrity span { color: #61746a; font-size: .74rem; font-weight: 700; }
+.security-audit-integrity h2 { margin: 3px 0 7px; font-size: 1.18rem; }
+.security-audit-integrity p { max-width: 660px; margin: 0; color: #596e62; font-size: .79rem; line-height: 1.7; }
+.security-audit-integrity dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.security-audit-integrity dl > div { min-width: 0; padding: 9px 10px; background: #f5f8f5; border-radius: 9px; }
+.security-audit-integrity dt { color: #74847b; font-size: .67rem; }
+.security-audit-integrity dd { overflow-wrap: anywhere; margin: 4px 0 0; color: #2f4b3d; font-size: .76rem; font-weight: 700; }
+
+.security-audit-events { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.security-audit-event { min-width: 0; padding: 18px; background: #fff; border: 1px solid #dfe8e1; border-radius: 15px; }
+.security-audit-event-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.security-audit-event-heading > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.security-audit-event-heading time { color: #718178; font-size: .72rem; white-space: nowrap; }
+.security-audit-outcome,
+.security-audit-category { display: inline-flex; padding: 4px 8px; font-size: .68rem; font-weight: 800; border-radius: 999px; }
+.security-audit-category { color: #40564a; background: #edf1ee; }
+.security-audit-outcome-success { color: #17623f; background: #e2f3e7; }
+.security-audit-outcome-denied { color: #7b5b1b; background: #f8edcd; }
+.security-audit-outcome-failure { color: #8b3434; background: #f9e1df; }
+.security-audit-event h2 { margin: 12px 0 15px; color: #173f2c; font-size: 1rem; }
+.security-audit-event-details { display: grid; grid-template-columns: .45fr 1fr 1.25fr 1.15fr .8fr; gap: 8px; margin: 0; }
+.security-audit-event-details > div { min-width: 0; padding: 9px 10px; background: #f7f9f7; border-radius: 8px; }
+.security-audit-event-details dt { color: #75847c; font-size: .66rem; }
+.security-audit-event-details dd { overflow-wrap: anywhere; margin: 4px 0 0; color: #385045; font-size: .73rem; font-weight: 700; }
+.security-audit-metadata { display: grid; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #e7ede8; }
+.security-audit-metadata > strong { color: #52675b; font-size: .72rem; }
+.security-audit-metadata > span { color: #7a8981; font-size: .74rem; }
+.security-audit-metadata dl { display: flex; flex-wrap: wrap; gap: 7px; margin: 0; }
+.security-audit-metadata dl > div { display: flex; gap: 6px; padding: 6px 9px; color: #4d6156; background: #f0f4f1; border-radius: 7px; font-size: .7rem; }
+.security-audit-metadata dt::after { content: ':'; }
+.security-audit-metadata dd { margin: 0; font-weight: 700; }
+
+.security-audit-panel-state { display: grid; justify-items: center; gap: 10px; padding: 44px 20px; color: #61746a; text-align: center; background: #fff; border: 1px dashed #cbd9ce; border-radius: 17px; }
+.security-audit-panel-state > svg { color: #1b6e4c; }
+.security-audit-panel-state p { max-width: 440px; margin: 0; font-size: .82rem; line-height: 1.7; }
+.security-audit-spin { animation: security-audit-spin 1.1s linear infinite; }
+@keyframes security-audit-spin { to { transform: rotate(360deg); } }
+.security-audit-pagination { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: #65786d; font-size: .78rem; }
+.security-audit-pagination > div { display: flex; gap: 8px; }
+.security-audit-pagination button { display: inline-flex; align-items: center; gap: 6px; }
+.security-audit-pagination button:disabled { opacity: .4; cursor: default; }
+.security-audit-pagination svg { width: 16px; height: 16px; }
+[dir='rtl'] .security-audit-pagination svg { transform: scaleX(-1); }
+
+@media (max-width: 900px) {
+  .security-audit-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .security-audit-integrity { grid-template-columns: auto minmax(0, 1fr); }
+  .security-audit-integrity dl { grid-column: 1 / -1; }
+  .security-audit-event-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .security-audit-filters { grid-template-columns: 1fr; padding: 16px; }
+  .security-audit-filter-heading { align-items: flex-start; flex-direction: column; }
+  .security-audit-integrity { padding: 16px; }
+  .security-audit-integrity dl { grid-template-columns: 1fr; }
+  .security-audit-event { padding: 15px; }
+  .security-audit-event-heading { align-items: flex-start; flex-direction: column; }
+  .security-audit-event-details { grid-template-columns: 1fr; }
+  .security-audit-pagination { align-items: stretch; flex-direction: column; }
+  .security-audit-pagination > div { display: grid; grid-template-columns: 1fr 1fr; }
+  .security-audit-pagination button { justify-content: center; }
+}

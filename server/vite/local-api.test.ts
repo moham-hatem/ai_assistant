@@ -106,6 +106,35 @@ test('authorized requests use the mapped permission and origin guard before hand
   });
 });
 
+test('operational admin routes dispatch only after settings permission and origin checks', async () => {
+  const fixture = createFixture();
+  await withServer(fixture, async (baseUrl) => {
+    const diagnostics = await fetch(`${baseUrl}/api/internal/system-diagnostics`, {
+      headers: { authorization: 'Bearer admin' },
+    });
+    const audit = await fetch(`${baseUrl}/api/internal/security-audit`, {
+      headers: { authorization: 'Bearer admin' },
+    });
+    const createBackup = await fetch(`${baseUrl}/api/internal/backups`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer admin', origin: baseUrl },
+    });
+    assert.deepEqual(
+      [diagnostics.status, audit.status, createBackup.status],
+      [204, 204, 204],
+    );
+    assert.deepEqual(fixture.calls.permissions, [
+      'settings:manage', 'settings:manage', 'settings:manage',
+    ]);
+    assert.equal(fixture.calls.origins, 1);
+    assert.deepEqual(fixture.calls.handlers, {
+      backups: 1,
+      securityAudit: 1,
+      systemDiagnostics: 1,
+    });
+  });
+});
+
 test('origin rejection occurs before a state-changing handler', async () => {
   const fixture = createFixture({ captureAudit: true, rejectOrigin: true });
   try { await withServer(fixture, async (baseUrl) => {
@@ -208,12 +237,15 @@ function createFixture(options: FixtureOptions = {}) {
   const handlers: LocalApiHandlers = {
     access: handler('access'),
     answer: handler('answer'),
+    backups: handler('backups'),
     books: handler('books'),
     documents: handler('documents'),
     feedback: handler('feedback'),
     qualityMetrics: handler('qualityMetrics'),
     questionLogs: handler('questionLogs'),
     reviews: handler('reviews'),
+    securityAudit: handler('securityAudit'),
+    systemDiagnostics: handler('systemDiagnostics'),
     version: handler('version'),
   };
   const auditRepository = options.captureAudit ? new SqliteSecurityAuditRepository(

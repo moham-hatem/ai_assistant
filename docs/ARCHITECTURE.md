@@ -32,6 +32,9 @@ server/modules/question-log   عقد السجل وخدمته وتخزين SQLite
 server/modules/books          مجال الكتب والإصدارات وSQLite migrations وواجهات الإدارة
 server/modules/reviews        طابور مراجعة المعلمين وقراراته وسجل أحداث SQLite غير القابل للتعديل
 server/modules/approved-answers  إجابات معتمدة ذات نسخ وعقد تحقق من صلاحية الأدلة وقت الطلب
+server/modules/security-audit سجل أحداث الأمان وسلسلة HMAC وفحص السلامة
+server/modules/system-diagnostics فحوص تشغيلية محلية محدودة وآمنة للعرض
+server/modules/backups        snapshots متسقة وmanifest وبصمات وفحص/استعادة ذرية
 server/vite                   ربط الـAPI بخادم التطوير
 server/create-runtime         إنشاء وربط الاعتماديات
 ```

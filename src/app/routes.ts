@@ -4,6 +4,9 @@ export const ADMIN_PAGES = [
   'reviews',
   'question-logs',
   'quality',
+  'security-audit',
+  'backups',
+  'system-diagnostics',
   'access',
   'settings',
 ] as const;

@@ -1,6 +1,7 @@
 /** Simple compatibility identifiers. Increment only when the API contract breaks. */
 export const CLIENT_API_VERSION = '1' as const;
 export const API_VERSION = '1' as const;
+export const APP_VERSION = '0.1.0' as const;
 
 export const COMPATIBLE_CLIENT_VERSIONS: readonly string[] = Object.freeze([
   CLIENT_API_VERSION,
