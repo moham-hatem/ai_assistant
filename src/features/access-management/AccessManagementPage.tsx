@@ -9,12 +9,20 @@ import { ConfirmActionDialog } from './components/ConfirmActionDialog';
 import { InvitationDialog } from './components/InvitationDialog';
 import { SecretLinkDialog } from './components/SecretLinkDialog';
 import { useAccessManagement } from './hooks/useAccessManagement';
+import { ActiveInvitationList } from './components/ActiveInvitationList';
+import { CancelInvitationDialog } from './components/CancelInvitationDialog';
+import type { ActiveInvitation } from './active-invitation';
+import { useActiveInvitations } from './hooks/useActiveInvitations';
+import { revealActiveInvitations } from './invitation-recovery';
 
 export function AccessManagementPage({ language }: { language: AppLanguage }) {
   const copy = accessCopies[language];
   const access = useAccessManagement();
+  const activeInvitations = useActiveInvitations();
   const [invitationOpen, setInvitationOpen] = useState(false);
   const [confirmation, setConfirmation] = useState<'enable' | 'disable' | 'sessions' | null>(null);
+  const [cancelInvitation, setCancelInvitation] = useState<ActiveInvitation | null>(null);
+  const activeInvitationsRef = useRef<HTMLElement | null>(null);
   const secretTrigger = useRef<HTMLButtonElement | null>(null);
 
   function closeInvitation() {
@@ -31,6 +39,17 @@ export function AccessManagementPage({ language }: { language: AppLanguage }) {
   function closeSecret() {
     access.clearSecret();
     queueMicrotask(() => secretTrigger.current?.isConnected && secretTrigger.current.focus());
+  }
+
+  async function invite(input: Parameters<typeof access.invite>[0]) {
+    const created = await access.invite(input);
+    if (created) activeInvitations.reload();
+    return created;
+  }
+
+  async function confirmInvitationCancellation() {
+    if (!cancelInvitation) return;
+    if (await activeInvitations.cancel(cancelInvitation.id)) setCancelInvitation(null);
   }
 
   function confirmAction() {
@@ -79,8 +98,22 @@ export function AccessManagementPage({ language }: { language: AppLanguage }) {
           />
         </div>
       </section>
-      {invitationOpen && <InvitationDialog copy={copy} error={access.invitationError} inviting={access.inviting} onClose={closeInvitation} onInvite={access.invite} />}
+      <ActiveInvitationList
+        canGoBack={activeInvitations.state.cursorHistory.length > 0}
+        cancelingId={activeInvitations.state.cancelingId}
+        copy={copy}
+        error={activeInvitations.state.actionError}
+        onCancel={setCancelInvitation}
+        onNext={activeInvitations.nextPage}
+        onPrevious={activeInvitations.previousPage}
+        onRetry={activeInvitations.reload}
+        page={activeInvitations.state.page}
+        ref={activeInvitationsRef}
+        status={activeInvitations.state.status}
+      />
+      {invitationOpen && <InvitationDialog copy={copy} error={access.invitationError} inviting={access.inviting} onClose={closeInvitation} onInvite={invite} onReviewActiveInvitations={() => revealActiveInvitations(closeInvitation, activeInvitationsRef.current)} />}
       {confirmation && <ConfirmActionDialog action={confirmation} busy={access.busyAction} copy={copy} onClose={() => setConfirmation(null)} onConfirm={confirmAction} />}
+      {cancelInvitation && <CancelInvitationDialog busy={activeInvitations.state.cancelingId !== null} copy={copy} invitation={cancelInvitation} onClose={() => { if (!activeInvitations.state.cancelingId) setCancelInvitation(null); }} onConfirm={() => void confirmInvitationCancellation()} />}
       {access.secret && <SecretLinkDialog copy={copy} kind={access.secret.kind} onClose={closeSecret} secret={access.secret.value} />}
     </>
   );

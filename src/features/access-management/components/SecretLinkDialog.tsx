@@ -35,6 +35,7 @@ export function SecretLinkDialog({ copy, kind, onClose, secret }: SecretLinkDial
   return (
     <AccessDialog closeLabel={copy.actions.close} descriptionId="secret-link-warning" onClose={onClose} title={title}>
       <div className="access-secret-warning" id="secret-link-warning" role="alert"><AlertTriangle size={21} /><p>{copy.secret.warning}</p></div>
+      {kind === 'recovery' && <p className="access-recovery-warning">{copy.secret.recoveryInvalidation}</p>}
       <label className="access-secret-label" htmlFor="secret-link">{title}</label>
       <div className="access-secret-field">
         <input dir="ltr" id="secret-link" onFocus={(event) => event.currentTarget.select()} readOnly ref={inputRef} value={secret.link} />

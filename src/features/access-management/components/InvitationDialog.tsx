@@ -11,9 +11,10 @@ interface InvitationDialogProps {
   inviting: boolean;
   onClose: () => void;
   onInvite: (input: { displayName: string; email: string; roles: AuthRole[] }) => Promise<boolean>;
+  onReviewActiveInvitations: () => void;
 }
 
-export function InvitationDialog({ copy, error, inviting, onClose, onInvite }: InvitationDialogProps) {
+export function InvitationDialog({ copy, error, inviting, onClose, onInvite, onReviewActiveInvitations }: InvitationDialogProps) {
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [roles, setRoles] = useState<AuthRole[]>([]);
@@ -41,6 +42,7 @@ export function InvitationDialog({ copy, error, inviting, onClose, onInvite }: I
         <RoleSelector copy={copy} disabled={policy.controlsDisabled} name="invitation-role" onChange={setRoles} roles={roles} />
         {roleError && <p className="access-inline-error" role="alert">{copy.rolesRequired}</p>}
         {error && <p className="access-inline-error" role="alert">{error === 'ACCESS_OPERATION_REJECTED' ? copy.invitation.conflict : error === 'NETWORK_ERROR' ? copy.invitation.ambiguous : copy.actionError}</p>}
+        {(error === 'NETWORK_ERROR' || error === 'ACCESS_OPERATION_REJECTED') && <button className="access-recovery-link" disabled={policy.controlsDisabled} onClick={onReviewActiveInvitations} type="button">{copy.activeInvitations.review}</button>}
         <div className="access-dialog-actions">
           <button className="access-secondary" disabled={policy.controlsDisabled} onClick={onClose} type="button">{copy.actions.cancel}</button>
           <button className="access-primary" disabled={policy.controlsDisabled} type="submit">{copy.actions.create}</button>

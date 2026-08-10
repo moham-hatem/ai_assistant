@@ -62,6 +62,25 @@
 .access-user-meta dt { color: #6b7c72; font-size: .73rem; }
 .access-user-meta dd { margin: 4px 0 0; font-size: .79rem; overflow-wrap: anywhere; }
 .access-account-actions { display: flex; flex-wrap: wrap; gap: 9px; padding-top: 18px; border-top: 1px solid #e7eee8; }
+.access-recovery-warning { margin: 12px 0 0; color: #76551c; font-size: .8rem; line-height: 1.55; }
+.access-invitations { margin-top: 24px; padding: clamp(18px, 3vw, 26px); background: #fff; border: 1px solid #dce6df; border-radius: 17px; box-shadow: 0 12px 30px #193b290a; scroll-margin-top: 18px; }
+.access-invitations:focus-visible { outline: 3px solid #78a88d; outline-offset: 3px; }
+.access-invitations-heading h2 { margin: 0; font-size: 1.25rem; }
+.access-invitations-heading p { max-width: 760px; margin: 7px 0 0; color: #61746a; line-height: 1.65; }
+.access-recovery-guidance { margin: 16px 0; padding: 12px 14px; color: #684c1e; font-size: .83rem; line-height: 1.6; background: #fff8e8; border: 1px solid #ead9ae; border-radius: 10px; }
+.access-invitation-state { display: grid; place-items: center; min-height: 120px; color: #66786e; text-align: center; }
+.access-invitation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.access-invitation-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 16px; border: 1px solid #e0e8e2; border-radius: 13px; }
+.access-invitation-card h3 { margin: 0; font-size: 1rem; }
+.access-invitation-card p { margin: 4px 0 0; color: #66786e; font-size: .8rem; overflow-wrap: anywhere; }
+.access-invitation-card dl { display: grid; grid-column: 1 / -1; gap: 8px; margin: 0; }
+.access-invitation-card dl div { display: grid; grid-template-columns: minmax(90px, .35fr) 1fr; gap: 8px; }
+.access-invitation-card dt { color: #6c7b73; font-size: .72rem; }
+.access-invitation-card dd { margin: 0; font-size: .78rem; overflow-wrap: anywhere; }
+.access-invitation-card > button { grid-column: 1 / -1; justify-self: start; }
+.access-invitation-grid > .access-inline-error, .access-invitation-grid > .access-pagination { grid-column: 1 / -1; }
+.access-recovery-link { width: max-content; padding: 0; color: #0b6a46; font: inherit; font-size: .82rem; font-weight: 800; text-decoration: underline; background: transparent; border: 0; cursor: pointer; }
+.access-dialog-identity { padding: 10px 12px; color: #304d40; background: #f4f7f5; border-radius: 9px; overflow-wrap: anywhere; }
 .access-dialog { width: min(calc(100% - 30px), 590px); max-height: min(90vh, 760px); padding: 0; color: #18352a; background: #fff; border: 1px solid #cfddd3; border-radius: 18px; box-shadow: 0 30px 90px #102a1d4d; overflow: auto; }
 .access-dialog::backdrop { background: #10251c99; backdrop-filter: blur(2px); }
 .access-dialog > :not(.access-dialog-heading) { margin-inline: 24px; }
@@ -100,6 +119,9 @@
   .access-secret-field { grid-template-columns: 1fr; }
   .access-dialog > :not(.access-dialog-heading) { margin-inline: 17px; }
   .access-dialog-heading { padding-inline: 17px; }
+  .access-invitation-grid { grid-template-columns: 1fr; }
+  .access-invitation-card dl div { grid-template-columns: 1fr; gap: 2px; }
+  .access-invitation-card > button { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

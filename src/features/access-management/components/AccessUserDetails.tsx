@@ -63,6 +63,7 @@ export function AccessUserDetails(props: AccessUserDetailsProps) {
         <button className="access-secondary" disabled={props.busy !== null} onClick={() => props.onConfirm('sessions')} type="button">{props.copy.sessions}</button>
         <button className="access-secondary" disabled={props.busy !== null} onClick={(event) => props.onRecovery(user.id, event.currentTarget)} type="button">{props.copy.recovery.create}</button>
       </div>
+      <p className="access-recovery-warning">{props.copy.recovery.invalidatesPrevious}</p>
     </article>
   );
 }
