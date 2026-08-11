@@ -49,6 +49,7 @@ async function acquireAdmission(
       return createOwnedLease(maintenancePath(backupDirectory), kind);
     }
     const scope = validScope(runtimeOptions.scope);
+    await removeStaleRuntimeLeases(backupDirectory);
     if (runtimeOptions.adoptCurrentProcessLegacy) {
       await removeSupersededCurrentProcessLeases(backupDirectory, scope);
     }
@@ -57,6 +58,27 @@ async function acquireAdmission(
   } finally {
     await gate.release();
   }
+}
+
+async function removeStaleRuntimeLeases(directory: string): Promise<void> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.name.toLowerCase().startsWith('.runtime')) continue;
+    const match = entry.isFile()
+      ? entry.name.match(/^\.runtime\.([0-9a-f-]{36})\.lock$/iu)
+      : null;
+    if (!match) throw blocked(`Unknown runtime lease ${entry.name} requires manual inspection.`);
+    const path = join(directory, entry.name);
+    const record = await readLease(path);
+    if (record.kind !== 'runtime' || record.owner.toLowerCase() !== match[1].toLowerCase()) {
+      throw blocked('Runtime lease filename does not match its owner; refusing startup.');
+    }
+    if (pidIsAlive(record.pid)) continue;
+    const current = await readFile(path, 'utf8');
+    if (current !== JSON.stringify(record)) throw blocked('Runtime lease changed during stale cleanup.');
+    await rm(path);
+  }
+  await syncDirectoryBestEffort(directory);
 }
 
 async function removeSupersededCurrentProcessLeases(

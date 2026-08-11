@@ -91,6 +91,27 @@ test('stale leases are removed under the gate while malformed ownership fails cl
   }
 });
 
+test('normal runtime startup removes stale runtime leases while preserving active owners', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ila-runtime-stale-cleanup-'));
+  const active = await acquireRuntimeAdmission(root, { scope: 'active-test' });
+  const staleOwner = '11111111-1111-4111-8111-111111111111';
+  await writeFile(join(root, `.runtime.${staleOwner}.lock`), JSON.stringify({
+    kind: 'runtime', owner: staleOwner, pid: 2_147_483_647, scope: 'old-test',
+    startedAt: '2026-08-10T12:00:00.000Z',
+  }));
+  let second;
+  try {
+    second = await acquireRuntimeAdmission(root, { scope: 'second-test' });
+    const names = (await readdir(root)).filter((name) => name.startsWith('.runtime.'));
+    assert.equal(names.length, 2);
+    assert.equal(names.includes(`.runtime.${staleOwner}.lock`), false);
+  } finally {
+    await second?.release();
+    await active.release();
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
 test('runtime lease filename and recorded owner must match', async () => {
   const root = await mkdtemp(join(tmpdir(), 'ila-admission-owner-name-'));
   await writeFile(join(root, '.runtime.11111111-1111-4111-8111-111111111111.lock'), JSON.stringify({
