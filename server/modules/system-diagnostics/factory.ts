@@ -1,6 +1,10 @@
 import { isAbsolute, resolve } from 'node:path';
 import type { SecurityAuditIntegritySummary } from '../../../shared/contracts/security-audit.ts';
 import type { LocalRuntimeConfig } from '../../config.ts';
+import {
+  readTelegramRuntimeStatus,
+  resolveTelegramRuntimeStatusPath,
+} from '../../channels/telegram/runtime-status.ts';
 import { resolveSecurityAuditConfig } from '../security-audit/config.ts';
 import { SystemDiagnosticsService } from './service.ts';
 
@@ -42,6 +46,9 @@ export function createLocalSystemDiagnosticsService(
       data: resolve(cwd, 'data'),
       documents: config.documentDirectory,
       knowledge: config.knowledgeDirectory,
+    },
+    telegram: {
+      readStatus: () => readTelegramRuntimeStatus(resolveTelegramRuntimeStatusPath(env, cwd)),
     },
     workspaceRoot: cwd,
   });

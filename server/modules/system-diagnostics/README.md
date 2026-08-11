@@ -2,7 +2,8 @@
 
 `createLocalSystemDiagnosticsService` builds bounded, read-only local readiness checks for the
 core data stores, document storage, model configuration, OCR executables, and security-audit
-integrity. `createSystemDiagnosticsHandler` serves the result from
+integrity. It also reads the bounded Telegram runtime-status snapshot; this check never calls the
+Telegram API and cannot start or stop the bot. `createSystemDiagnosticsHandler` serves the result from
 `GET /api/internal/system-diagnostics`.
 
 Integration requirements:

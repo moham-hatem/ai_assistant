@@ -26,7 +26,7 @@ test('system diagnostics reports a healthy, versioned local runtime', async () =
   assert.equal(report.status, 'healthy');
   assert.equal(report.checkedAt, '2026-08-10T12:30:00.000Z');
   assert.deepEqual(report.versions, { api: '1', app: '0.1.0' });
-  assert.equal(report.checks.length, 10);
+  assert.equal(report.checks.length, 11);
   assert.ok(report.checks.every((check) => check.status === 'healthy'));
   assert.equal(report.checks.find((check) => check.id === 'audit.integrity')?.code, 'integrity_valid');
 });
@@ -101,6 +101,67 @@ test('filesystem probes are bounded and cannot hold the diagnostics request open
   assert.ok(Date.now() - started < 1_000);
 });
 
+test('Telegram diagnostics expose only a safe fresh public runtime snapshot', async () => {
+  const configured = options();
+  configured.telegram.readStatus = async () => ({
+    kind: 'available',
+    snapshot: {
+      configured: true,
+      lastHandledUpdateAt: '2026-08-10T12:29:58.000Z',
+      lastSuccessfulPoll: '2026-08-10T12:29:59.000Z',
+      publicLink: 'https://t.me/LearningHelperBot',
+      publicUsername: 'LearningHelperBot',
+      retryCount: 0,
+      state: 'running',
+      updatedAt: '2026-08-10T12:30:00.000Z',
+      version: 1,
+    },
+  });
+  const report = await new SystemDiagnosticsService(
+    configured, probes(readyPath(), 'available'),
+  ).inspect();
+  const telegram = report.checks.find((check) => check.id === 'telegram.bot');
+  assert.equal(telegram?.code, 'telegram_running');
+  assert.deepEqual(telegram?.details, {
+    configured: true,
+    lastHandledUpdateAt: '2026-08-10T12:29:58.000Z',
+    lastSuccessfulPoll: '2026-08-10T12:29:59.000Z',
+    publicLink: 'https://t.me/LearningHelperBot',
+    publicUsername: 'LearningHelperBot',
+    retryCount: 0,
+    running: true,
+    runtimeState: 'running',
+  });
+  assert.equal(JSON.stringify(telegram).includes('token'), false);
+});
+
+test('missing, stale, and invalid Telegram snapshots degrade safely without network errors', async () => {
+  const configured = options();
+  configured.telegram.readStatus = async () => ({ kind: 'missing' });
+  let report = await new SystemDiagnosticsService(configured, probes(readyPath(), 'available')).inspect();
+  assert.equal(report.checks.find((check) => check.id === 'telegram.bot')?.code, 'telegram_status_missing');
+  assert.equal(report.status, 'degraded');
+
+  configured.telegram.readStatus = async () => ({
+    kind: 'stale',
+    snapshot: {
+      configured: true,
+      errorCode: 'network_unavailable',
+      retryCount: 4,
+      state: 'degraded',
+      updatedAt: '2026-08-10T12:00:00.000Z',
+      version: 1,
+    },
+  });
+  report = await new SystemDiagnosticsService(configured, probes(readyPath(), 'available')).inspect();
+  assert.equal(report.checks.find((check) => check.id === 'telegram.bot')?.code, 'telegram_status_stale');
+  assert.equal(report.checks.find((check) => check.id === 'telegram.bot')?.details?.running, false);
+
+  configured.telegram.readStatus = async () => ({ kind: 'invalid' });
+  report = await new SystemDiagnosticsService(configured, probes(readyPath(), 'available')).inspect();
+  assert.equal(report.checks.find((check) => check.id === 'telegram.bot')?.code, 'telegram_status_invalid');
+});
+
 function options(root = resolve('C:/private/workspace')): SystemDiagnosticsOptions {
   return {
     appVersion: '0.1.0',
@@ -116,6 +177,18 @@ function options(root = resolve('C:/private/workspace')): SystemDiagnosticsOptio
       data: resolve(root, 'data'),
       documents: resolve(root, 'data/documents'),
       knowledge: resolve(root, 'data/knowledge'),
+    },
+    telegram: {
+      readStatus: async () => ({
+        kind: 'available',
+        snapshot: {
+          configured: true,
+          retryCount: 0,
+          state: 'running',
+          updatedAt: '2026-08-10T12:30:00.000Z',
+          version: 1,
+        },
+      }),
     },
     workspaceRoot: root,
   };

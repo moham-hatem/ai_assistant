@@ -6,6 +6,7 @@ import type {
   SystemDiagnosticsReport,
 } from '../../../shared/contracts/system-diagnostics.ts';
 import { API_VERSION } from '../../../shared/contracts/api-version.ts';
+import type { TelegramRuntimeStatusRead } from '../../channels/telegram/runtime-status.ts';
 import {
   localDiagnosticProbePorts,
   type LocalDiagnosticProbePorts,
@@ -18,6 +19,7 @@ import {
   safeVersion,
 } from './check-results.ts';
 import { ProbeTimeoutError, withProbeTimeout } from './probe-timeout.ts';
+import { inspectTelegramStatus } from './telegram-check.ts';
 
 export interface SystemDiagnosticsOptions {
   appVersion: string;
@@ -43,6 +45,9 @@ export interface SystemDiagnosticsOptions {
     knowledge: string;
   };
   probeTimeoutMs?: number;
+  telegram: {
+    readStatus(): Promise<TelegramRuntimeStatusRead>;
+  };
   workspaceRoot: string;
 }
 
@@ -61,6 +66,7 @@ export class SystemDiagnosticsService {
       ...this.options.databases.map(({ id, path }) => this.databaseCheck(id, path)),
       this.auditCheck(),
       Promise.resolve(this.modelCheck()),
+      inspectTelegramStatus(() => this.options.telegram.readStatus(), this.timeoutMs()),
       this.toolCheck('ocr.tesseract', this.options.ocr.tesseractPath, ['--version']),
       this.toolCheck('ocr.pdftoppm', this.options.ocr.pdftoppmPath, ['-v']),
     ]);

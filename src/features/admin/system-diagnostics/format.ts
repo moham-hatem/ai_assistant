@@ -14,6 +14,10 @@ export function formatSpace(value: number, language: AppLanguage): string {
   return `${new Intl.NumberFormat(locales[language]).format(value)} MiB`;
 }
 
+export function formatInteger(value: number, language: AppLanguage): string {
+  return new Intl.NumberFormat(locales[language]).format(value);
+}
+
 export function locationLabel(
   location: SafeDiagnosticLocation,
   scopes: Record<SafeDiagnosticLocation['scope'], string>,

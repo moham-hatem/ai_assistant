@@ -9,11 +9,15 @@ import { systemDiagnosticsPayload } from './system-diagnostics-fixtures.ts';
 test('system diagnostics parser accepts the complete safe readiness contract', () => {
   const parsed = parseSystemDiagnosticsResponse(systemDiagnosticsPayload());
   assert.equal(parsed.diagnostics.status, 'healthy');
-  assert.equal(parsed.diagnostics.checks.length, 10);
+  assert.equal(parsed.diagnostics.checks.length, 11);
   assert.equal(parsed.diagnostics.versions.app, '0.1.0');
   assert.deepEqual(
     parsed.diagnostics.checks.find((check) => check.id === 'database.books')?.details?.location,
     { relativePath: 'data/books.sqlite', scope: 'workspace' },
+  );
+  assert.equal(
+    parsed.diagnostics.checks.find((check) => check.id === 'telegram.bot')?.details?.publicLink,
+    'https://t.me/LearningHelperBot',
   );
 });
 
@@ -56,12 +60,50 @@ test('parser rejects missing, duplicate, contradictory, and malformed checks', (
   assert.throws(() => parseSystemDiagnosticsResponse(contradictory), SystemDiagnosticsApiError);
 
   const aggregate = systemDiagnosticsPayload();
-  aggregate.diagnostics.checks[8] = {
+  const tesseractIndex = aggregate.diagnostics.checks.findIndex((check) => check.id === 'ocr.tesseract');
+  aggregate.diagnostics.checks[tesseractIndex] = {
     code: 'tool_unavailable', id: 'ocr.tesseract', required: false, status: 'unavailable',
   };
   assert.throws(() => parseSystemDiagnosticsResponse(aggregate), SystemDiagnosticsApiError);
   aggregate.diagnostics.status = 'degraded';
   assert.equal(parseSystemDiagnosticsResponse(aggregate).diagnostics.status, 'degraded');
+});
+
+test('parser accepts safe Telegram status and rejects raw or contradictory telemetry', () => {
+  const degraded = systemDiagnosticsPayload();
+  const telegram = degraded.diagnostics.checks.find((check) => check.id === 'telegram.bot')!;
+  Object.assign(telegram, {
+    code: 'telegram_degraded',
+    details: {
+      configured: true,
+      lastSuccessfulPoll: '2026-08-10T12:29:00.000Z',
+      publicLink: 'https://t.me/LearningHelperBot',
+      publicUsername: 'LearningHelperBot',
+      retryCount: 2,
+      running: false,
+      runtimeState: 'degraded',
+      telegramErrorCode: 'network_unavailable',
+    },
+    status: 'degraded',
+  });
+  degraded.diagnostics.status = 'degraded';
+  assert.equal(
+    parseSystemDiagnosticsResponse(degraded).diagnostics.checks.find((check) => check.id === 'telegram.bot')?.details?.retryCount,
+    2,
+  );
+
+  const rawError = structuredClone(degraded) as unknown as { diagnostics: { checks: Array<Record<string, unknown>> } };
+  const rawTelegram = rawError.diagnostics.checks.find((check) => check.id === 'telegram.bot')!;
+  (rawTelegram.details as Record<string, unknown>).rawError = 'token and private response';
+  assert.throws(() => parseSystemDiagnosticsResponse(rawError), SystemDiagnosticsApiError);
+
+  const arbitraryLink = structuredClone(degraded);
+  arbitraryLink.diagnostics.checks.find((check) => check.id === 'telegram.bot')!.details!.publicLink = 'https://evil.example';
+  assert.throws(() => parseSystemDiagnosticsResponse(arbitraryLink), SystemDiagnosticsApiError);
+
+  const contradiction = structuredClone(degraded);
+  contradiction.diagnostics.checks.find((check) => check.id === 'telegram.bot')!.details!.running = true;
+  assert.throws(() => parseSystemDiagnosticsResponse(contradiction), SystemDiagnosticsApiError);
 });
 
 test('parser rejects invalid timestamps, versions, flags, and detail placement', () => {

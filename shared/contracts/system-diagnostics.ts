@@ -15,6 +15,7 @@ export const SYSTEM_DIAGNOSTIC_CHECK_IDS = [
   'database.auth',
   'audit.integrity',
   'model.configuration',
+  'telegram.bot',
   'ocr.tesseract',
   'ocr.pdftoppm',
 ] as const;
@@ -39,7 +40,28 @@ export type SystemDiagnosticCode =
   | 'ready'
   | 'tool_available'
   | 'tool_timeout'
-  | 'tool_unavailable';
+  | 'tool_unavailable'
+  | 'telegram_degraded'
+  | 'telegram_not_configured'
+  | 'telegram_running'
+  | 'telegram_status_invalid'
+  | 'telegram_status_missing'
+  | 'telegram_status_stale';
+
+export const TELEGRAM_RUNTIME_STATES = ['running', 'degraded'] as const;
+export type TelegramRuntimeState = (typeof TELEGRAM_RUNTIME_STATES)[number];
+
+export const TELEGRAM_SAFE_ERROR_CODES = [
+  'authentication_failed',
+  'conflict',
+  'network_unavailable',
+  'not_configured',
+  'rate_limited',
+  'request_timeout',
+  'service_unavailable',
+  'unknown',
+] as const;
+export type TelegramSafeErrorCode = (typeof TELEGRAM_SAFE_ERROR_CODES)[number];
 
 export interface SafeDiagnosticLocation {
   /** `relativePath` is present only when the target is inside the application workspace. */
@@ -53,7 +75,15 @@ export interface SystemDiagnosticDetails {
   integrity?: 'invalid' | 'unverifiable' | 'valid';
   location?: SafeDiagnosticLocation;
   mode?: 'local_only' | 'remote_with_local_fallback' | 'unconfigured';
+  publicLink?: string;
+  publicUsername?: string;
   readable?: boolean;
+  retryCount?: number;
+  running?: boolean;
+  runtimeState?: TelegramRuntimeState;
+  lastHandledUpdateAt?: string;
+  lastSuccessfulPoll?: string;
+  telegramErrorCode?: TelegramSafeErrorCode;
   writable?: boolean;
 }
 

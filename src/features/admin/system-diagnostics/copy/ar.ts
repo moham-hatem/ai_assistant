@@ -1,9 +1,12 @@
 import type { SystemDiagnosticsCopy } from './types';
 
 export const arSystemDiagnosticsCopy: SystemDiagnosticsCopy = {
+  botConfigured: 'البوت مُعَدّ',
+  botRunning: 'عملية البوت نشطة',
   availableSpace: 'المساحة المتاحة',
   checkedAt: 'آخر فحص',
   checks: {
+    'telegram.bot': 'بوت Telegram',
     'storage.data': 'مخزن بيانات التطبيق',
     'storage.documents': 'مخزن المستندات',
     'storage.knowledge': 'مخزن المعرفة',
@@ -16,6 +19,12 @@ export const arSystemDiagnosticsCopy: SystemDiagnosticsCopy = {
     'ocr.pdftoppm': 'أداة تحويل صفحات PDF إلى صور',
   },
   codes: {
+    telegram_degraded: 'أبلغ بوت Telegram عن حالة آمنة تحتاج إلى الانتباه.',
+    telegram_not_configured: 'بوت Telegram غير مُعَدّ.',
+    telegram_running: 'تشغيل بوت Telegram يرسل حالة طبيعية.',
+    telegram_status_invalid: 'ملخص حالة Telegram المحلي غير صالح أو غير قابل للقراءة.',
+    telegram_status_missing: 'لم ينشر بوت Telegram ملخص حالته المحلية بعد.',
+    telegram_status_stale: 'آخر حالة منشورة لبوت Telegram قديمة.',
     access_denied: 'لا يستطيع التطبيق قراءة هذا المورد أو الكتابة فيه.',
     audit_configuration_invalid: 'إعداد سجل الأمان غير مكتمل أو غير صالح.',
     configured: 'النموذج البعيد والبديل المحلي مُعدّان.',
@@ -40,6 +49,8 @@ export const arSystemDiagnosticsCopy: SystemDiagnosticsCopy = {
   intro: 'تحقق من مخازن البيانات ومعالجة المستندات وجاهزية النموذج وسلامة سجل الأمان من دون كشف أي أسرار.',
   loading: 'جارٍ تنفيذ فحوص الجاهزية المحلية المحدودة…',
   location: 'الموقع الآمن',
+  lastHandledUpdate: 'آخر تحديث تمت معالجته',
+  lastSuccessfulPoll: 'آخر استطلاع ناجح',
   modes: {
     local_only: 'محلي فقط',
     remote_with_local_fallback: 'بعيد مع بديل محلي',
@@ -47,10 +58,14 @@ export const arSystemDiagnosticsCopy: SystemDiagnosticsCopy = {
   },
   noDetails: 'لا توجد تفاصيل آمنة إضافية.',
   privacy: 'لا تعرض هذه الصفحة المفاتيح أو مخرجات الأوامر أو أحداث السجل أو المسارات الخارجية الكاملة.',
+  publicLink: 'الرابط العام للبوت',
+  publicUsername: 'اسم المستخدم العام',
   readable: 'قابل للقراءة',
   refresh: 'إعادة تنفيذ الفحوص',
   refreshing: 'جارٍ الفحص…',
   scopes: { external: 'موقع خارجي مخفي', memory: 'مخزن داخل الذاكرة', workspace: 'مساحة عمل التطبيق' },
+  retryCount: 'المحاولات المتتالية',
+  runtimeStates: { degraded: 'يحتاج إلى الانتباه', running: 'يعمل' },
   statuses: { healthy: 'سليم', degraded: 'يحتاج انتباهًا', unavailable: 'غير متاح' },
   summary: {
     healthy: 'كل الموارد الأساسية جاهزة والأدوات الاختيارية متاحة.',
@@ -58,6 +73,16 @@ export const arSystemDiagnosticsCopy: SystemDiagnosticsCopy = {
     unavailable: 'مورد أساسي غير متاح أو لم يجتز فحص السلامة.',
   },
   title: 'تشخيص النظام',
+  telegramErrors: {
+    authentication_failed: 'فشل توثيق Telegram.',
+    conflict: 'يوجد مستهلك Telegram آخر أو webhook يتعارض مع الاستطلاع.',
+    network_unavailable: 'تعذر الوصول إلى Telegram.',
+    not_configured: 'إعداد Telegram المطلوب غير موجود.',
+    rate_limited: 'قيّد Telegram الطلبات مؤقتًا.',
+    request_timeout: 'انتهت مهلة طلب Telegram.',
+    service_unavailable: 'خدمة Telegram غير متاحة مؤقتًا.',
+    unknown: 'أبلغ البوت عن عطل آمن غير مصنف.',
+  },
   versionApi: 'إصدار واجهة API',
   versionApp: 'إصدار التطبيق',
   writable: 'قابل للكتابة',

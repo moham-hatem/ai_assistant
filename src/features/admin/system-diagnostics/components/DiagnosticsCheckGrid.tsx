@@ -1,7 +1,7 @@
 import { AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import type { AppLanguage } from '../../../../i18n/language';
 import type { SystemDiagnosticsCopy } from '../copy';
-import { formatSpace, locationLabel } from '../format';
+import { formatDiagnosticsDate, formatInteger, formatSpace, locationLabel } from '../format';
 import type { SystemDiagnosticCheck, SystemDiagnosticDetails } from '../types';
 
 export function DiagnosticsCheckGrid({ checks, copy, language }: {
@@ -46,16 +46,30 @@ function SafeDetails({ copy, details, language }: {
   language: AppLanguage;
 }) {
   if (!details) return <span className="system-diagnostics-no-details">{copy.noDetails}</span>;
-  const rows: Array<[string, string, boolean?]> = [];
-  if (details.location) rows.push([
-    copy.location,
-    locationLabel(details.location, copy.scopes),
-    details.location.relativePath !== undefined,
-  ]);
-  if (details.availableSpaceMiB !== undefined) rows.push([copy.availableSpace, formatSpace(details.availableSpaceMiB, language)]);
-  if (details.readable !== undefined) rows.push([copy.readable, details.readable ? copy.yes : copy.no]);
-  if (details.writable !== undefined) rows.push([copy.writable, details.writable ? copy.yes : copy.no]);
-  if (details.mode) rows.push([copy.checks['model.configuration'], copy.modes[details.mode]]);
+  const rows: Array<{ href?: string; label: string; leftToRight?: boolean; value: string }> = [];
+  if (details.location) rows.push({
+    label: copy.location,
+    leftToRight: details.location.relativePath !== undefined,
+    value: locationLabel(details.location, copy.scopes),
+  });
+  if (details.availableSpaceMiB !== undefined) rows.push({ label: copy.availableSpace, value: formatSpace(details.availableSpaceMiB, language) });
+  if (details.readable !== undefined) rows.push({ label: copy.readable, value: details.readable ? copy.yes : copy.no });
+  if (details.writable !== undefined) rows.push({ label: copy.writable, value: details.writable ? copy.yes : copy.no });
+  if (details.mode) rows.push({ label: copy.checks['model.configuration'], value: copy.modes[details.mode] });
+  if (details.configured !== undefined && details.runtimeState) rows.push({ label: copy.botConfigured, value: details.configured ? copy.yes : copy.no });
+  if (details.running !== undefined) rows.push({ label: copy.botRunning, value: details.running ? copy.yes : copy.no });
+  if (details.runtimeState) rows.push({ label: copy.statuses[details.runtimeState === 'running' ? 'healthy' : 'degraded'], value: copy.runtimeStates[details.runtimeState] });
+  if (details.publicUsername) rows.push({ label: copy.publicUsername, leftToRight: true, value: `@${details.publicUsername}` });
+  if (details.publicLink) rows.push({ href: details.publicLink, label: copy.publicLink, leftToRight: true, value: details.publicLink });
+  if (details.lastSuccessfulPoll) rows.push({ label: copy.lastSuccessfulPoll, value: formatDiagnosticsDate(details.lastSuccessfulPoll, language) });
+  if (details.lastHandledUpdateAt) rows.push({ label: copy.lastHandledUpdate, value: formatDiagnosticsDate(details.lastHandledUpdateAt, language) });
+  if (details.retryCount !== undefined) rows.push({ label: copy.retryCount, value: formatInteger(details.retryCount, language) });
+  if (details.telegramErrorCode) rows.push({ label: copy.statuses.degraded, value: copy.telegramErrors[details.telegramErrorCode] });
   if (rows.length === 0) return <span className="system-diagnostics-no-details">{copy.noDetails}</span>;
-  return <dl>{rows.map(([label, value, leftToRight]) => <div key={label}><dt>{label}</dt><dd dir={leftToRight ? 'ltr' : undefined}>{value}</dd></div>)}</dl>;
+  return <dl>{rows.map(({ href, label, leftToRight, value }) => <div key={label}>
+    <dt>{label}</dt>
+    <dd dir={leftToRight ? 'ltr' : undefined}>{href
+      ? <a href={href} rel="noreferrer" target="_blank">{value}</a>
+      : value}</dd>
+  </div>)}</dl>;
 }

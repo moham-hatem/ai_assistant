@@ -36,6 +36,7 @@
 .system-diagnostics-check dt { color: #73847a; font-size: .66rem; }
 .system-diagnostics-summary dd,
 .system-diagnostics-check dd { overflow-wrap: anywhere; margin: 4px 0 0; color: #314e3f; font-size: .75rem; font-weight: 750; }
+.system-diagnostics-check dd a { color: #126a48; text-decoration-thickness: 1px; text-underline-offset: 2px; }
 .system-diagnostics-refresh,
 .system-diagnostics-panel-state button {
   display: inline-flex;

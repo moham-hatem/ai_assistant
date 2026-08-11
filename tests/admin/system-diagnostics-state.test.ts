@@ -13,11 +13,19 @@ test('diagnostics state loads, refreshes, and preserves the last safe snapshot o
   state = systemDiagnosticsReducer(state, { response: systemDiagnosticsPayload(), type: 'loaded' });
   assert.equal(state.status, 'ready');
   assert.equal(state.response?.diagnostics.checkedAt, '2026-08-10T12:30:00.000Z');
+  assert.equal(
+    state.response?.diagnostics.checks.find((check) => check.id === 'telegram.bot')?.details?.runtimeState,
+    'running',
+  );
 
   state = systemDiagnosticsReducer(state, { type: 'refresh' });
   assert.equal(state.status, 'refreshing');
   assert.equal(state.reloadKey, 1);
   assert.ok(state.response);
+  assert.equal(
+    state.response?.diagnostics.checks.find((check) => check.id === 'telegram.bot')?.details?.publicUsername,
+    'LearningHelperBot',
+  );
 
   state = systemDiagnosticsReducer(state, { type: 'failed' });
   assert.equal(state.status, 'error');
