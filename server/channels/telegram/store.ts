@@ -5,11 +5,13 @@ import { DatabaseSync } from 'node:sqlite';
 import type { AnswerLanguage } from '../../domain.ts';
 
 export type UpdateClaim = 'claimed' | 'busy' | 'completed';
+export type AuthorizationClaim = 'authorized' | 'claimed' | 'closed';
 
 const schema = `
   CREATE TABLE IF NOT EXISTS telegram_sessions (
     session_key TEXT PRIMARY KEY,
     language TEXT CHECK (language IN ('ar', 'en', 'sw') OR language IS NULL),
+    authorized INTEGER NOT NULL DEFAULT 0 CHECK (authorized IN (0, 1)),
     updated_at INTEGER NOT NULL
   );
   CREATE TABLE IF NOT EXISTS telegram_updates (
@@ -61,10 +63,41 @@ export class TelegramStore {
     `).run(sessionKey, language, this.now());
   }
 
+  isAuthorized(sessionKey: string): boolean {
+    const row = this.database.prepare(
+      'SELECT authorized FROM telegram_sessions WHERE session_key = ?',
+    ).get(sessionKey) as unknown as { authorized: number } | undefined;
+    return row?.authorized === 1;
+  }
+
+  claimSoleAuthorization(sessionKey: string): AuthorizationClaim {
+    return transaction(this.database, () => {
+      const current = this.database.prepare(
+        'SELECT authorized FROM telegram_sessions WHERE session_key = ?',
+      ).get(sessionKey) as unknown as { authorized: number } | undefined;
+      if (current?.authorized === 1) return 'authorized';
+      const existing = this.database.prepare(
+        'SELECT 1 AS found FROM telegram_sessions WHERE authorized = 1 LIMIT 1',
+      ).get() as unknown as { found: number } | undefined;
+      if (existing) return 'closed';
+      const result = this.database.prepare(`
+        UPDATE telegram_sessions SET authorized = 1, updated_at = ?
+        WHERE session_key = ? AND authorized = 0
+      `).run(this.now(), sessionKey);
+      return result.changes === 1 ? 'claimed' : 'closed';
+    });
+  }
+
+  authorizationExists(): boolean {
+    return Boolean(this.database.prepare(
+      'SELECT 1 AS found FROM telegram_sessions WHERE authorized = 1 LIMIT 1',
+    ).get());
+  }
+
   ensureSession(sessionKey: string): void {
     this.database.prepare(`
-      INSERT INTO telegram_sessions (session_key, language, updated_at)
-      VALUES (?, NULL, ?)
+      INSERT INTO telegram_sessions (session_key, language, authorized, updated_at)
+      VALUES (?, NULL, 0, ?)
       ON CONFLICT(session_key) DO UPDATE SET updated_at = excluded.updated_at
     `).run(sessionKey, this.now());
   }
@@ -115,15 +148,22 @@ export class TelegramStore {
 
 function migrate(database: DatabaseSync): void {
   const row = database.prepare('PRAGMA user_version').get() as unknown as { user_version: number };
-  if (row.user_version > 1) throw new Error('Telegram database version is newer than supported');
-  if (row.user_version === 1) {
+  if (row.user_version > 2) throw new Error('Telegram database version is newer than supported');
+  if (row.user_version === 2) {
     database.exec(schema);
     return;
   }
   database.exec('BEGIN IMMEDIATE;');
   try {
-    database.exec(schema);
-    database.exec('PRAGMA user_version = 1;');
+    if (row.user_version === 0) {
+      database.exec(schema);
+    } else {
+      database.exec(`
+        ALTER TABLE telegram_sessions
+        ADD COLUMN authorized INTEGER NOT NULL DEFAULT 0 CHECK (authorized IN (0, 1));
+      `);
+    }
+    database.exec('PRAGMA user_version = 2;');
     database.exec('COMMIT;');
   } catch (error) {
     database.exec('ROLLBACK;');

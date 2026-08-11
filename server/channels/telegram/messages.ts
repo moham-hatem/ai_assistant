@@ -8,11 +8,19 @@ export const languageKeyboard = {
   ]],
 };
 
+export const languagePrompt = [
+  'اختر لغة الإجابة:',
+  'Choose the answer language:',
+  'Chagua lugha ya jibu:',
+].join('\n');
+
 const copy = {
   ar: {
     chooseLanguage: 'اختر لغة الإجابة:',
     error: 'تعذر إكمال الطلب الآن. حاول مرة أخرى لاحقًا.',
     languageChanged: 'تم اختيار العربية.',
+    processing: 'جاري البحث في الكتب التعليمية وإعداد الإجابة...',
+    answerTimedOut: 'استغرق إعداد الإجابة وقتًا أطول من المتوقع. حاول إرسال السؤال مرة أخرى بعد قليل.',
     questionTooLong: 'السؤال طويل جدًا. الحد الأقصى 2000 حرف.',
     rateLimited: 'وصلت إلى الحد المؤقت للأسئلة. حاول مرة أخرى بعد قليل.',
     welcome: 'مرحبًا بك في المساعد التعليمي الإسلامي. أرسل سؤالك بعد اختيار اللغة.',
@@ -21,6 +29,8 @@ const copy = {
     chooseLanguage: 'Choose the answer language:',
     error: 'The request could not be completed right now. Please try again later.',
     languageChanged: 'English selected.',
+    processing: 'Searching the educational books and preparing the answer...',
+    answerTimedOut: 'Preparing the answer took longer than expected. Please send the question again shortly.',
     questionTooLong: 'The question is too long. The maximum is 2,000 characters.',
     rateLimited: 'You have reached the temporary question limit. Please try again shortly.',
     welcome: 'Welcome to the Islamic learning assistant. Choose a language, then send your question.',
@@ -29,6 +39,8 @@ const copy = {
     chooseLanguage: 'Chagua lugha ya jibu:',
     error: 'Ombi halikuweza kukamilika sasa. Tafadhali jaribu tena baadaye.',
     languageChanged: 'Kiswahili kimechaguliwa.',
+    processing: 'Ninatafuta kwenye vitabu vya elimu na kuandaa jibu...',
+    answerTimedOut: 'Kuandaa jibu kumechukua muda mrefu kuliko ilivyotarajiwa. Tafadhali tuma swali tena baada ya muda mfupi.',
     questionTooLong: 'Swali ni refu sana. Kiwango cha juu ni herufi 2,000.',
     rateLimited: 'Umefikia kikomo cha muda cha maswali. Tafadhali jaribu tena baadaye.',
     welcome: 'Karibu kwenye msaidizi wa elimu ya Kiislamu. Chagua lugha, kisha tuma swali lako.',

@@ -34,13 +34,14 @@ npm run dev
 
 ## بوت Telegram المحلي
 
-توجد قناة Telegram محلية اختيارية تعمل بـlong polling فقط. أضف `TELEGRAM_BOT_TOKEN` و`TELEGRAM_SESSION_SECRET` بطول 32 حرفًا على الأقل إلى `.env.local`، ثم شغّل:
+توجد قناة Telegram محلية اختيارية تعمل بـlong polling فقط كنسخة تجريبية مغلقة لمتعلم واحد. ولّد سر الجلسة محليًا، ثم أضف `TELEGRAM_BOT_TOKEN` فقط إلى `.env.local` وشغّل البوت:
 
 ```bash
+npm run telegram:init
 npm run telegram:poll
 ```
 
-لا تستخدم القناة webhook، ولا تحفظ chat id الخام أو الأسئلة أو history في قاعدة Telegram. تفاصيل الإعداد والخصوصية والتعافي موثقة في [`docs/TELEGRAM_BOT.md`](docs/TELEGRAM_BOT.md).
+يتحقق التشغيل من هوية البوت ويسجل أوامره، ثم يطبع عند أول تشغيل رابط اقتران سريًا صالحًا لأول حساب Telegram يستخدمه فقط. لا تستخدم القناة webhook، ولا تحفظ chat id الخام أو نصوص المحادثة في قاعدة Telegram؛ لكن سجل الأسئلة المركزي يحفظ السؤال ونتيجة المعالجة للمراجعة. تفاصيل الإعداد والخصوصية والتعافي موثقة في [`docs/TELEGRAM_BOT.md`](docs/TELEGRAM_BOT.md).
 
 ## الإعدادات
 
